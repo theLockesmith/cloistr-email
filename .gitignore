@@ -1,0 +1,49 @@
+# Go build artifacts
+coldforge-email
+*.o
+*.a
+*.so
+
+# Go vendor directory
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dependencies
+go.sum
+
+# Binaries
+bin/
+dist/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+*.coverprofile
+coverage.out
+
+# Node/UI
+ui/node_modules/
+ui/dist/
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+.docker/
+
+# Symlinks (except .claude)
+.claude

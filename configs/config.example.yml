@@ -1,0 +1,66 @@
+# coldforge-email Configuration
+
+# Server Configuration
+server:
+  listen_addr: "0.0.0.0:8080"
+  metrics_addr: "0.0.0.0:9090"
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+
+# Database Configuration
+database:
+  url: "postgres://email_user:password@localhost:5432/coldforge_email"
+  max_connections: 20
+  connection_timeout: "10s"
+  ssl_mode: "disable" # Use "require" in production
+
+# Redis Configuration
+redis:
+  url: "redis://localhost:6379"
+  db: 0
+  password: ""
+  pool_size: 10
+  session_ttl: "24h"
+
+# Stalwart Mail Server Configuration
+stalwart:
+  admin_url: "http://localhost:6001"
+  admin_token: "your-admin-token-here"
+  smtp_url: "smtp://localhost:25"
+  imap_url: "imap://localhost:143"
+  smtp_tls_url: "smtp://localhost:587"
+  imap_tls_url: "imap://localhost:993"
+
+# Nostr Configuration
+nostr:
+  nsecbunker_relay_url: "ws://localhost:4737"
+  identity_service_url: "http://localhost:3000"
+
+# Email Encryption
+encryption:
+  # Algorithm for email encryption (nip44, pgp, smime)
+  algorithm: "nip44"
+  # Whether to encrypt email bodies by default
+  default_encrypt: false
+  # Whether to ask user before sending to non-Nostr recipients
+  prompt_non_nostr: true
+
+# Key Discovery
+key_discovery:
+  # Methods to try for key discovery (nip05, contacts, manual)
+  methods:
+    - "contacts"
+    - "nip05"
+    - "manual"
+  # Cache NIP-05 lookups for this duration
+  nip05_cache_ttl: "24h"
+
+# Logging
+logging:
+  level: "info" # debug, info, warn, error
+  format: "json" # json or text
+  output: "stdout" # stdout or filepath
+
+# Environment
+environment: "development" # development, staging, production

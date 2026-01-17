@@ -1,0 +1,106 @@
+# Stalwart Mail Server Configuration for coldforge-email
+
+[server]
+hostname = "mail.coldforge.xyz"
+
+[server.listener.imap]
+bind = "0.0.0.0:143"
+protocol = "imap"
+
+[server.listener.imaps]
+bind = "0.0.0.0:993"
+protocol = "imap"
+tls.implicit = true
+
+[server.listener.smtp]
+bind = "0.0.0.0:25"
+protocol = "smtp"
+
+[server.listener.submission]
+bind = "0.0.0.0:587"
+protocol = "smtp"
+tls.implicit = false
+
+[server.listener.http]
+bind = "0.0.0.0:6001"
+protocol = "http"
+
+# Authentication
+[auth]
+# Use database backend for authentication
+backend = "sql"
+
+[auth.sql]
+query = "SELECT password FROM users WHERE email = ? LIMIT 1"
+
+# Directory
+[directory.sql]
+# IMAP account provisioning from database
+type = "sql"
+
+[directory.sql.domains]
+query = "SELECT 'coldforge.xyz' AS domain"
+
+[directory.sql.principals]
+query = """
+SELECT npub AS principal, email AS email, TRUE AS type
+FROM users
+WHERE email = ? OR npub = ?
+"""
+
+[directory.sql.emails]
+query = """
+SELECT email FROM users WHERE npub = ?
+"""
+
+[directory.sql.verify]
+query = """
+SELECT password FROM users
+WHERE email = ? OR npub = ? LIMIT 1
+"""
+
+# Storage backend
+[store]
+backend = "fs"
+path = "/opt/stalwart/data/mail"
+
+# JMAP protocol (for advanced clients)
+[jmap]
+database = "sql"
+
+# CalDAV support (for calendar integration)
+[caldav]
+database = "sql"
+path = "/caldav"
+
+# CORS for web access
+[http.default.headers]
+"Access-Control-Allow-Origin" = "*"
+"Access-Control-Allow-Methods" = "GET, POST, PUT, DELETE, OPTIONS"
+"Access-Control-Allow-Headers" = "Content-Type, Authorization"
+
+# TLS configuration
+[tls.default]
+cert = "/opt/stalwart/etc/certs/cert.pem"
+key = "/opt/stalwart/etc/certs/key.pem"
+
+# Logging
+[log.console]
+level = "info"
+format = "json"
+
+# SPAM filtering
+[spam.filter]
+# Enable Bayesian spam filtering
+bayes = true
+threshold = 0.5
+
+# Rate limiting
+[rate-limit]
+# Prevent brute force
+auth = 5  # 5 failed attempts
+smtp = 100  # 100 messages per hour
+
+# Quotas
+[quota]
+default = 1000000000  # 1GB default quota

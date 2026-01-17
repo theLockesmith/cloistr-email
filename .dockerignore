@@ -1,0 +1,12 @@
+.git
+.gitignore
+.claude
+CLAUDE.md
+README.md
+docs/
+tests/
+*.md
+.DS_Store
+__pycache__
+*.pyc
+node_modules/

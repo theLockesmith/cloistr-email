@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for user accounts and email metadata
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: coldforge_email
+      POSTGRES_USER: email_user
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./configs/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U email_user -d coldforge_email"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for session/cache management
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Stalwart mail server (SMTP/IMAP)
+  stalwart:
+    image: stalwart/mail:latest
+    environment:
+      - STALWART_ADMIN_TOKEN=dev_admin_token
+    ports:
+      - "25:25"    # SMTP
+      - "143:143"  # IMAP
+      - "587:587"  # SMTP TLS
+      - "993:993"  # IMAP TLS
+      - "5232:5232" # CalDAV
+      - "6001:6001" # HTTP admin
+    volumes:
+      - ./configs/stalwart.toml:/opt/stalwart/etc/main.conf:ro
+      - stalwart_data:/opt/stalwart/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Coldforge Email backend service
+  coldforge-email:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - RUST_LOG=debug
+      - DATABASE_URL=postgres://email_user:dev_password@postgres:5432/coldforge_email
+      - REDIS_URL=redis://redis:6379
+      - STALWART_ADMIN_URL=http://stalwart:6001
+      - STALWART_ADMIN_TOKEN=dev_admin_token
+      - NSECBUNKER_RELAY_URL=ws://localhost:4737
+      - IDENTITY_SERVICE_URL=http://localhost:3000
+    ports:
+      - "8080:8080"   # API
+      - "9090:9090"   # Metrics/health
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      stalwart:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Frontend (TypeScript/React)
+  coldforge-email-ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+      - VITE_NSECBUNKER_RELAY=ws://localhost:4737
+    depends_on:
+      - coldforge-email
+
+volumes:
+  postgres_data:
+  stalwart_data:
+
+networks:
+  default:
+    name: coldforge-email
