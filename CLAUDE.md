@@ -81,12 +81,22 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - ListEmailsV2 with filtering
   - DeleteEmailV2
 - [x] Unit tests (200+ tests passing)
+- [x] Frontend integration with NIP-07 support
+  - NIP-07 browser extension integration (nostr.ts)
+  - LoginPage with NIP-07 and NIP-46 auth options
+  - ComposePage with encryption mode selection
+  - EmailPage with client-side decryption
+  - InboxPage with folder tabs, search, pagination
+  - Updated api.ts with v2 endpoints and types
+  - useAuth hook with loginWithExtension/loginWithBunker
 
 ### Next Steps
-1. Build frontend integration with NIP-07 support
-2. Add integration tests for email encryption flow
-3. Add Docker/Kubernetes deployment configuration
-4. Implement IMAP/JMAP receiver for incoming emails
+- [ ] Frontend integration with NIP-07 support
+
+### Next Steps
+1. Add integration tests for email encryption flow
+2. Add Docker/Kubernetes deployment configuration
+3. Implement IMAP/JMAP receiver for incoming emails
 
 ## Quick Commands
 
@@ -189,4 +199,4 @@ The transport layer is designed for future extensibility:
 | NIP-46 | Authentication via nsecbunker | ✅ Implemented |
 | NIP-44 | Email body encryption | ✅ Implemented |
 | NIP-05 | Email-to-npub discovery | ✅ Implemented |
-| NIP-07 | Browser extension (client-side encryption) | ✅ API Designed |
+| NIP-07 | Browser extension (client-side encryption) | ✅ Implemented |
