@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { contactAPI } from '../lib/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { contactAPI, type Contact } from '../lib/api'
 
 export default function ContactsPage() {
+  const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
@@ -13,10 +14,13 @@ export default function ContactsPage() {
   })
 
   const addMutation = useMutation({
-    mutationFn: (data) => contactAPI.add(data),
+    mutationFn: (data: Partial<Contact>) => contactAPI.add(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] })
+    },
   })
 
-  const contacts = response?.data?.data?.contacts || []
+  const contacts = response?.data?.contacts || []
 
   const handleAddContact = async () => {
     if (!email || !name) {

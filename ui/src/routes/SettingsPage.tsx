@@ -1,7 +1,4 @@
-import { useAuth } from '../lib/api'
-
 export default function SettingsPage() {
-  const { keyAPI } = useAuth()
 
   return (
     <div className="p-6">
