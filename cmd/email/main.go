@@ -81,6 +81,7 @@ func main() {
 	apiHandler := api.NewHandler(
 		db,
 		authHandler,
+		stalwartClient,
 		sessionStore,
 		cfg,
 		logger,

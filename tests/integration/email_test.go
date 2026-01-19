@@ -25,14 +25,15 @@ func TestSaveAndRetrieveEmail(t *testing.T) {
 	var db *storage.PostgreSQL
 
 	email := &storage.Email{
-		FromAddress:   "alice@coldforge.xyz",
-		ToAddress:     "bob@example.com",
-		Subject:       "Test",
-		Body:          "Test body",
-		IsEncrypted:   false,
+		UserID:      "test-user-id",
+		FromAddress: "alice@coldforge.xyz",
+		ToAddress:   "bob@example.com",
+		Subject:     "Test",
+		Body:        "Test body",
+		IsEncrypted: false,
 	}
 
-	err := db.SaveEmail(ctx, email)
+	err := db.CreateEmail(ctx, email)
 	if err != nil {
 		t.Fatalf("Failed to save email: %v", err)
 	}
