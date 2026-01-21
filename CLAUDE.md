@@ -91,9 +91,6 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - useAuth hook with loginWithExtension/loginWithBunker
 
 ### Next Steps
-- [ ] Frontend integration with NIP-07 support
-
-### Next Steps
 1. Add integration tests for email encryption flow
 2. Add Docker/Kubernetes deployment configuration
 3. Implement IMAP/JMAP receiver for incoming emails
