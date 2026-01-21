@@ -82,6 +82,15 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - DeleteEmailV2
 - [x] Unit tests (200+ tests passing)
 - [x] Frontend integration with NIP-07 support
+- [x] Integration tests for email encryption flow
+  - Email storage CRUD with PostgreSQL
+  - Encrypted email workflow tests
+  - Raw email formatting and parsing
+  - NIP-05 cache integration
+- [x] Docker deployment configuration
+  - Production-ready Dockerfile with Go 1.24
+  - nginx-based frontend serving with SPA routing
+  - docker-compose with PostgreSQL, Redis, Stalwart
   - NIP-07 browser extension integration (nostr.ts)
   - LoginPage with NIP-07 and NIP-46 auth options
   - ComposePage with encryption mode selection
@@ -91,9 +100,8 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - useAuth hook with loginWithExtension/loginWithBunker
 
 ### Next Steps
-1. Add integration tests for email encryption flow
-2. Add Docker/Kubernetes deployment configuration
-3. Implement IMAP/JMAP receiver for incoming emails
+1. Implement IMAP/JMAP receiver for incoming emails
+2. Add Kubernetes deployment configuration (Atlas roles)
 
 ## Quick Commands
 
