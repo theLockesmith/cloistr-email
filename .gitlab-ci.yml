@@ -54,6 +54,20 @@ build:docker:
     - main
     - develop
 
+# Tagged releases (semver only)
+build:release:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_NAME:$CI_COMMIT_TAG .
+    - docker push $IMAGE_NAME:$CI_COMMIT_TAG
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
 # Deploy to Kubernetes via Atlas (manual)
 deploy:atlas:
   stage: deploy
