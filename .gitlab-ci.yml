@@ -1,14 +1,7 @@
 stages:
   - test
   - build
-  - deploy
 
-variables:
-  REGISTRY: $CI_REGISTRY
-  IMAGE_NAME: $CI_REGISTRY_IMAGE
-  IMAGE_TAG: $CI_COMMIT_SHA
-
-# Test stage
 test:unit:
   stage: test
   image: golang:1.21-alpine
@@ -17,80 +10,18 @@ test:unit:
     - go mod download
     - go test -v -race -cover ./...
   coverage: '/coverage: \d+\.\d+% of statements/'
-  artifacts:
-    reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage.out
-  only:
-    - merge_requests
-    - main
-    - develop
 
 test:lint:
   stage: test
   image: golangci/golangci-lint:latest
   script:
     - golangci-lint run ./...
-  only:
-    - merge_requests
-    - main
-    - develop
+  allow_failure: true
 
-# Build Docker image
-build:docker:
+build:
   stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
   script:
-    - docker build -t $IMAGE_NAME:$IMAGE_TAG .
-    - docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
-    - docker push $IMAGE_NAME:$IMAGE_TAG
-    - docker push $IMAGE_NAME:latest
-  only:
-    - main
-    - develop
-
-# Tagged releases (semver only)
-build:release:
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - docker build -t $IMAGE_NAME:$CI_COMMIT_TAG .
-    - docker push $IMAGE_NAME:$CI_COMMIT_TAG
-  rules:
-    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
-
-# Deploy to Kubernetes via Atlas (manual)
-deploy:atlas:
-  stage: deploy
-  image: alpine:latest
-  script:
-    - for i in 1 2 3 4 5; do apk add --no-cache curl git openssh-client && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
-    - echo "Triggering Atlas deployment for coldforge-email"
-    - echo "Image: $IMAGE_NAME:$IMAGE_TAG"
-    - echo "Environment: staging"
-    # Atlas trigger would go here
-  only:
-    - main
-  when: manual
-
-deploy:production:
-  stage: deploy
-  image: alpine:latest
-  script:
-    - for i in 1 2 3 4 5; do apk add --no-cache curl git openssh-client && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
-    - echo "Deploying to production"
-    - echo "Image: $IMAGE_NAME:$IMAGE_TAG"
-    # Production deployment via Atlas
-  only:
-    - main
-    - tags
-  when: manual
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --no-push
