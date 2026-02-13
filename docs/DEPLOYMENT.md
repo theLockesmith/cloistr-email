@@ -236,6 +236,27 @@ Prometheus metrics available at:
 http://coldforge-email-api:9090/metrics
 ```
 
+**Available metrics:**
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `coldforge_email_emails_sent_total` | Counter | transport, encrypted, status | Total emails sent |
+| `coldforge_email_emails_received_total` | Counter | transport, verified | Total emails received |
+| `coldforge_email_email_send_duration_seconds` | Histogram | transport | Email send latency |
+| `coldforge_email_nostr_signatures_total` | Counter | operation, result | Nostr signature operations |
+| `coldforge_email_nostr_verifications_total` | Counter | result | Email signature verifications |
+| `coldforge_email_encryption_operations_total` | Counter | operation, mode, result | Encryption operations |
+| `coldforge_email_nip05_lookups_total` | Counter | result | NIP-05 lookups (success/failure/cached) |
+| `coldforge_email_nip05_lookup_duration_seconds` | Histogram | - | NIP-05 lookup latency |
+| `coldforge_email_nip05_cache_size` | Gauge | - | Current NIP-05 cache entries |
+| `coldforge_email_auth_attempts_total` | Counter | method, result | Authentication attempts |
+| `coldforge_email_active_sessions` | Gauge | - | Current active sessions |
+| `coldforge_email_http_requests_total` | Counter | method, path, status | HTTP requests |
+| `coldforge_email_http_request_duration_seconds` | Histogram | method, path | HTTP request latency |
+| `coldforge_email_db_query_duration_seconds` | Histogram | operation | Database query latency |
+| `coldforge_email_smtp_connections_total` | Counter | direction, result | SMTP connection attempts |
+| `coldforge_email_lightning_payments_total` | Counter | result | Lightning payments (future) |
+
 ### Health Checks
 
 ```bash

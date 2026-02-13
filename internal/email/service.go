@@ -9,6 +9,7 @@ import (
 
 	"github.com/coldforge/coldforge-email/internal/encryption"
 	"github.com/coldforge/coldforge-email/internal/identity"
+	"github.com/coldforge/coldforge-email/internal/metrics"
 	"github.com/coldforge/coldforge-email/internal/storage"
 	"github.com/coldforge/coldforge-email/internal/transport"
 	"go.uber.org/zap"
@@ -90,6 +91,7 @@ func NewService(
 
 // Send sends an email with full validation and processing
 func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, error) {
+	sendStart := time.Now()
 	result := &SendResult{}
 
 	// 1. Validate sender has a unified address
@@ -167,6 +169,9 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	// 5. Send via transport manager
 	deliveryResult, err := s.transportMgr.Send(ctx, msg)
 	if err != nil {
+		// Record failure metrics
+		metrics.EmailsSentTotal.WithLabelValues("smtp", "false", "failure").Inc()
+		metrics.EmailSendDuration.WithLabelValues("smtp").Observe(time.Since(sendStart).Seconds())
 		return nil, fmt.Errorf("delivery failed: %w", err)
 	}
 
@@ -239,6 +244,19 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	if deliveryResult.Error != nil {
 		result.Error = deliveryResult.Error.Error()
 	}
+
+	// Record metrics
+	encrypted := isPreEncrypted || req.EncryptionMode == encryption.ModeServerSide
+	encryptedStr := "false"
+	if encrypted {
+		encryptedStr = "true"
+	}
+	statusStr := "failure"
+	if result.Success {
+		statusStr = "success"
+	}
+	metrics.EmailsSentTotal.WithLabelValues("smtp", encryptedStr, statusStr).Inc()
+	metrics.EmailSendDuration.WithLabelValues("smtp").Observe(time.Since(sendStart).Seconds())
 
 	s.logger.Info("Email send completed",
 		zap.Bool("success", result.Success),

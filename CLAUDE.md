@@ -98,10 +98,19 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - InboxPage with folder tabs, search, pagination
   - Updated api.ts with v2 endpoints and types
   - useAuth hook with loginWithExtension/loginWithBunker
+- [x] Kubernetes deployment configuration (Atlas roles)
+  - Complete Atlas role at ~/Atlas/roles/kube/coldforge-email/
+  - Backend and frontend deployments with HA (2 replicas each)
+  - PostgreSQL and Redis deployments with persistent storage
+  - Ingress configuration for email.coldforge.xyz
+  - ServiceMonitor for Prometheus metrics scraping
+  - Grafana dashboard with 8 monitoring panels
+  - ConfigMaps and Secrets for configuration
+  - Resource limits and health checks
+  - Comprehensive README with deployment guide
 
 ### Next Steps
 1. Implement IMAP/JMAP receiver for incoming emails
-2. Add Kubernetes deployment configuration (Atlas roles)
 
 ## Quick Commands
 

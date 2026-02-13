@@ -422,13 +422,13 @@ func TestNIP05CacheIntegration(t *testing.T) {
 	t.Run("cache NIP-05 lookup result", func(t *testing.T) {
 		email := "alice@coldforge.xyz"
 		npub := "npub1alice00000000000000000000000000000000000000000000000000"
-		expiresAt := time.Now().Add(24 * time.Hour)
+		ttl := 24 * time.Hour
 
-		err := db.CacheNIP05Result(ctx, email, npub, expiresAt)
+		err := db.CacheNIP05(ctx, email, &npub, ttl)
 		require.NoError(t, err)
 
 		// Retrieve from cache
-		cached, err := db.GetNIP05Cache(ctx, email)
+		cached, err := db.GetCachedNIP05(ctx, email)
 		require.NoError(t, err)
 		require.NotNil(t, cached)
 
@@ -440,12 +440,12 @@ func TestNIP05CacheIntegration(t *testing.T) {
 
 	t.Run("cache negative result", func(t *testing.T) {
 		email := "unknown@example.com"
-		expiresAt := time.Now().Add(1 * time.Hour)
+		ttl := 1 * time.Hour
 
-		err := db.CacheNIP05Result(ctx, email, "", expiresAt)
+		err := db.CacheNIP05(ctx, email, nil, ttl)
 		require.NoError(t, err)
 
-		cached, err := db.GetNIP05Cache(ctx, email)
+		cached, err := db.GetCachedNIP05(ctx, email)
 		require.NoError(t, err)
 		require.NotNil(t, cached)
 

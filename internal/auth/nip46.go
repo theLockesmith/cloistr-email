@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coldforge/coldforge-email/internal/metrics"
 	"github.com/google/uuid"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
@@ -496,32 +497,38 @@ func (h *NIP46Handler) VerifyAuthSignature(ctx context.Context, challengeID stri
 	// Retrieve challenge from store
 	challengeData, err := h.sessionStore.GetNIP46Challenge(ctx, challengeID)
 	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("challenge retrieval failed: %w", err)
 	}
 	if challengeData == nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("challenge not found or expired")
 	}
 
 	// Parse the signed event
 	var event nostr.Event
 	if err := json.Unmarshal([]byte(signedEventJSON), &event); err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("invalid event JSON: %w", err)
 	}
 
 	// Verify signature
 	ok, err := event.CheckSignature()
 	if err != nil || !ok {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("invalid signature")
 	}
 
 	// Verify the challenge is in the event content
 	if event.Content != challengeData.Challenge {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("challenge mismatch")
 	}
 
 	// Verify event is recent (within 5 minutes)
 	eventTime := time.Unix(int64(event.CreatedAt), 0)
 	if time.Since(eventTime) > 5*time.Minute {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("event too old")
 	}
 
@@ -537,8 +544,13 @@ func (h *NIP46Handler) VerifyAuthSignature(ctx context.Context, challengeID stri
 	}
 
 	if err := h.sessionStore.SaveSession(ctx, session); err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("nip07", "failure").Inc()
 		return nil, fmt.Errorf("failed to save session: %w", err)
 	}
+
+	// Record successful auth and increment active sessions
+	metrics.AuthAttemptsTotal.WithLabelValues("nip07", "success").Inc()
+	metrics.ActiveSessions.Inc()
 
 	// Clean up challenge
 	_ = h.sessionStore.DeleteNIP46Challenge(ctx, challengeID)

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coldforge/coldforge-email/internal/metrics"
 	"go.uber.org/zap"
 )
 
@@ -78,9 +79,13 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 	if entry, ok := r.cache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
 		r.cacheMu.RUnlock()
 		r.logger.Debug("NIP-05 cache hit", zap.String("email", email))
+		metrics.NIP05LookupsTotal.WithLabelValues("cached").Inc()
 		return entry.pubkey, nil
 	}
 	r.cacheMu.RUnlock()
+
+	// Start timing for non-cached lookup
+	lookupStart := time.Now()
 
 	// Query the .well-known/nostr.json endpoint
 	url := fmt.Sprintf("https://%s/.well-known/nostr.json?name=%s", domain, name)
@@ -96,15 +101,21 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 
 	resp, err := r.client.Do(req)
 	if err != nil {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("NIP-05 lookup failed for %s: %w", email, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("no NIP-05 record found for %s", email)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("NIP-05 lookup returned status %d for %s", resp.StatusCode, email)
 	}
 
@@ -126,16 +137,26 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 	}
 
 	if pubkey == "" {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("no pubkey found for %s in NIP-05 response", email)
 	}
 
 	// Validate pubkey format (must be 64 hex characters)
 	if len(pubkey) != 64 {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("invalid pubkey length in NIP-05 response: expected 64, got %d", len(pubkey))
 	}
 	if _, err := hex.DecodeString(pubkey); err != nil {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("invalid pubkey format in NIP-05 response: not valid hex")
 	}
+
+	// Record successful lookup
+	metrics.NIP05LookupsTotal.WithLabelValues("success").Inc()
+	metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 
 	// Cache the result
 	r.cacheMu.Lock()
@@ -143,6 +164,7 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 		pubkey:    pubkey,
 		expiresAt: time.Now().Add(r.cacheTTL),
 	}
+	metrics.NIP05CacheSize.Set(float64(len(r.cache)))
 	r.cacheMu.Unlock()
 
 	r.logger.Info("NIP-05 resolved",
@@ -156,6 +178,7 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 func (r *NIP05Resolver) ClearCache() {
 	r.cacheMu.Lock()
 	r.cache = make(map[string]*cacheEntry)
+	metrics.NIP05CacheSize.Set(0)
 	r.cacheMu.Unlock()
 }
 

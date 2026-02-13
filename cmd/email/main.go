@@ -6,14 +6,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/coldforge/coldforge-email/internal/api"
 	"github.com/coldforge/coldforge-email/internal/auth"
 	"github.com/coldforge/coldforge-email/internal/config"
+	"github.com/coldforge/coldforge-email/internal/metrics"
 	"github.com/coldforge/coldforge-email/internal/storage"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -160,6 +163,7 @@ func main() {
 	metricsRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
+	metricsRouter.Handle("/metrics", promhttp.Handler())
 
 	metricsServer := &http.Server{
 		Addr:    cfg.MetricsAddr,
@@ -202,7 +206,7 @@ func main() {
 	logger.Info("Shutdown complete")
 }
 
-// loggingMiddleware logs HTTP requests
+// loggingMiddleware logs HTTP requests and records metrics
 func loggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +218,8 @@ func loggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(wrapped, r)
 
 			duration := time.Since(start)
+
+			// Log the request
 			logger.Info("HTTP request",
 				zap.String("method", r.Method),
 				zap.String("path", r.RequestURI),
@@ -221,8 +227,112 @@ func loggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 				zap.Duration("duration", duration),
 				zap.String("remote_addr", r.RemoteAddr),
 			)
+
+			// Record metrics
+			// Normalize path to avoid high cardinality (remove IDs)
+			path := normalizePath(r.URL.Path)
+			metrics.HTTPRequestsTotal.WithLabelValues(
+				r.Method,
+				path,
+				strconv.Itoa(wrapped.statusCode),
+			).Inc()
+			metrics.HTTPRequestDuration.WithLabelValues(r.Method, path).Observe(duration.Seconds())
 		})
 	}
+}
+
+// normalizePath normalizes URL paths to avoid high cardinality metrics
+// by replacing dynamic segments like UUIDs and IDs with placeholders
+func normalizePath(path string) string {
+	// Common patterns to normalize
+	// /api/v1/emails/123e4567-e89b-12d3-a456-426614174000 -> /api/v1/emails/:id
+	// /api/v1/contacts/abc123 -> /api/v1/contacts/:id
+	segments := make([]string, 0)
+	for _, seg := range splitPath(path) {
+		if isIDSegment(seg) {
+			segments = append(segments, ":id")
+		} else {
+			segments = append(segments, seg)
+		}
+	}
+	if len(segments) == 0 {
+		return "/"
+	}
+	return "/" + joinPath(segments)
+}
+
+func splitPath(path string) []string {
+	result := make([]string, 0)
+	for _, seg := range splitString(path, '/') {
+		if seg != "" {
+			result = append(result, seg)
+		}
+	}
+	return result
+}
+
+func splitString(s string, sep rune) []string {
+	var result []string
+	current := ""
+	for _, c := range s {
+		if c == sep {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
+}
+
+func joinPath(segments []string) string {
+	result := ""
+	for i, seg := range segments {
+		if i > 0 {
+			result += "/"
+		}
+		result += seg
+	}
+	return result
+}
+
+func isIDSegment(seg string) bool {
+	// UUID pattern (8-4-4-4-12 hex chars)
+	if len(seg) == 36 && seg[8] == '-' && seg[13] == '-' && seg[18] == '-' && seg[23] == '-' {
+		return true
+	}
+	// Numeric ID
+	if len(seg) > 0 && len(seg) < 20 {
+		allDigits := true
+		for _, c := range seg {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return true
+		}
+	}
+	// Hex string (common for various IDs)
+	if len(seg) >= 16 && len(seg) <= 64 {
+		allHex := true
+		for _, c := range seg {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				allHex = false
+				break
+			}
+		}
+		if allHex {
+			return true
+		}
+	}
+	return false
 }
 
 // corsMiddleware adds CORS headers
