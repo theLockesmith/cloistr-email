@@ -6,11 +6,18 @@ Email with Nostr identity and encryption - SMTP enhanced, not replaced.
 
 coldforge-email is a Nostr-native email service that:
 
-- **Authenticates via NIP-46** - Users sign in with their Nostr key through nsecbunker
+- **Authenticates via NIP-46/NIP-07** - Users sign in with their Nostr key (nsecbunker or browser extension)
+- **Signs emails with Nostr keys** - Cryptographic sender verification without DKIM/SPF/DMARC
 - **Encrypts with NIP-44** - Email bodies can be encrypted using Nostr keypairs
 - **Discovers keys via NIP-05** - Look up recipient's Nostr pubkey from their email address
-- **Integrates with Stalwart** - Uses Stalwart Mail as SMTP/IMAP backbone
 - **Maintains protocol cooperation** - Doesn't replace SMTP, enhances it
+
+## Strategic Direction
+
+See the RFC documents for our architectural roadmap:
+
+- **[RFC-001: Stalwart Removal](docs/001-stalwart-removal-migration.md)** - Replace Stalwart with lightweight `emersion/go-smtp` for direct SMTP handling
+- **[RFC-002: Nostr Identity Layer](docs/002-nostr-email-integration.md)** - Use Nostr signatures as the identity layer for SMTP, eliminating the need for DKIM/SPF/DMARC
 
 ## Architecture
 
@@ -19,34 +26,41 @@ coldforge-email is a Nostr-native email service that:
 │            coldforge-email Service                      │
 ├─────────────────────────────────────────────────────────┤
 │ ┌─────────────────────────────────────────────────────┐ │
-│ │ Auth Module (NIP-46)                                │ │
-│ │ - NIP-46 auth proxy to Stalwart                     │ │
+│ │ Auth Module (NIP-46 / NIP-07)                       │ │
+│ │ - NIP-46 remote signing via nsecbunker             │ │
+│ │ - NIP-07 browser extension support                  │ │
 │ │ - Session management (Redis)                        │ │
-│ │ - nsecbunker integration                            │ │
 │ └─────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────┐ │
-│ │ Encryption Module (NIP-44)                          │ │
-│ │ - Email body encryption/decryption                  │ │
-│ │ - Key discovery (NIP-05, contacts)                  │ │
-│ │ - Custom email headers for metadata                 │ │
+│ │ Email Signing & Encryption (NIP-44)                 │ │
+│ │ - Nostr signature on outbound emails                │ │
+│ │ - NIP-44 body encryption/decryption                 │ │
+│ │ - Key discovery (NIP-05)                            │ │
+│ │ - X-Nostr-* headers for verification                │ │
+│ └─────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────┐ │
+│ │ Transport Layer                                     │ │
+│ │ - SMTP send/receive (go-smtp)                       │ │
+│ │ - Hybrid routing (Nostr-first, SMTP fallback)       │ │
 │ └─────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────┐ │
 │ │ API Routes                                          │ │
-│ │ - /api/v1/auth - NIP-46 authentication              │ │
+│ │ - /api/v1/auth - Authentication                     │ │
 │ │ - /api/v1/emails - Send/receive/encrypt             │ │
 │ │ - /api/v1/keys - Key management & discovery         │ │
-│ │ - /api/v1/contacts - Contact/recipient lookup       │ │
+│ │ - /api/v1/contacts - Contact lookup                 │ │
+│ │ - /metrics - Prometheus metrics                     │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
-         ↓ SMTP/IMAP ↓              ↓ REST ↓
+              ↓                              ↓
 ┌──────────────────────┐      ┌──────────────────┐
-│  Stalwart Mail       │      │  Frontend UI     │
-│  (SMTP/IMAP/CalDAV)  │      │  (TypeScript)    │
+│  PostgreSQL          │      │  Frontend UI     │
+│  (emails, users)     │      │  (React)         │
 └──────────────────────┘      └──────────────────┘
-         ↓                              ↓
+              ↓                              ↓
 ┌──────────────────────┐      ┌──────────────────┐
-│  PostgreSQL          │      │  nsecbunker      │
-│  (metadata)          │      │  (NIP-46 relay)  │
+│  Redis               │      │  nsecbunker      │
+│  (sessions, cache)   │      │  (NIP-46 relay)  │
 └──────────────────────┘      └──────────────────┘
 ```
 
@@ -106,53 +120,29 @@ coldforge-email/
 │   └── email/
 │       └── main.go                 # Entry point
 ├── internal/
-│   ├── auth/                       # NIP-46 auth proxy
-│   │   ├── handler.go              # HTTP handler for auth
-│   │   ├── nip46.go                # NIP-46 signing requests
-│   │   ├── session.go              # Session management
-│   │   └── stalwart.go             # Stalwart integration
-│   ├── encryption/                 # NIP-44 email encryption
-│   │   ├── nip44.go                # NIP-44 encryption/decryption
-│   │   ├── headers.go              # Email header handling
-│   │   └── format.go               # Email body formatting
-│   ├── api/                        # REST API
-│   │   ├── handler.go              # Main API handler
-│   │   ├── emails.go               # Email endpoints
-│   │   ├── keys.go                 # Key discovery endpoints
-│   │   └── contacts.go             # Contact/recipient lookup
-│   ├── storage/                    # Data persistence
-│   │   ├── postgres.go             # PostgreSQL client
-│   │   ├── models.go               # Data models
-│   │   └── migrations.go           # Database migrations
-│   ├── relay/                      # Nostr relay interaction
-│   │   ├── client.go               # Relay client (NIP-46)
-│   │   └── events.go               # Nostr event handling
-│   └── config/
-│       └── config.go               # Configuration
-├── ui/                             # TypeScript/React frontend
-│   ├── src/
-│   │   ├── components/
-│   │   ├── lib/
-│   │   ├── routes/
-│   │   └── main.tsx
-│   ├── package.json
-│   └── Dockerfile
+│   ├── api/                        # REST API handlers
+│   ├── auth/                       # NIP-46/NIP-07 authentication
+│   ├── config/                     # Configuration
+│   ├── email/                      # Email service layer
+│   ├── encryption/                 # NIP-44 encryption, NIP-05 discovery
+│   ├── identity/                   # Unified address management
+│   ├── metrics/                    # Prometheus instrumentation
+│   ├── storage/                    # PostgreSQL and Redis
+│   └── transport/                  # SMTP transport layer
+├── ui/                             # React frontend
 ├── tests/
 │   ├── unit/                       # Unit tests
-│   ├── integration/                # Integration tests
-│   └── fixtures/                   # Test data
-├── configs/
-│   ├── config.example.yml          # Configuration template
-│   ├── schema.sql                  # Database schema
-│   └── stalwart.toml               # Stalwart configuration
+│   └── integration/                # Integration tests
 ├── docs/
+│   ├── 001-stalwart-removal-migration.md  # RFC: Stalwart removal
+│   ├── 002-nostr-email-integration.md     # RFC: Nostr identity layer
 │   ├── API.md                      # API documentation
-│   ├── ENCRYPTION.md               # Encryption design
 │   ├── ARCHITECTURE.md             # Architecture details
-│   └── DEPLOYMENT.md               # Deployment guide
+│   ├── DEPLOYMENT.md               # Deployment guide
+│   └── ENCRYPTION.md               # Encryption design
 ├── .gitlab-ci.yml                  # CI/CD pipeline
 ├── Dockerfile                      # Backend Docker image
-├── docker-compose.yml              # Local development setup
+├── docker-compose.yml              # Local development
 ├── go.mod                          # Go dependencies
 └── README.md                       # This file
 ```
@@ -218,19 +208,24 @@ DATABASE_URL=postgres://user:pass@localhost:5432/coldforge_email
 # Cache
 REDIS_URL=redis://localhost:6379
 
-# Stalwart
-STALWART_ADMIN_URL=http://stalwart:6001
-STALWART_ADMIN_TOKEN=admin_token
-
 # Nostr
-NSECBUNKER_RELAY_URL=ws://localhost:4737
-IDENTITY_SERVICE_URL=http://localhost:3000
+NSECBUNKER_RELAY_URL=wss://relay.nsecbunker.com
 
 # Service
 LOG_LEVEL=debug
 LISTEN_ADDR=0.0.0.0:8080
 METRICS_ADDR=0.0.0.0:9090
 ```
+
+## Monitoring
+
+Prometheus metrics available at `:9090/metrics`. See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full metrics reference.
+
+Key metrics:
+- `coldforge_email_emails_sent_total` - Email send counts by transport/status
+- `coldforge_email_nip05_lookups_total` - NIP-05 lookup results
+- `coldforge_email_auth_attempts_total` - Authentication attempts
+- `coldforge_email_http_requests_total` - HTTP request counts
 
 ## API Endpoints
 
@@ -263,15 +258,16 @@ METRICS_ADDR=0.0.0.0:9090
 
 ## Dependencies
 
-### Hard Dependencies
+### Required
 
-- **Identity** (nsecbunker) - NIP-46 authentication
-- **Stalwart Mail** - SMTP/IMAP/CalDAV server
+- **PostgreSQL** - Email storage, user accounts, NIP-05 cache
+- **Redis** - Session management, rate limiting
+- **nsecbunker** (or NIP-07 extension) - Nostr key signing
 
-### Soft Dependencies
+### Optional
 
-- **Contacts** - Address book, recipient lookup
-- **Files** (Blossom) - Email attachments
+- **Blossom** (coldforge-files) - Email attachments
+- **Grafana** - Metrics visualization
 
 ## Testing
 
@@ -302,13 +298,14 @@ go test -v ./...
 4. **Code review:** Use `reviewer` agent for significant changes
 5. **Before merging:** Ensure CI/CD passes
 
-## See Also
+## Documentation
 
-- [Email Service Documentation](~/claude/coldforge/services/email/CLAUDE.md)
-- [Coldforge Overview](~/claude/coldforge/CLAUDE.md)
 - [API Documentation](docs/API.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Encryption Design](docs/ENCRYPTION.md)
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [RFC-001: Stalwart Removal](docs/001-stalwart-removal-migration.md)
+- [RFC-002: Nostr Identity Layer](docs/002-nostr-email-integration.md)
 
 ## License
 

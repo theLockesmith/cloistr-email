@@ -2,7 +2,11 @@
 
 ## System Overview
 
-coldforge-email is a Nostr-native email service that integrates Nostr identity and encryption with standard SMTP/IMAP email infrastructure.
+coldforge-email is a Nostr-native email service that uses Nostr identity as the trust layer for SMTP. Instead of relying on DKIM/SPF/DMARC (domain-level authentication), emails are signed with the sender's Nostr key and verified via NIP-05.
+
+**Key insight:** Don't replace SMTP, fix its authentication problem. Nostr provides the identity layer SMTP never had.
+
+See [RFC-002: Nostr Identity Layer](002-nostr-email-integration.md) for the full design.
 
 ## Components
 
@@ -11,33 +15,33 @@ coldforge-email is a Nostr-native email service that integrates Nostr identity a
 **Location:** `/cmd/email/main.go`, `/internal/`
 
 **Responsibilities:**
-- NIP-46 authentication proxy
+- NIP-46/NIP-07 authentication
+- Nostr signature on outbound emails
 - NIP-44 email encryption/decryption
-- Email routing and metadata management
-- Key discovery coordination
-- API server
+- NIP-05 key discovery
+- SMTP send/receive
+- Prometheus metrics
 
 **Key Modules:**
-- `auth/` - NIP-46 auth, session management, Stalwart integration
-- `encryption/` - NIP-44 encryption/decryption, key handling
+- `auth/` - NIP-46/NIP-07 authentication, session management
+- `email/` - Email service layer (coordinates all operations)
+- `encryption/` - NIP-44 encryption, NIP-05 resolver
+- `identity/` - Unified address system (npub ↔ email mapping)
+- `transport/` - SMTP transport (planned: direct go-smtp, see RFC-001)
+- `metrics/` - Prometheus instrumentation
 - `api/` - REST API endpoints
-- `storage/` - Database and cache operations
-- `relay/` - Nostr relay communication
+- `storage/` - PostgreSQL and Redis operations
 - `config/` - Configuration management
 
-### 2. Mail Server (Stalwart)
+### 2. Transport Layer
 
-**Location:** `configs/stalwart.toml`
+**Current:** SMTP via external relay
+**Planned:** Direct SMTP via `emersion/go-smtp` (see [RFC-001](001-stalwart-removal-migration.md))
 
-**Responsibilities:**
-- SMTP receiving and sending
-- IMAP access for clients
-- User account management
-- Email storage
-
-**Integration Points:**
-- Authentication via `coldforge-email` proxy
-- User directory lookups via database
+The transport layer is abstracted to support:
+- SMTP (current and future)
+- Nostr-native messaging (NIP-17, future)
+- Hybrid routing (try Nostr first, fall back to SMTP)
 
 ### 3. Frontend (TypeScript/React)
 
@@ -196,26 +200,38 @@ Using Atlas/Kubernetes (see `~/Atlas/roles/kube/coldforge-email/`):
 4. Configure Stalwart for domain
 5. Set up NIP-05 endpoint for email discovery
 
-## Future Enhancements
+## Roadmap
 
-### Phase 2: Advanced Features
+### Phase 1: Foundation (Current)
 
-- Email signing (NIP-46 signing requests)
-- Subject line encryption
-- Attachment encryption
-- Email threading
+- [x] NIP-46/NIP-07 authentication
+- [x] NIP-44 email encryption
+- [x] NIP-05 key discovery
+- [x] Prometheus metrics
+- [x] Kubernetes deployment (Atlas)
 
-### Phase 3: Interoperability
+### Phase 2: Nostr Identity Layer
 
-- IMAP client plugins for decryption
-- PGP/MIME bridge for compatibility
-- Thunderbird/Evolution plugins
+Per [RFC-002](002-nostr-email-integration.md):
+- [ ] Sign outbound emails with Nostr key
+- [ ] Verify inbound Nostr signatures
+- [ ] X-Nostr-Sig header implementation
+- [ ] Signature verification UI
 
-### Phase 4: Advanced Encryption
+### Phase 3: SMTP Simplification
 
-- Group encryption (multiple recipients)
-- Key rotation/recovery
-- Message replies with context preservation
+Per [RFC-001](001-stalwart-removal-migration.md):
+- [ ] Replace Stalwart with go-smtp
+- [ ] Implement inbound SMTP server
+- [ ] Add DKIM signing (transitional)
+- [ ] PostgreSQL-backed send queue
+
+### Phase 4: Advanced Features
+
+- [ ] Lightning payments for spam control
+- [ ] Subject line encryption
+- [ ] NIP-17 Nostr-native transport
+- [ ] Group encryption
 
 ## Testing Strategy
 
@@ -241,25 +257,35 @@ Using Atlas/Kubernetes (see `~/Atlas/roles/kube/coldforge-email/`):
 
 ## Monitoring & Observability
 
-### Metrics
+### Prometheus Metrics
 
-- Request latency
-- Email send/receive rates
-- Encryption/decryption success rates
-- Session duration
-- Error rates
+Available at `:9090/metrics`. Key metrics:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `coldforge_email_emails_sent_total` | Counter | Emails sent by transport/status |
+| `coldforge_email_email_send_duration_seconds` | Histogram | Send latency |
+| `coldforge_email_nip05_lookups_total` | Counter | NIP-05 lookups (cached/success/failure) |
+| `coldforge_email_nip05_cache_size` | Gauge | Cache entries |
+| `coldforge_email_auth_attempts_total` | Counter | Auth attempts by method/result |
+| `coldforge_email_active_sessions` | Gauge | Current sessions |
+| `coldforge_email_http_requests_total` | Counter | HTTP requests by method/path/status |
+| `coldforge_email_http_request_duration_seconds` | Histogram | HTTP latency |
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete metrics reference.
 
 ### Logging
 
 - Authentication events (login, logout, challenges)
 - Email operations (send, receive, decrypt)
+- NIP-05 lookups
 - API errors
 - Database operations (debug level)
 
 ### Health Checks
 
-- `/health` - Service health
-- `/ready` - Dependency readiness (database, Redis, Stalwart)
+- `/health` - Service liveness
+- `/ready` - Dependency readiness (database, Redis)
 
 ## References
 

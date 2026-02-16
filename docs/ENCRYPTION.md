@@ -17,9 +17,9 @@ Traditional email encryption (PGP, S/MIME) requires separate key management. Wit
 
 **Encryption:** Protects email content from being read by others
 
-**Signing:** Proves the email came from you (not covered yet, future work)
+**Signing:** Proves the email came from you (see [RFC-002](002-nostr-email-integration.md) for the signing design)
 
-Currently we focus on encryption. Signing may be added later.
+Currently we focus on encryption. Email signing with Nostr keys is planned as the identity layer for SMTP - replacing the need for DKIM/SPF/DMARC.
 
 ## How It Works
 

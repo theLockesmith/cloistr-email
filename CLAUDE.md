@@ -108,9 +108,40 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - ConfigMaps and Secrets for configuration
   - Resource limits and health checks
   - Comprehensive README with deployment guide
+- [x] Prometheus metrics instrumentation
+  - Email send/receive counters and latency histograms
+  - NIP-05 lookup metrics with cache hit tracking
+  - Authentication metrics and active session gauge
+  - HTTP request metrics with path normalization
+  - /metrics endpoint on port 9090
+- [x] RFC documentation
+  - RFC-001: Stalwart removal migration plan
+  - RFC-002: Nostr as identity layer for SMTP
 
 ### Next Steps
-1. Implement IMAP/JMAP receiver for incoming emails
+
+See RFCs for detailed plans:
+- **[RFC-001](docs/001-stalwart-removal-migration.md)**: Remove Stalwart, use go-smtp directly
+- **[RFC-002](docs/002-nostr-email-integration.md)**: Nostr as identity layer for SMTP
+
+**Immediate:**
+1. Implement Nostr email signing (RFC-002 Phase 1)
+   - Sign outbound emails with sender's Nostr key
+   - Add X-Nostr-Sig header
+   - Verify inbound signatures via NIP-05
+
+2. Remove Stalwart dependency (RFC-001 Phase 1)
+   - Delete stalwart.go and related code
+   - Update health checks
+
+**Near-term:**
+3. Implement inbound SMTP server (RFC-001 Phase 3)
+   - go-smtp server on port 25
+   - Direct mail reception into PostgreSQL
+
+4. Lightning spam control (RFC-002 future)
+   - Per-user payment requirements
+   - LUD-16 integration
 
 ## Quick Commands
 
@@ -139,7 +170,7 @@ internal/
 │   └── email_types.go     # Enhanced API types for v2 endpoints
 ├── auth/
 │   ├── nip46.go           # NIP-46 authentication
-│   └── stalwart.go        # Stalwart mail server client
+│   └── stalwart.go        # Stalwart client (to be removed per RFC-001)
 ├── config/config.go        # Configuration
 ├── email/
 │   └── service.go         # Email service (coordinates all layers)
@@ -150,22 +181,22 @@ internal/
 ├── identity/
 │   ├── address.go         # Unified address management
 │   └── errors.go          # Identity-related errors
+├── metrics/
+│   └── metrics.go         # Prometheus instrumentation
 ├── transport/
 │   ├── transport.go       # Transport abstraction layer
-│   └── smtp.go            # SMTP transport (Stalwart integration)
+│   └── smtp.go            # SMTP transport
 └── storage/
     ├── postgres.go         # PostgreSQL database layer
     └── redis.go            # Session store
 tests/
 ├── unit/                   # Unit tests
-│   ├── auth_test.go       # NIP-46 auth tests
-│   ├── stalwart_test.go   # Stalwart client tests
-│   ├── encryption_test.go # Email encryption tests
-│   ├── nip05_test.go      # NIP-05 resolver tests
-│   ├── postgres_test.go   # Database layer tests
-│   └── transport_test.go  # Transport layer tests
 └── integration/            # Integration tests
 ui/                         # React frontend
+docs/
+├── 001-stalwart-removal-migration.md  # RFC: Remove Stalwart
+├── 002-nostr-email-integration.md     # RFC: Nostr identity layer
+└── ...                     # Other documentation
 ```
 
 ## Key Architectural Decisions
