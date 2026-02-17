@@ -1,4 +1,4 @@
-module github.com/coldforge/coldforge-email
+module git.coldforge.xyz/coldforge/cloistr-email
 
 go 1.24.1
 
