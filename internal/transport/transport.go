@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/signing"
 	"go.uber.org/zap"
 )
 
@@ -59,6 +60,10 @@ type Message struct {
 
 	// Transport preference (can be overridden)
 	PreferredTransport TransportType
+
+	// Signer for Nostr signature (optional)
+	// If provided, the email will be signed with X-Nostr-* headers
+	Signer signing.Signer
 }
 
 // DeliveryResult contains the result of a send operation

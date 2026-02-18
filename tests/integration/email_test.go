@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/encryption"
-	"github.com/coldforge/coldforge-email/internal/storage"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

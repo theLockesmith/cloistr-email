@@ -28,10 +28,7 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - Relay connection and messaging
   - Session management with Redis
   - NIP-44 encrypt/decrypt via remote signer
-- [x] Stalwart Mail client implemented
-  - Full CRUD for principals (accounts)
-  - Password, quota, email management
-  - Health checks
+- [x] ~~Stalwart Mail client~~ (removed - RFC-001 Phase 1 complete)
 - [x] API handlers with auth middleware
 - [x] Email encryption format (NIP-44 based)
   - EmailEncryptor for encrypt/decrypt via bunker
@@ -90,7 +87,7 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
 - [x] Docker deployment configuration
   - Production-ready Dockerfile with Go 1.24
   - nginx-based frontend serving with SPA routing
-  - docker-compose with PostgreSQL, Redis, Stalwart
+  - docker-compose with PostgreSQL, Redis
   - NIP-07 browser extension integration (nostr.ts)
   - LoginPage with NIP-07 and NIP-46 auth options
   - ComposePage with encryption mode selection
@@ -117,29 +114,39 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
 - [x] RFC documentation
   - RFC-001: Stalwart removal migration plan
   - RFC-002: Nostr as identity layer for SMTP
+- [x] Nostr email signing (RFC-002 Phase 1)
+  - BIP-340 Schnorr signatures using go-nostr
+  - Signing package with Signer interface
+  - EmailSigner with RFC-002 canonicalization
+  - EmailVerifier with NIP-05 cross-verification
+  - X-Nostr-Pubkey, X-Nostr-Sig, X-Nostr-Signed-Headers headers
+  - SMTP transport auto-signs outbound emails when signer provided
+  - Database columns for verification status (nostr_verified, nostr_verified_at)
+  - Unit tests for signing and verification (20+ tests)
+- [x] Stalwart removal (RFC-001 Phase 1)
+  - Removed stalwart.go client and tests
+  - Removed Stalwart from NIP-46 handler
+  - Updated config to use direct SMTP settings
+  - Removed Stalwart from docker-compose
 
 ### Next Steps
 
 See RFCs for detailed plans:
-- **[RFC-001](docs/001-stalwart-removal-migration.md)**: Remove Stalwart, use go-smtp directly
+- **[RFC-001](docs/001-stalwart-removal-migration.md)**: Complete SMTP migration
 - **[RFC-002](docs/002-nostr-email-integration.md)**: Nostr as identity layer for SMTP
 
 **Immediate:**
-1. Implement Nostr email signing (RFC-002 Phase 1)
-   - Sign outbound emails with sender's Nostr key
-   - Add X-Nostr-Sig header
-   - Verify inbound signatures via NIP-05
-
-2. Remove Stalwart dependency (RFC-001 Phase 1)
-   - Delete stalwart.go and related code
-   - Update health checks
+1. Implement outbound SMTP directly (RFC-001 Phase 2)
+   - Direct SMTP submission without Stalwart intermediary
+   - Configure external SMTP relay (e.g., Postfix, SendGrid, or self-hosted)
 
 **Near-term:**
-3. Implement inbound SMTP server (RFC-001 Phase 3)
+2. Implement inbound SMTP server (RFC-001 Phase 3)
    - go-smtp server on port 25
    - Direct mail reception into PostgreSQL
+   - Verify inbound signatures on reception
 
-4. Lightning spam control (RFC-002 future)
+3. Lightning spam control (RFC-002 future)
    - Per-user payment requirements
    - LUD-16 integration
 
@@ -169,11 +176,12 @@ internal/
 │   ├── email_handler.go   # Email endpoints using full service (v2)
 │   └── email_types.go     # Enhanced API types for v2 endpoints
 ├── auth/
-│   ├── nip46.go           # NIP-46 authentication
-│   └── stalwart.go        # Stalwart client (to be removed per RFC-001)
+│   └── nip46.go           # NIP-46 authentication
 ├── config/config.go        # Configuration
 ├── email/
-│   └── service.go         # Email service (coordinates all layers)
+│   ├── service.go         # Email service (coordinates all layers)
+│   ├── signing.go         # Email signing (RFC-002)
+│   └── verify.go          # Signature verification
 ├── encryption/
 │   ├── email.go           # Email encryption (NIP-44)
 │   ├── nip05.go           # Key discovery (NIP-05)
@@ -183,6 +191,8 @@ internal/
 │   └── errors.go          # Identity-related errors
 ├── metrics/
 │   └── metrics.go         # Prometheus instrumentation
+├── signing/
+│   └── signer.go          # Nostr signing interface (BIP-340)
 ├── transport/
 │   ├── transport.go       # Transport abstraction layer
 │   └── smtp.go            # SMTP transport
@@ -215,7 +225,7 @@ Support both NIP-46 (server-side) and NIP-07 (client-side):
 
 ### Transport Abstraction
 The transport layer is designed for future extensibility:
-- SMTP via Stalwart (current primary)
+- Direct SMTP submission (configurable relay)
 - Future Nostr-native protocol (when/if it exists)
 - Hybrid mode: try Nostr first, fall back to SMTP
 - Easy to add new transports without changing core logic
@@ -245,3 +255,4 @@ The transport layer is designed for future extensibility:
 | NIP-44 | Email body encryption | ✅ Implemented |
 | NIP-05 | Email-to-npub discovery | ✅ Implemented |
 | NIP-07 | Browser extension (client-side encryption) | ✅ Implemented |
+| BIP-340 | Schnorr signatures for email signing | ✅ Implemented |

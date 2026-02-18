@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
 	"go.uber.org/zap"
 )
 

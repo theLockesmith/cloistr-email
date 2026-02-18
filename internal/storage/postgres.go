@@ -126,9 +126,15 @@ type Email struct {
 	StalwartMessageID *string
 	Folder            string
 	Labels            []string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DeletedAt         *time.Time
+
+	// Nostr signature verification (RFC-002)
+	NostrVerified          bool
+	NostrVerificationError *string
+	NostrVerifiedAt        *time.Time
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
 }
 
 // Contact represents an address book entry

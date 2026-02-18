@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/auth"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -174,7 +174,6 @@ func TestCreateAuthChallenge(t *testing.T) {
 	handler, err := auth.NewNIP46Handler(
 		"wss://relay.example.com",
 		sessionStore,
-		nil,
 		logger,
 	)
 	require.NoError(t, err)
@@ -266,7 +265,6 @@ func TestVerifyAuthSignature(t *testing.T) {
 	handler, err := auth.NewNIP46Handler(
 		"wss://relay.example.com",
 		sessionStore,
-		nil,
 		logger,
 	)
 	require.NoError(t, err)
@@ -484,7 +482,6 @@ func TestValidateSession(t *testing.T) {
 	handler, err := auth.NewNIP46Handler(
 		"wss://relay.example.com",
 		sessionStore,
-		nil,
 		logger,
 	)
 	require.NoError(t, err)
@@ -615,7 +612,6 @@ func TestHelperFunctions(t *testing.T) {
 				handler, err := auth.NewNIP46Handler(
 					"wss://relay.example.com",
 					sessionStore,
-					nil,
 					logger,
 				)
 				require.NoError(t, err)
@@ -652,7 +648,6 @@ func TestHelperFunctions(t *testing.T) {
 		handler, err := auth.NewNIP46Handler(
 			"wss://relay.example.com",
 			sessionStore,
-			nil,
 			logger,
 		)
 		require.NoError(t, err)
@@ -728,7 +723,6 @@ func TestLogout(t *testing.T) {
 	handler, err := auth.NewNIP46Handler(
 		"wss://relay.example.com",
 		sessionStore,
-		nil,
 		logger,
 	)
 	require.NoError(t, err)

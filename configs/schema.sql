@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS emails (
     stalwart_message_id VARCHAR(255),
     folder VARCHAR(50) DEFAULT 'INBOX',
     labels TEXT[], -- Array of custom labels
+    -- Nostr signature verification (RFC-002)
+    nostr_verified BOOLEAN DEFAULT FALSE,
+    nostr_verification_error TEXT,
+    nostr_verified_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP

@@ -30,30 +30,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Stalwart mail server (SMTP/IMAP)
-  stalwart:
-    image: stalwart/mail:latest
-    environment:
-      - STALWART_ADMIN_TOKEN=dev_admin_token
-    ports:
-      - "25:25"    # SMTP
-      - "143:143"  # IMAP
-      - "587:587"  # SMTP TLS
-      - "993:993"  # IMAP TLS
-      - "5232:5232" # CalDAV
-      - "6001:6001" # HTTP admin
-    volumes:
-      - ./configs/stalwart.toml:/opt/stalwart/etc/main.conf:ro
-      - stalwart_data:/opt/stalwart/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6001/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
   # Coldforge Email backend service
   coldforge-email:
     build:
@@ -66,8 +42,8 @@ services:
       - METRICS_ADDR=0.0.0.0:9090
       - DATABASE_URL=postgres://email_user:dev_password@postgres:5432/coldforge_email
       - REDIS_URL=redis://redis:6379
-      - STALWART_ADMIN_URL=http://stalwart:6001
-      - STALWART_ADMIN_TOKEN=dev_admin_token
+      - SMTP_HOST=localhost
+      - SMTP_PORT=587
       - NSECBUNKER_RELAY_URL=ws://localhost:4737
       - IDENTITY_SERVICE_URL=http://localhost:3000
     ports:
@@ -77,8 +53,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      stalwart:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/health"]
@@ -103,7 +77,6 @@ services:
 
 volumes:
   postgres_data:
-  stalwart_data:
 
 networks:
   default:

@@ -2,15 +2,18 @@ package transport
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net"
 	"net/smtp"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/encryption"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/signing"
 	"go.uber.org/zap"
 )
 
@@ -137,10 +140,37 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 	if messageID == "" {
 		messageID = t.generateMessageID(msg.FromAddress)
 	}
+	msg.MessageID = messageID // Store for later use
+
+	// Build headers map for signing
+	dateStr := time.Now().UTC().Format(time.RFC1123Z)
+	headersForSigning := map[string]string{
+		"message-id": messageID,
+		"date":       dateStr,
+		"from":       msg.FromAddress,
+		"to":         strings.Join(msg.ToAddresses, ", "),
+		"subject":    msg.Subject,
+	}
+
+	if len(msg.CCAddresses) > 0 {
+		headersForSigning["cc"] = strings.Join(msg.CCAddresses, ", ")
+	}
+
+	if msg.InReplyTo != "" {
+		headersForSigning["in-reply-to"] = "<" + msg.InReplyTo + ">"
+	}
+
+	if len(msg.References) > 0 {
+		refs := make([]string, len(msg.References))
+		for i, ref := range msg.References {
+			refs[i] = "<" + ref + ">"
+		}
+		headersForSigning["references"] = strings.Join(refs, " ")
+	}
 
 	// Standard headers
 	sb.WriteString(fmt.Sprintf("Message-ID: <%s>\r\n", messageID))
-	sb.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z)))
+	sb.WriteString(fmt.Sprintf("Date: %s\r\n", dateStr))
 	sb.WriteString(fmt.Sprintf("From: %s\r\n", msg.FromAddress))
 	sb.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(msg.ToAddresses, ", ")))
 
@@ -214,6 +244,19 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 			}
 		}
 		sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44))
+	}
+
+	// Sign the email if a signer is provided (RFC-002)
+	if msg.Signer != nil {
+		sigHeaders, err := t.signEmail(ctx, headersForSigning, body, msg.Signer)
+		if err != nil {
+			t.logger.Warn("Failed to sign email, sending unsigned",
+				zap.Error(err))
+		} else if sigHeaders != nil {
+			for k, v := range sigHeaders {
+				sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+			}
+		}
 	}
 
 	// Content type and encoding
@@ -389,4 +432,97 @@ func randomString(n int) string {
 		time.Sleep(time.Nanosecond) // Ensure different values
 	}
 	return string(b)
+}
+
+// signEmail signs the email using the provided signer and returns the signature headers
+func (t *SMTPTransport) signEmail(ctx context.Context, headers map[string]string, body string, signer signing.Signer) (map[string]string, error) {
+	if signer == nil {
+		return nil, nil
+	}
+
+	// Default headers to sign (RFC-002)
+	defaultSignedHeaders := []string{"from", "to", "date", "message-id", "subject"}
+	optionalSignedHeaders := []string{"cc", "in-reply-to", "references"}
+
+	// Determine which headers to sign
+	var headersToSign []string
+	for _, h := range defaultSignedHeaders {
+		if _, ok := headers[h]; ok {
+			headersToSign = append(headersToSign, h)
+		}
+	}
+	for _, h := range optionalSignedHeaders {
+		if _, ok := headers[h]; ok {
+			headersToSign = append(headersToSign, h)
+		}
+	}
+
+	// Sort for deterministic ordering
+	sort.Strings(headersToSign)
+
+	// Canonicalize headers
+	var parts []string
+	for _, name := range headersToSign {
+		if value, ok := headers[name]; ok {
+			canonicalName := strings.ToLower(name)
+			canonicalValue := strings.TrimSpace(value)
+			canonicalValue = strings.ReplaceAll(canonicalValue, "\r\n", "\n")
+			canonicalValue = strings.ReplaceAll(canonicalValue, "\r", "\n")
+			parts = append(parts, fmt.Sprintf("%s:%s", canonicalName, canonicalValue))
+		}
+	}
+	headerBlock := strings.Join(parts, "\n")
+
+	// Canonicalize body
+	bodyCanonical := t.canonicalizeBody(body)
+
+	// Hash the body
+	bodyHash := sha256.Sum256([]byte(bodyCanonical))
+
+	// Combine headers and body hash
+	canonical := append([]byte(headerBlock+"\n"), bodyHash[:]...)
+
+	// Sign
+	sig, err := signer.Sign(ctx, canonical)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign email: %w", err)
+	}
+
+	t.logger.Debug("Email signed successfully",
+		zap.String("pubkey", truncatePubkey(signer.PublicKey())),
+		zap.Strings("signed_headers", headersToSign))
+
+	return map[string]string{
+		signing.HeaderNostrPubkey:        signer.PublicKey(),
+		signing.HeaderNostrSig:           sig,
+		signing.HeaderNostrSignedHeaders: strings.Join(headersToSign, ";"),
+	}, nil
+}
+
+// canonicalizeBody applies RFC-002 canonicalization to email body
+func (t *SMTPTransport) canonicalizeBody(body string) string {
+	// Normalize line endings
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	body = strings.ReplaceAll(body, "\r", "\n")
+
+	// Trim whitespace at end of each line
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t")
+	}
+
+	// Remove trailing blank lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// truncatePubkey truncates a pubkey for logging
+func truncatePubkey(pubkey string) string {
+	if len(pubkey) <= 16 {
+		return pubkey
+	}
+	return pubkey[:16] + "..."
 }

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/coldforge/coldforge-email/internal/auth"
-	"github.com/coldforge/coldforge-email/internal/config"
-	_ "github.com/coldforge/coldforge-email/internal/encryption" // Will be used for email encryption
-	"github.com/coldforge/coldforge-email/internal/storage"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/config"
+	_ "git.coldforge.xyz/coldforge/cloistr-email/internal/encryption" // Will be used for email encryption
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
@@ -24,19 +24,17 @@ const (
 
 // Handler implements the API endpoints
 type Handler struct {
-	db        *storage.PostgreSQL
-	auth      *auth.NIP46Handler
-	stalwart  *auth.StalwartClient
-	sessions  auth.SessionStore
-	config    *config.Config
-	logger    *zap.Logger
+	db       *storage.PostgreSQL
+	auth     *auth.NIP46Handler
+	sessions auth.SessionStore
+	config   *config.Config
+	logger   *zap.Logger
 }
 
 // NewHandler creates a new API handler
 func NewHandler(
 	db *storage.PostgreSQL,
 	nip46 *auth.NIP46Handler,
-	stalwart *auth.StalwartClient,
 	sessions auth.SessionStore,
 	cfg *config.Config,
 	logger *zap.Logger,
@@ -44,7 +42,6 @@ func NewHandler(
 	return &Handler{
 		db:       db,
 		auth:     nip46,
-		stalwart: stalwart,
 		sessions: sessions,
 		config:   cfg,
 		logger:   logger,
@@ -656,17 +653,6 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 			"error":  "redis unavailable",
 		})
 		return
-	}
-
-	// Check Stalwart if configured
-	if h.stalwart != nil {
-		if err := h.stalwart.Health(ctx); err != nil {
-			h.respondJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"status": "not ready",
-				"error":  "stalwart unavailable",
-			})
-			return
-		}
 	}
 
 	h.respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})

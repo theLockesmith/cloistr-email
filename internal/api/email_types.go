@@ -1,6 +1,6 @@
 package api
 
-import "github.com/coldforge/coldforge-email/internal/encryption"
+import "git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
 
 // EncryptionModeRequest represents the encryption mode from API requests
 type EncryptionModeRequest string

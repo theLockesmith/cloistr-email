@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
 	"github.com/google/uuid"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
@@ -21,10 +21,9 @@ import (
 
 // NIP46Handler manages NIP-46 authentication with nsecbunker
 type NIP46Handler struct {
-	relayURL       string
-	sessionStore   SessionStore
-	stalwartClient *StalwartClient
-	logger         *zap.Logger
+	relayURL     string
+	sessionStore SessionStore
+	logger       *zap.Logger
 
 	// Client keypair (ephemeral, generated per-instance)
 	clientPrivateKey string
@@ -101,7 +100,6 @@ type NIP46Response struct {
 func NewNIP46Handler(
 	relayURL string,
 	sessionStore SessionStore,
-	stalwartClient *StalwartClient,
 	logger *zap.Logger,
 ) (*NIP46Handler, error) {
 	logger.Info("Initializing NIP-46 auth handler", zap.String("relay_url", relayURL))
@@ -116,7 +114,6 @@ func NewNIP46Handler(
 	return &NIP46Handler{
 		relayURL:         relayURL,
 		sessionStore:     sessionStore,
-		stalwartClient:   stalwartClient,
 		logger:           logger,
 		clientPrivateKey: clientPrivateKey,
 		clientPublicKey:  clientPubkey,

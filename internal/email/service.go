@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/encryption"
-	"github.com/coldforge/coldforge-email/internal/identity"
-	"github.com/coldforge/coldforge-email/internal/metrics"
-	"github.com/coldforge/coldforge-email/internal/storage"
-	"github.com/coldforge/coldforge-email/internal/transport"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/identity"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/transport"
 	"go.uber.org/zap"
 )
 

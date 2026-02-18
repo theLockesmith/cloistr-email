@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/coldforge/coldforge-email/internal/api"
-	"github.com/coldforge/coldforge-email/internal/auth"
-	"github.com/coldforge/coldforge-email/internal/config"
-	"github.com/coldforge/coldforge-email/internal/metrics"
-	"github.com/coldforge/coldforge-email/internal/storage"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/api"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/config"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -59,21 +59,10 @@ func main() {
 		logger.Fatal("Failed to initialize session store", zap.Error(err))
 	}
 
-	// Initialize Stalwart client
-	stalwartClient, err := auth.NewStalwartClient(
-		cfg.StalwartAdminURL,
-		cfg.StalwartAdminToken,
-		logger,
-	)
-	if err != nil {
-		logger.Fatal("Failed to initialize Stalwart client", zap.Error(err))
-	}
-
 	// Initialize NIP-46 auth handler
 	authHandler, err := auth.NewNIP46Handler(
 		cfg.NSECBunkerRelayURL,
 		sessionStore,
-		stalwartClient,
 		logger,
 	)
 	if err != nil {
@@ -84,7 +73,6 @@ func main() {
 	apiHandler := api.NewHandler(
 		db,
 		authHandler,
-		stalwartClient,
 		sessionStore,
 		cfg,
 		logger,

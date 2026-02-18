@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -19,9 +20,11 @@ type Config struct {
 	// Cache
 	RedisURL string
 
-	// Stalwart Mail Server
-	StalwartAdminURL   string
-	StalwartAdminToken string
+	// SMTP (for outbound email delivery)
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
 
 	// Nostr
 	NSECBunkerRelayURL string
@@ -50,9 +53,11 @@ func Load() (*Config, error) {
 		// Cache
 		RedisURL: getEnvRequired("REDIS_URL"),
 
-		// Stalwart
-		StalwartAdminURL:   getEnvRequired("STALWART_ADMIN_URL"),
-		StalwartAdminToken: getEnvRequired("STALWART_ADMIN_TOKEN"),
+		// SMTP (optional - for outbound email delivery)
+		SMTPHost:     getEnv("SMTP_HOST", "localhost"),
+		SMTPPort:     getEnvInt("SMTP_PORT", 587),
+		SMTPUsername: getEnv("SMTP_USERNAME", ""),
+		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 
 		// Nostr
 		NSECBunkerRelayURL: getEnvRequired("NSECBUNKER_RELAY_URL"),
@@ -81,4 +86,14 @@ func getEnvRequired(key string) string {
 		panic(fmt.Sprintf("Required environment variable not set: %s", key))
 	}
 	return value
+}
+
+// getEnvInt gets an environment variable as an integer with a default value
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
 }
