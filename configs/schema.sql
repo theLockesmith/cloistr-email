@@ -54,8 +54,7 @@ CREATE TABLE IF NOT EXISTS emails (
     direction VARCHAR(20) DEFAULT 'sent', -- sent, received, draft
     status VARCHAR(20) DEFAULT 'active', -- active, deleted, archived, spam
     read_at TIMESTAMP,
-    -- Stalwart references
-    stalwart_message_id VARCHAR(255),
+    -- Email organization
     folder VARCHAR(50) DEFAULT 'INBOX',
     labels TEXT[], -- Array of custom labels
     -- Nostr signature verification (RFC-002)
@@ -207,3 +206,26 @@ CREATE TRIGGER update_encryption_keys_timestamp BEFORE UPDATE ON encryption_keys
 
 CREATE TRIGGER update_email_templates_timestamp BEFORE UPDATE ON email_templates
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+-- Outbound Queue table
+-- Persistent queue for outbound email with retry support (RFC-001 Phase 2)
+CREATE TABLE IF NOT EXISTS outbound_queue (
+    id VARCHAR(64) PRIMARY KEY,
+    message_id VARCHAR(255) NOT NULL,
+    sender VARCHAR(255) NOT NULL,
+    recipients JSONB NOT NULL,
+    raw_message BYTEA NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempts INT NOT NULL DEFAULT 0,
+    max_attempts INT NOT NULL DEFAULT 5,
+    last_attempt TIMESTAMP,
+    next_attempt TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_error TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX idx_outbound_queue_status ON outbound_queue(status);
+CREATE INDEX idx_outbound_queue_next_attempt ON outbound_queue(next_attempt) WHERE status IN ('pending', 'retry');
+CREATE INDEX idx_outbound_queue_message_id ON outbound_queue(message_id);
+CREATE INDEX idx_outbound_queue_created_at ON outbound_queue(created_at);

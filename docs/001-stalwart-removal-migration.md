@@ -1,8 +1,9 @@
 # RFC-001: Remove Stalwart, Replace with Lightweight SMTP
 
-**Status:** Proposed
+**Status:** In Progress (Phase 2 Complete)
 **Author:** coldforge
 **Date:** 2026-02-04
+**Updated:** 2026-02-18
 
 ## Summary
 
@@ -144,23 +145,30 @@ Things Stalwart handled that we need to own:
 
 ## Migration steps
 
-### Phase 1: Decouple (no behavior change)
+### Phase 1: Decouple (no behavior change) ✅ COMPLETE
 
-1. Remove `stalwartClient` from `NIP46Handler` (unused)
-2. Remove `stalwart` from `Handler` struct, replace health check with transport manager health
-3. Remove `StalwartAdminURL`/`StalwartAdminToken` from config (make optional or remove)
-4. Delete `internal/auth/stalwart.go` and its tests
-5. Delete `configs/stalwart.toml`
-6. Update `docker-compose.yml`: remove stalwart service, remove dependency from app service
-7. Tests should still pass (stalwart client was never called in real flows)
+1. ✅ Remove `stalwartClient` from `NIP46Handler` (unused)
+2. ✅ Remove `stalwart` from `Handler` struct, replace health check with transport manager health
+3. ✅ Remove `StalwartAdminURL`/`StalwartAdminToken` from config (make optional or remove)
+4. ✅ Delete `internal/auth/stalwart.go` and its tests
+5. ✅ Delete `configs/stalwart.toml`
+6. ✅ Update `docker-compose.yml`: remove stalwart service, remove dependency from app service
+7. ✅ Tests should still pass (stalwart client was never called in real flows)
 
-### Phase 2: Own outbound delivery
+### Phase 2: Own outbound delivery ✅ COMPLETE
 
-1. Add DKIM signing to `SMTPTransport` using `emersion/go-msgauth`
-2. Add MX resolver for direct delivery option
-3. Add PostgreSQL-backed outbound queue with retry logic
-4. Update `SMTPConfig` to support relay mode (current behavior) or direct mode
-5. Configure DNS: SPF, DKIM, DMARC, PTR records
+1. ✅ Add DKIM signing to `SMTPTransport` using `emersion/go-msgauth`
+   - Created `internal/transport/dkim.go` with RSA key parsing (PKCS#1/PKCS#8)
+   - DNS TXT record generation for public key
+2. ✅ Add MX resolver for direct delivery option
+   - Created `internal/transport/mx.go` with caching
+3. ✅ Add PostgreSQL-backed outbound queue with retry logic
+   - Created `internal/transport/queue.go` with configurable retry delays
+   - Added `configs/migrations/003_outbound_queue.sql`
+4. ✅ Update `SMTPConfig` to support relay mode (current behavior) or direct mode
+   - DeliveryMode: relay, direct, hybrid
+   - LocalDomains for hybrid routing
+5. ⏳ Configure DNS: SPF, DKIM, DMARC, PTR records (infrastructure task)
 
 ### Phase 3: Inbound SMTP server
 

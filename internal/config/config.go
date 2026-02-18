@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -21,10 +22,17 @@ type Config struct {
 	RedisURL string
 
 	// SMTP (for outbound email delivery)
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUsername string
-	SMTPPassword string
+	SMTPHost         string
+	SMTPPort         int
+	SMTPUsername     string
+	SMTPPassword     string
+	SMTPDeliveryMode string // "relay", "direct", or "hybrid"
+	SMTPLocalDomains []string
+
+	// DKIM signing configuration
+	DKIMDomain     string
+	DKIMSelector   string
+	DKIMPrivateKey string
 
 	// Nostr
 	NSECBunkerRelayURL string
@@ -53,11 +61,18 @@ func Load() (*Config, error) {
 		// Cache
 		RedisURL: getEnvRequired("REDIS_URL"),
 
-		// SMTP (optional - for outbound email delivery)
-		SMTPHost:     getEnv("SMTP_HOST", "localhost"),
-		SMTPPort:     getEnvInt("SMTP_PORT", 587),
-		SMTPUsername: getEnv("SMTP_USERNAME", ""),
-		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+		// SMTP (for outbound email delivery)
+		SMTPHost:         getEnv("SMTP_HOST", "localhost"),
+		SMTPPort:         getEnvInt("SMTP_PORT", 587),
+		SMTPUsername:     getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:     getEnv("SMTP_PASSWORD", ""),
+		SMTPDeliveryMode: getEnv("SMTP_DELIVERY_MODE", "relay"),
+		SMTPLocalDomains: getEnvList("SMTP_LOCAL_DOMAINS", []string{}),
+
+		// DKIM (optional - for signing outbound email)
+		DKIMDomain:     getEnv("DKIM_DOMAIN", ""),
+		DKIMSelector:   getEnv("DKIM_SELECTOR", "mail"),
+		DKIMPrivateKey: getEnv("DKIM_PRIVATE_KEY", ""),
 
 		// Nostr
 		NSECBunkerRelayURL: getEnvRequired("NSECBUNKER_RELAY_URL"),
@@ -96,4 +111,37 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// getEnvList gets an environment variable as a comma-separated list
+func getEnvList(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		var result []string
+		for _, item := range splitString(value, ',') {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				result = append(result, item)
+			}
+		}
+		return result
+	}
+	return defaultValue
+}
+
+// splitString splits a string by a separator
+func splitString(s string, sep rune) []string {
+	var result []string
+	current := ""
+	for _, c := range s {
+		if c == sep {
+			result = append(result, current)
+			current = ""
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
 }

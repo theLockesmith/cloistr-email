@@ -128,6 +128,16 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - Removed Stalwart from NIP-46 handler
   - Updated config to use direct SMTP settings
   - Removed Stalwart from docker-compose
+- [x] Own outbound delivery (RFC-001 Phase 2)
+  - DKIM signing module using emersion/go-msgauth
+  - RSA key parsing (PKCS#1 and PKCS#8)
+  - DNS TXT record generation for public key
+  - MX resolver with caching for direct delivery
+  - PostgreSQL-backed outbound queue with retry logic
+  - Delivery modes: relay, direct, hybrid
+  - SMTP transport integration with DKIM signing
+  - Database migration for outbound_queue table
+  - Unit tests for DKIM, MX resolver, and queue
 
 ### Next Steps
 
@@ -136,17 +146,14 @@ See RFCs for detailed plans:
 - **[RFC-002](docs/002-nostr-email-integration.md)**: Nostr as identity layer for SMTP
 
 **Immediate:**
-1. Implement outbound SMTP directly (RFC-001 Phase 2)
-   - Direct SMTP submission without Stalwart intermediary
-   - Configure external SMTP relay (e.g., Postfix, SendGrid, or self-hosted)
-
-**Near-term:**
-2. Implement inbound SMTP server (RFC-001 Phase 3)
+1. Implement inbound SMTP server (RFC-001 Phase 3)
    - go-smtp server on port 25
    - Direct mail reception into PostgreSQL
    - Verify inbound signatures on reception
+   - Spam filtering and rate limiting
 
-3. Lightning spam control (RFC-002 future)
+**Near-term:**
+2. Lightning spam control (RFC-002 future)
    - Per-user payment requirements
    - LUD-16 integration
 
@@ -195,7 +202,10 @@ internal/
 │   └── signer.go          # Nostr signing interface (BIP-340)
 ├── transport/
 │   ├── transport.go       # Transport abstraction layer
-│   └── smtp.go            # SMTP transport
+│   ├── smtp.go            # SMTP transport
+│   ├── dkim.go            # DKIM signing module
+│   ├── mx.go              # MX resolver for direct delivery
+│   └── queue.go           # PostgreSQL-backed outbound queue
 └── storage/
     ├── postgres.go         # PostgreSQL database layer
     └── redis.go            # Session store
@@ -225,7 +235,12 @@ Support both NIP-46 (server-side) and NIP-07 (client-side):
 
 ### Transport Abstraction
 The transport layer is designed for future extensibility:
-- Direct SMTP submission (configurable relay)
+- Direct SMTP submission with multiple delivery modes:
+  - **Relay**: Send through configured relay server
+  - **Direct**: Deliver via MX lookup to recipient servers
+  - **Hybrid**: Direct for known domains, relay for others
+- DKIM signing for domain authentication
+- PostgreSQL-backed queue with retry logic
 - Future Nostr-native protocol (when/if it exists)
 - Hybrid mode: try Nostr first, fall back to SMTP
 - Easy to add new transports without changing core logic

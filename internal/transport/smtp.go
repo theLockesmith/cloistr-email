@@ -42,29 +42,58 @@ type SMTPConfig struct {
 
 	// LocalName is the hostname to use in HELO/EHLO (defaults to "localhost")
 	LocalName string
+
+	// DeliveryMode specifies how to deliver mail (relay, direct, or hybrid)
+	DeliveryMode DeliveryMode
+
+	// DKIM configuration for signing outbound mail (optional)
+	DKIM *DKIMConfig
+
+	// LocalDomains for hybrid mode - mail to these domains is delivered directly
+	LocalDomains []string
 }
 
-// SMTPTransport implements Transport using SMTP submission to Stalwart
+// SMTPTransport implements Transport for SMTP delivery
 type SMTPTransport struct {
-	config    *SMTPConfig
-	encryptor *encryption.EmailEncryptor
-	logger    *zap.Logger
+	config     *SMTPConfig
+	encryptor  *encryption.EmailEncryptor
+	logger     *zap.Logger
+	dkimSigner *DKIMSigner
+	mxResolver *MXResolver
 }
 
 // NewSMTPTransport creates a new SMTP transport
-func NewSMTPTransport(config *SMTPConfig, encryptor *encryption.EmailEncryptor, logger *zap.Logger) *SMTPTransport {
+func NewSMTPTransport(config *SMTPConfig, encryptor *encryption.EmailEncryptor, logger *zap.Logger) (*SMTPTransport, error) {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
 	if config.LocalName == "" {
 		config.LocalName = "localhost"
 	}
-
-	return &SMTPTransport{
-		config:    config,
-		encryptor: encryptor,
-		logger:    logger,
+	if config.DeliveryMode == "" {
+		config.DeliveryMode = DeliveryModeRelay
 	}
+
+	t := &SMTPTransport{
+		config:     config,
+		encryptor:  encryptor,
+		logger:     logger,
+		mxResolver: NewMXResolver(),
+	}
+
+	// Initialize DKIM signer if configured
+	if config.DKIM != nil && config.DKIM.PrivateKey != "" {
+		signer, err := NewDKIMSigner(config.DKIM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize DKIM signer: %w", err)
+		}
+		t.dkimSigner = signer
+		logger.Info("DKIM signing enabled",
+			zap.String("domain", config.DKIM.Domain),
+			zap.String("selector", config.DKIM.Selector))
+	}
+
+	return t, nil
 }
 
 func (t *SMTPTransport) Type() TransportType {
@@ -98,18 +127,42 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 		return result, err
 	}
 
-	// Connect and send
-	if err := t.sendViaSMTP(ctx, msg.FromAddress, allRecipients, rawEmail); err != nil {
-		result.Error = err
+	// Apply DKIM signing if configured
+	if t.dkimSigner != nil {
+		signedEmail, err := t.dkimSigner.Sign(rawEmail)
+		if err != nil {
+			t.logger.Warn("DKIM signing failed, sending unsigned",
+				zap.Error(err))
+		} else {
+			rawEmail = signedEmail
+			t.logger.Debug("Email signed with DKIM",
+				zap.String("domain", t.dkimSigner.Domain()),
+				zap.String("selector", t.dkimSigner.Selector()))
+		}
+	}
+
+	// Deliver based on mode
+	var sendErr error
+	switch t.config.DeliveryMode {
+	case DeliveryModeDirect:
+		sendErr = t.sendDirect(ctx, msg.FromAddress, allRecipients, rawEmail)
+	case DeliveryModeHybrid:
+		sendErr = t.sendHybrid(ctx, msg.FromAddress, allRecipients, rawEmail)
+	default: // DeliveryModeRelay
+		sendErr = t.sendViaSMTP(ctx, msg.FromAddress, allRecipients, rawEmail)
+	}
+
+	if sendErr != nil {
+		result.Error = sendErr
 		// Mark all recipients as failed
 		for _, addr := range allRecipients {
 			result.Recipients = append(result.Recipients, RecipientResult{
 				Address: addr,
 				Success: false,
-				Error:   err,
+				Error:   sendErr,
 			})
 		}
-		return result, err
+		return result, sendErr
 	}
 
 	// Success
@@ -525,4 +578,176 @@ func truncatePubkey(pubkey string) string {
 		return pubkey
 	}
 	return pubkey[:16] + "..."
+}
+
+// sendDirect delivers email directly to recipient MX servers
+func (t *SMTPTransport) sendDirect(ctx context.Context, from string, to []string, message []byte) error {
+	// Group recipients by domain
+	byDomain := make(map[string][]string)
+	for _, addr := range to {
+		parts := strings.Split(addr, "@")
+		if len(parts) != 2 {
+			continue
+		}
+		domain := parts[1]
+		byDomain[domain] = append(byDomain[domain], addr)
+	}
+
+	// Deliver to each domain
+	var lastErr error
+	for domain, recipients := range byDomain {
+		mxHosts, err := t.mxResolver.Resolve(ctx, domain)
+		if err != nil {
+			t.logger.Warn("MX lookup failed",
+				zap.String("domain", domain),
+				zap.Error(err))
+			lastErr = err
+			continue
+		}
+
+		// Try each MX host in order
+		var delivered bool
+		for _, host := range mxHosts {
+			addr := fmt.Sprintf("%s:25", host)
+			t.logger.Debug("Attempting direct delivery",
+				zap.String("mx", host),
+				zap.String("domain", domain))
+
+			if err := t.sendToHost(ctx, addr, from, recipients, message); err != nil {
+				t.logger.Debug("Delivery to MX failed, trying next",
+					zap.String("mx", host),
+					zap.Error(err))
+				lastErr = err
+				continue
+			}
+
+			delivered = true
+			t.logger.Info("Direct delivery successful",
+				zap.String("mx", host),
+				zap.String("domain", domain),
+				zap.Int("recipients", len(recipients)))
+			break
+		}
+
+		if !delivered {
+			t.logger.Warn("All MX hosts failed for domain",
+				zap.String("domain", domain),
+				zap.Error(lastErr))
+		}
+	}
+
+	return lastErr
+}
+
+// sendHybrid delivers to local domains directly, others via relay
+func (t *SMTPTransport) sendHybrid(ctx context.Context, from string, to []string, message []byte) error {
+	var localRecipients, remoteRecipients []string
+
+	localDomains := make(map[string]bool)
+	for _, d := range t.config.LocalDomains {
+		localDomains[strings.ToLower(d)] = true
+	}
+
+	for _, addr := range to {
+		parts := strings.Split(addr, "@")
+		if len(parts) != 2 {
+			remoteRecipients = append(remoteRecipients, addr)
+			continue
+		}
+		domain := strings.ToLower(parts[1])
+		if localDomains[domain] {
+			localRecipients = append(localRecipients, addr)
+		} else {
+			remoteRecipients = append(remoteRecipients, addr)
+		}
+	}
+
+	var lastErr error
+
+	// Deliver local recipients directly
+	if len(localRecipients) > 0 {
+		if err := t.sendDirect(ctx, from, localRecipients, message); err != nil {
+			lastErr = err
+		}
+	}
+
+	// Deliver remote recipients via relay
+	if len(remoteRecipients) > 0 {
+		if err := t.sendViaSMTP(ctx, from, remoteRecipients, message); err != nil {
+			lastErr = err
+		}
+	}
+
+	return lastErr
+}
+
+// sendToHost sends to a specific SMTP host
+func (t *SMTPTransport) sendToHost(ctx context.Context, addr string, from string, to []string, message []byte) error {
+	t.logger.Debug("Connecting to SMTP host", zap.String("addr", addr))
+
+	// Create connection with timeout
+	dialer := &net.Dialer{Timeout: t.config.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+
+	// Extract hostname from addr
+	host := strings.Split(addr, ":")[0]
+
+	// Create SMTP client
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to create SMTP client: %w", err)
+	}
+	defer client.Close()
+
+	// Set local hostname
+	if err := client.Hello(t.config.LocalName); err != nil {
+		return fmt.Errorf("HELO failed: %w", err)
+	}
+
+	// Try STARTTLS if available
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		tlsConfig := &tls.Config{
+			ServerName:         host,
+			InsecureSkipVerify: t.config.InsecureSkipVerify,
+		}
+		if err := client.StartTLS(tlsConfig); err != nil {
+			t.logger.Debug("STARTTLS failed, continuing without TLS",
+				zap.Error(err))
+		}
+	}
+
+	// Set sender
+	if err := client.Mail(from); err != nil {
+		return fmt.Errorf("MAIL FROM failed: %w", err)
+	}
+
+	// Set recipients
+	for _, recipient := range to {
+		if err := client.Rcpt(recipient); err != nil {
+			return fmt.Errorf("RCPT TO failed for %s: %w", recipient, err)
+		}
+	}
+
+	// Send message data
+	wc, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("DATA command failed: %w", err)
+	}
+
+	_, err = wc.Write(message)
+	if err != nil {
+		wc.Close()
+		return fmt.Errorf("failed to write message: %w", err)
+	}
+
+	if err := wc.Close(); err != nil {
+		return fmt.Errorf("failed to close data writer: %w", err)
+	}
+
+	client.Quit()
+	return nil
 }

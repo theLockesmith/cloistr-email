@@ -126,7 +126,10 @@ func TestSMTPTransportCanDeliver(t *testing.T) {
 		Host: "localhost",
 		Port: 587,
 	}
-	smtpTransport := transport.NewSMTPTransport(config, nil, logger)
+	smtpTransport, err := transport.NewSMTPTransport(config, nil, logger)
+	if err != nil {
+		t.Fatalf("Failed to create SMTP transport: %v", err)
+	}
 
 	tests := []struct {
 		address  string
@@ -160,7 +163,10 @@ func TestSMTPTransportType(t *testing.T) {
 		Host: "localhost",
 		Port: 587,
 	}
-	smtpTransport := transport.NewSMTPTransport(config, nil, logger)
+	smtpTransport, err := transport.NewSMTPTransport(config, nil, logger)
+	if err != nil {
+		t.Fatalf("Failed to create SMTP transport: %v", err)
+	}
 
 	if smtpTransport.Type() != transport.TransportSMTP {
 		t.Errorf("Expected SMTP type, got %s", smtpTransport.Type())
