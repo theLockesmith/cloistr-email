@@ -44,11 +44,17 @@ services:
       - REDIS_URL=redis://redis:6379
       - SMTP_HOST=localhost
       - SMTP_PORT=587
+      # Inbound SMTP (disabled by default in dev)
+      - SMTP_INBOUND_ENABLED=false
+      - SMTP_INBOUND_ADDR=0.0.0.0:25
+      - SMTP_INBOUND_DOMAIN=coldforge.xyz
+      - SMTP_INBOUND_DOMAINS=coldforge.xyz
       - NSECBUNKER_RELAY_URL=ws://localhost:4737
       - IDENTITY_SERVICE_URL=http://localhost:3000
     ports:
       - "8080:8080"   # API
       - "9090:9090"   # Metrics/health
+      - "25:25"       # SMTP inbound (requires SMTP_INBOUND_ENABLED=true)
     depends_on:
       postgres:
         condition: service_healthy

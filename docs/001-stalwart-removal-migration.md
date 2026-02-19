@@ -1,6 +1,6 @@
 # RFC-001: Remove Stalwart, Replace with Lightweight SMTP
 
-**Status:** In Progress (Phase 2 Complete)
+**Status:** In Progress (Phase 3 Complete)
 **Author:** coldforge
 **Date:** 2026-02-04
 **Updated:** 2026-02-18
@@ -170,14 +170,25 @@ Things Stalwart handled that we need to own:
    - LocalDomains for hybrid routing
 5. ⏳ Configure DNS: SPF, DKIM, DMARC, PTR records (infrastructure task)
 
-### Phase 3: Inbound SMTP server
+### Phase 3: Inbound SMTP server ✅ COMPLETE
 
-1. Add `emersion/go-smtp` as a dependency
-2. Implement SMTP server backend (`internal/transport/inbound.go`)
-3. Implement inbound processing pipeline (`internal/email/inbound.go`)
-4. Wire into `main.go` as a second listener alongside HTTP
-5. Register as a `Receiver` in the transport manager
-6. Update docker-compose to expose port 25
+1. ✅ Add `emersion/go-smtp` as a dependency
+2. ✅ Implement SMTP server backend (`internal/transport/inbound.go`)
+   - SMTPServer with configurable domains, TLS, and message size limits
+   - Session handling for MAIL FROM, RCPT TO, DATA commands
+   - SimpleRecipientValidator for domain-based validation
+3. ✅ Implement inbound processing pipeline (`internal/email/inbound.go`)
+   - ParsedMessage with full header parsing
+   - Multipart MIME support (text/plain, text/html)
+   - Nostr signature verification on incoming mail
+   - RFC 2047 header decoding
+4. ✅ Wire into `main.go` as a second listener alongside HTTP
+   - Configurable via SMTP_INBOUND_ENABLED environment variable
+   - Graceful shutdown support
+5. ✅ InboundProcessor implements both MessageHandler and RecipientValidator
+6. ✅ Update docker-compose to expose port 25
+   - Added SMTP_INBOUND_* environment variables
+   - Port 25 mapping (requires SMTP_INBOUND_ENABLED=true)
 
 ### Phase 4: Hardening
 

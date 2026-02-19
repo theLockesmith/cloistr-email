@@ -138,19 +138,29 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - SMTP transport integration with DKIM signing
   - Database migration for outbound_queue table
   - Unit tests for DKIM, MX resolver, and queue
+- [x] Inbound SMTP server (RFC-001 Phase 3)
+  - go-smtp server on port 25 using emersion/go-smtp
+  - SMTPServer with configurable domains and TLS support
+  - InboundProcessor for message parsing and storage
+  - Nostr signature verification on incoming mail
+  - Multipart MIME parsing (text/plain, text/html)
+  - Recipient validation against PostgreSQL user table
+  - Integration with main.go (enabled via SMTP_INBOUND_ENABLED)
+  - Docker-compose updated with port 25 mapping
+  - Unit tests for server config and validators
 
 ### Next Steps
 
 See RFCs for detailed plans:
-- **[RFC-001](docs/001-stalwart-removal-migration.md)**: Complete SMTP migration
+- **[RFC-001](docs/001-stalwart-removal-migration.md)**: Complete SMTP hardening
 - **[RFC-002](docs/002-nostr-email-integration.md)**: Nostr as identity layer for SMTP
 
 **Immediate:**
-1. Implement inbound SMTP server (RFC-001 Phase 3)
-   - go-smtp server on port 25
-   - Direct mail reception into PostgreSQL
-   - Verify inbound signatures on reception
-   - Spam filtering and rate limiting
+1. SMTP hardening (RFC-001 Phase 4)
+   - Rate limiting on inbound SMTP
+   - SPF validation for inbound mail
+   - DKIM verification for inbound mail
+   - Bounce handling for outbound failures
 
 **Near-term:**
 2. Lightning spam control (RFC-002 future)
@@ -188,7 +198,8 @@ internal/
 ├── email/
 │   ├── service.go         # Email service (coordinates all layers)
 │   ├── signing.go         # Email signing (RFC-002)
-│   └── verify.go          # Signature verification
+│   ├── verify.go          # Signature verification
+│   └── inbound.go         # Inbound email processing pipeline
 ├── encryption/
 │   ├── email.go           # Email encryption (NIP-44)
 │   ├── nip05.go           # Key discovery (NIP-05)
@@ -202,7 +213,8 @@ internal/
 │   └── signer.go          # Nostr signing interface (BIP-340)
 ├── transport/
 │   ├── transport.go       # Transport abstraction layer
-│   ├── smtp.go            # SMTP transport
+│   ├── smtp.go            # SMTP outbound transport
+│   ├── inbound.go         # SMTP inbound server (go-smtp)
 │   ├── dkim.go            # DKIM signing module
 │   ├── mx.go              # MX resolver for direct delivery
 │   └── queue.go           # PostgreSQL-backed outbound queue

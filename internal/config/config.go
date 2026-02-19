@@ -21,13 +21,21 @@ type Config struct {
 	// Cache
 	RedisURL string
 
-	// SMTP (for outbound email delivery)
+	// SMTP Outbound (for email delivery)
 	SMTPHost         string
 	SMTPPort         int
 	SMTPUsername     string
 	SMTPPassword     string
 	SMTPDeliveryMode string // "relay", "direct", or "hybrid"
 	SMTPLocalDomains []string
+
+	// SMTP Inbound (for receiving email)
+	SMTPInboundEnabled bool
+	SMTPInboundAddr    string   // Address to listen on (e.g., ":25")
+	SMTPInboundDomain  string   // Server hostname for HELO
+	SMTPInboundDomains []string // Domains we accept mail for
+	SMTPInboundTLSCert string   // Path to TLS cert (optional)
+	SMTPInboundTLSKey  string   // Path to TLS key (optional)
 
 	// DKIM signing configuration
 	DKIMDomain     string
@@ -61,13 +69,21 @@ func Load() (*Config, error) {
 		// Cache
 		RedisURL: getEnvRequired("REDIS_URL"),
 
-		// SMTP (for outbound email delivery)
+		// SMTP Outbound (for email delivery)
 		SMTPHost:         getEnv("SMTP_HOST", "localhost"),
 		SMTPPort:         getEnvInt("SMTP_PORT", 587),
 		SMTPUsername:     getEnv("SMTP_USERNAME", ""),
 		SMTPPassword:     getEnv("SMTP_PASSWORD", ""),
 		SMTPDeliveryMode: getEnv("SMTP_DELIVERY_MODE", "relay"),
 		SMTPLocalDomains: getEnvList("SMTP_LOCAL_DOMAINS", []string{}),
+
+		// SMTP Inbound (for receiving email)
+		SMTPInboundEnabled: getEnvBool("SMTP_INBOUND_ENABLED", false),
+		SMTPInboundAddr:    getEnv("SMTP_INBOUND_ADDR", ":25"),
+		SMTPInboundDomain:  getEnv("SMTP_INBOUND_DOMAIN", "localhost"),
+		SMTPInboundDomains: getEnvList("SMTP_INBOUND_DOMAINS", []string{}),
+		SMTPInboundTLSCert: getEnv("SMTP_INBOUND_TLS_CERT", ""),
+		SMTPInboundTLSKey:  getEnv("SMTP_INBOUND_TLS_KEY", ""),
 
 		// DKIM (optional - for signing outbound email)
 		DKIMDomain:     getEnv("DKIM_DOMAIN", ""),
@@ -108,6 +124,16 @@ func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return defaultValue
+}
+
+// getEnvBool gets an environment variable as a boolean with a default value
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
 		}
 	}
 	return defaultValue

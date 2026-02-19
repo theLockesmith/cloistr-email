@@ -13,8 +13,11 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/api"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/config"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/email"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/transport"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -158,6 +161,28 @@ func main() {
 		Handler: metricsRouter,
 	}
 
+	// Initialize inbound SMTP server if enabled
+	var smtpServer *transport.SMTPServer
+	if cfg.SMTPInboundEnabled {
+		// Create NIP-05 resolver for signature verification
+		nip05Resolver := encryption.NewNIP05Resolver(logger)
+
+		// Create inbound processor
+		inboundProcessor := email.NewInboundProcessor(db, nip05Resolver, logger)
+
+		// Create SMTP server config
+		smtpConfig := &transport.SMTPServerConfig{
+			ListenAddr:     cfg.SMTPInboundAddr,
+			Domain:         cfg.SMTPInboundDomain,
+			AllowedDomains: cfg.SMTPInboundDomains,
+			TLSCertFile:    cfg.SMTPInboundTLSCert,
+			TLSKeyFile:     cfg.SMTPInboundTLSKey,
+		}
+
+		// Create SMTP server
+		smtpServer = transport.NewSMTPServer(smtpConfig, inboundProcessor, inboundProcessor, logger)
+	}
+
 	// Start servers in goroutines
 	go func() {
 		logger.Info("Starting API server", zap.String("addr", cfg.ListenAddr))
@@ -172,6 +197,16 @@ func main() {
 			logger.Fatal("Metrics server error", zap.Error(err))
 		}
 	}()
+
+	// Start SMTP server if enabled
+	if smtpServer != nil {
+		go func() {
+			logger.Info("Starting inbound SMTP server", zap.String("addr", cfg.SMTPInboundAddr))
+			if err := smtpServer.Start(); err != nil {
+				logger.Error("SMTP server error", zap.Error(err))
+			}
+		}()
+	}
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -189,6 +224,12 @@ func main() {
 
 	if err := metricsServer.Shutdown(ctx); err != nil {
 		logger.Error("Metrics server shutdown error", zap.Error(err))
+	}
+
+	if smtpServer != nil {
+		if err := smtpServer.Stop(); err != nil {
+			logger.Error("SMTP server shutdown error", zap.Error(err))
+		}
 	}
 
 	logger.Info("Shutdown complete")
