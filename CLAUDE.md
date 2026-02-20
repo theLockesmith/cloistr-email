@@ -169,26 +169,46 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
     - Hard/soft/unknown classification
     - Database storage for bounce tracking
   - Unit tests for all hardening modules
+- [x] Hardening integration into inbound SMTP flow
+  - Rate limiting integrated at connection and message level
+  - SPF validation during MAIL FROM command
+  - DKIM verification during DATA command
+  - Verification results passed to handler via context
+  - Bounce detection and processing for incoming DSN messages
+  - Outbound queue integration with bounce recording on permanent failures
+- [x] Nostr signature verification on inbound mail (RFC-002 Phase 2)
+  - EmailVerifier with NIP-05 cross-verification
+  - InboundProcessor verifies X-Nostr-* headers
+  - Verification results stored in database (nostr_verified, nostr_verified_at)
+  - Ready for UI "Verified sender" badge
 
 ### Next Steps
 
 See RFCs for detailed plans:
 - **[RFC-001](docs/001-stalwart-removal-migration.md)**: ✅ Complete
-- **[RFC-002](docs/002-nostr-email-integration.md)**: Nostr as identity layer for SMTP
+- **[RFC-002](docs/002-nostr-email-integration.md)**: Phases 1-2 complete, Phase 3+ pending
 
 **Immediate:**
-1. Lightning spam control (RFC-002 future)
-   - Per-user payment requirements
-   - LUD-16 integration
+1. UI verification badge (RFC-002 Phase 2 completion)
+   - Display "Verified sender" badge for Nostr-verified emails
+   - Show verification status in email list and detail view
 
-2. Rspamd integration (optional)
-   - Spam filtering sidecar
-   - Basic spam scoring
+2. RFC-002 Phase 3: Promote the standard
+   - Document the header format as a NIP proposal
+   - Create specification for X-Nostr-* email headers
 
 **Near-term:**
 3. Production deployment
    - DNS configuration (SPF, DKIM, DMARC, PTR records)
    - TLS certificate setup for SMTP
+
+4. Lightning spam control (RFC-002 Phase 4)
+   - Per-user payment requirements
+   - LUD-16 integration
+
+5. Rspamd integration (optional)
+   - Spam filtering sidecar
+   - Basic spam scoring
 
 ## Quick Commands
 

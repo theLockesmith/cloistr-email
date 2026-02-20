@@ -2,6 +2,7 @@ package unit
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/transport"
@@ -177,4 +178,81 @@ Diagnostic-Code: smtp;550 5.1.1 User unknown
 	assert.Contains(t, string(bounceMessage), "Final-Recipient:")
 	assert.Contains(t, string(bounceMessage), "Diagnostic-Code:")
 	assert.Contains(t, string(bounceMessage), "5.1.1")
+}
+
+func TestRecordOutboundFailure(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("without database", func(t *testing.T) {
+		handler := transport.NewBounceHandler(nil, logger)
+
+		// Should not error without a database
+		err := handler.RecordOutboundFailure(
+			context.Background(),
+			"<test123@example.com>",
+			[]string{"user@example.com"},
+			assert.AnError,
+		)
+		assert.NoError(t, err)
+	})
+
+	t.Run("hard bounce classification", func(t *testing.T) {
+		var receivedBounce *transport.BounceInfo
+		handler := transport.NewBounceHandler(nil, logger,
+			transport.WithHardBounceCallback(func(ctx context.Context, bounce *transport.BounceInfo) error {
+				receivedBounce = bounce
+				return nil
+			}),
+		)
+
+		err := handler.RecordOutboundFailure(
+			context.Background(),
+			"<test123@example.com>",
+			[]string{"user@example.com"},
+			fmt.Errorf("550 5.1.1 User unknown"),
+		)
+		assert.NoError(t, err)
+		require.NotNil(t, receivedBounce)
+		assert.Equal(t, transport.BounceTypeHard, receivedBounce.Type)
+		assert.Equal(t, "user@example.com", receivedBounce.OriginalRecipient)
+	})
+
+	t.Run("soft bounce classification", func(t *testing.T) {
+		var receivedBounce *transport.BounceInfo
+		handler := transport.NewBounceHandler(nil, logger,
+			transport.WithSoftBounceCallback(func(ctx context.Context, bounce *transport.BounceInfo) error {
+				receivedBounce = bounce
+				return nil
+			}),
+		)
+
+		err := handler.RecordOutboundFailure(
+			context.Background(),
+			"<test456@example.com>",
+			[]string{"user@example.com"},
+			fmt.Errorf("452 Mailbox full, try again later"),
+		)
+		assert.NoError(t, err)
+		require.NotNil(t, receivedBounce)
+		assert.Equal(t, transport.BounceTypeSoft, receivedBounce.Type)
+	})
+
+	t.Run("multiple recipients", func(t *testing.T) {
+		callCount := 0
+		handler := transport.NewBounceHandler(nil, logger,
+			transport.WithHardBounceCallback(func(ctx context.Context, bounce *transport.BounceInfo) error {
+				callCount++
+				return nil
+			}),
+		)
+
+		err := handler.RecordOutboundFailure(
+			context.Background(),
+			"<test789@example.com>",
+			[]string{"user1@example.com", "user2@example.com", "user3@example.com"},
+			fmt.Errorf("550 User unknown"),
+		)
+		assert.NoError(t, err)
+		assert.Equal(t, 3, callCount)
+	})
 }

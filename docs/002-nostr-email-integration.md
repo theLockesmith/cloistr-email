@@ -1,8 +1,9 @@
 # RFC-002: Nostr as the Identity Layer for SMTP
 
-**Status:** Draft
+**Status:** In Progress (Phases 1-2 Complete)
 **Author:** coldforge
 **Date:** 2026-02-04
+**Updated:** 2026-02-19
 **Depends on:** RFC-001 (Stalwart Removal)
 
 ## The Problem with Email Today
@@ -240,18 +241,32 @@ X-Nostr-Algorithm: nip44
 
 ## Adoption Path
 
-### Phase 1: Sign our own outbound mail
+### Phase 1: Sign our own outbound mail ✅ COMPLETE
 
 Every email sent from `@coldforge.xyz` includes Nostr signature headers. Recipients who understand the headers can verify; others ignore them (headers are invisible to normal email clients).
 
+**Implementation:**
+- `internal/email/signing.go` - EmailSigner with RFC-002 canonicalization
+- `internal/signing/signer.go` - Signer interface with LocalSigner (BIP-340 Schnorr)
+- SMTP transport auto-signs outbound emails when signer is configured
+- Headers: `X-Nostr-Pubkey`, `X-Nostr-Sig`, `X-Nostr-Signed-Headers`
+- Unit tests for signing (20+ tests passing)
+
 **No recipient changes required.** We just start signing.
 
-### Phase 2: Verify inbound mail
+### Phase 2: Verify inbound mail ✅ COMPLETE
 
 When we receive email with `X-Nostr-*` headers:
 - Attempt verification
 - Store verification result
 - Display verification status in UI ("Verified sender" badge)
+
+**Implementation:**
+- `internal/email/verify.go` - EmailVerifier with NIP-05 cross-verification
+- `internal/email/inbound.go` - InboundProcessor verifies signatures on incoming mail
+- Database columns: `nostr_verified`, `nostr_verification_error`, `nostr_verified_at`
+- Verification results stored per-email for UI display
+- Unit tests for verification
 
 Mail without Nostr headers works exactly as before - this is additive, not breaking.
 

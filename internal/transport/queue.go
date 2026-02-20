@@ -73,6 +73,9 @@ const (
 	QueueStatusRetry QueueStatus = "retry"
 )
 
+// PermanentFailureCallback is called when a message permanently fails
+type PermanentFailureCallback func(ctx context.Context, msg *QueuedMessage, err error)
+
 // OutboundQueue manages the persistent outbound email queue
 type OutboundQueue struct {
 	db     *sql.DB
@@ -83,6 +86,9 @@ type OutboundQueue struct {
 	retryDelays   []time.Duration
 	processBatch  int
 	pollInterval  time.Duration
+
+	// Optional callback for permanent failures (e.g., bounce recording)
+	onPermanentFailure PermanentFailureCallback
 }
 
 // OutboundQueueConfig contains configuration for the outbound queue
@@ -117,13 +123,23 @@ func DefaultQueueConfig() *OutboundQueueConfig {
 	}
 }
 
+// OutboundQueueOption configures an OutboundQueue
+type OutboundQueueOption func(*OutboundQueue)
+
+// WithPermanentFailureCallback sets the callback for permanent failures
+func WithPermanentFailureCallback(cb PermanentFailureCallback) OutboundQueueOption {
+	return func(q *OutboundQueue) {
+		q.onPermanentFailure = cb
+	}
+}
+
 // NewOutboundQueue creates a new outbound queue
-func NewOutboundQueue(db *sql.DB, config *OutboundQueueConfig, logger *zap.Logger) *OutboundQueue {
+func NewOutboundQueue(db *sql.DB, config *OutboundQueueConfig, logger *zap.Logger, opts ...OutboundQueueOption) *OutboundQueue {
 	if config == nil {
 		config = DefaultQueueConfig()
 	}
 
-	return &OutboundQueue{
+	q := &OutboundQueue{
 		db:           db,
 		logger:       logger,
 		maxAttempts:  config.MaxAttempts,
@@ -131,6 +147,12 @@ func NewOutboundQueue(db *sql.DB, config *OutboundQueueConfig, logger *zap.Logge
 		processBatch: config.ProcessBatch,
 		pollInterval: config.PollInterval,
 	}
+
+	for _, opt := range opts {
+		opt(q)
+	}
+
+	return q
 }
 
 // Enqueue adds a message to the outbound queue
@@ -264,10 +286,12 @@ func (q *OutboundQueue) MarkSent(ctx context.Context, id string) error {
 
 // MarkFailed marks a message as failed, scheduling a retry if attempts remain
 func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) error {
-	// First, get the current attempt count
+	// First, get the current message state
 	var attempts, maxAttempts int
-	selectQuery := `SELECT attempts, max_attempts FROM outbound_queue WHERE id = $1`
-	if selectErr := q.db.QueryRowContext(ctx, selectQuery, id).Scan(&attempts, &maxAttempts); selectErr != nil {
+	var messageID, sender string
+	var recipientsJSON []byte
+	selectQuery := `SELECT attempts, max_attempts, message_id, sender, recipients FROM outbound_queue WHERE id = $1`
+	if selectErr := q.db.QueryRowContext(ctx, selectQuery, id).Scan(&attempts, &maxAttempts, &messageID, &sender, &recipientsJSON); selectErr != nil {
 		return fmt.Errorf("failed to get message attempts: %w", selectErr)
 	}
 
@@ -275,13 +299,15 @@ func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) er
 
 	var status QueueStatus
 	var nextAttempt time.Time
+	isPermanent := attempts >= maxAttempts
 
-	if attempts >= maxAttempts {
+	if isPermanent {
 		// Permanent failure
 		status = QueueStatusFailed
 		nextAttempt = time.Now() // Not used, but needs a value
 		q.logger.Warn("Message permanently failed",
 			zap.String("id", id),
+			zap.String("message_id", messageID),
 			zap.Int("attempts", attempts),
 			zap.Error(err))
 	} else {
@@ -310,6 +336,22 @@ func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) er
 	_, updateErr := q.db.ExecContext(ctx, updateQuery, status, attempts, errStr, nextAttempt, id)
 	if updateErr != nil {
 		return fmt.Errorf("failed to mark message as failed: %w", updateErr)
+	}
+
+	// Call permanent failure callback if registered and this is a permanent failure
+	if isPermanent && q.onPermanentFailure != nil {
+		var recipients []string
+		json.Unmarshal(recipientsJSON, &recipients)
+
+		msg := &QueuedMessage{
+			ID:        id,
+			MessageID: messageID,
+			From:      sender,
+			To:        recipients,
+			Attempts:  attempts,
+			LastError: errStr,
+		}
+		q.onPermanentFailure(ctx, msg, err)
 	}
 
 	return nil

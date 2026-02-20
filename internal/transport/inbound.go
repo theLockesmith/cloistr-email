@@ -60,6 +60,20 @@ type SMTPServerConfig struct {
 
 	// TLSKeyFile is the path to the TLS key file
 	TLSKeyFile string
+
+	// EnableSPF enables SPF validation for incoming mail
+	EnableSPF bool
+
+	// SPFFailAction determines what happens when SPF fails
+	// "reject" = reject the message, "tag" = accept but tag, "none" = ignore
+	SPFFailAction string
+
+	// EnableDKIM enables DKIM signature verification for incoming mail
+	EnableDKIM bool
+
+	// DKIMFailAction determines what happens when DKIM fails
+	// "reject" = reject the message, "tag" = accept but tag, "none" = ignore
+	DKIMFailAction string
 }
 
 // DefaultSMTPServerConfig returns sensible defaults for the SMTP server
@@ -91,18 +105,53 @@ type RecipientValidator interface {
 
 // SMTPServer is an inbound SMTP server using emersion/go-smtp
 type SMTPServer struct {
-	config  *SMTPServerConfig
-	server  *smtp.Server
-	handler MessageHandler
-	validator RecipientValidator
-	logger  *zap.Logger
+	config       *SMTPServerConfig
+	server       *smtp.Server
+	handler      MessageHandler
+	validator    RecipientValidator
+	rateLimiter  *RateLimiter
+	spfValidator *SPFValidator
+	dkimVerifier *DKIMVerifier
+	bounceHandler *BounceHandler
+	logger       *zap.Logger
 
 	mu      sync.Mutex
 	running bool
 }
 
+// SMTPServerOption configures an SMTPServer
+type SMTPServerOption func(*SMTPServer)
+
+// WithRateLimiter adds rate limiting to the SMTP server
+func WithRateLimiter(rl *RateLimiter) SMTPServerOption {
+	return func(s *SMTPServer) {
+		s.rateLimiter = rl
+	}
+}
+
+// WithSPFValidator adds SPF validation to the SMTP server
+func WithSPFValidator(v *SPFValidator) SMTPServerOption {
+	return func(s *SMTPServer) {
+		s.spfValidator = v
+	}
+}
+
+// WithDKIMVerifier adds DKIM verification to the SMTP server
+func WithDKIMVerifier(v *DKIMVerifier) SMTPServerOption {
+	return func(s *SMTPServer) {
+		s.dkimVerifier = v
+	}
+}
+
+// WithBounceHandler adds bounce handling to the SMTP server
+func WithBounceHandler(h *BounceHandler) SMTPServerOption {
+	return func(s *SMTPServer) {
+		s.bounceHandler = h
+	}
+}
+
 // NewSMTPServer creates a new inbound SMTP server
-func NewSMTPServer(config *SMTPServerConfig, handler MessageHandler, validator RecipientValidator, logger *zap.Logger) *SMTPServer {
+func NewSMTPServer(config *SMTPServerConfig, handler MessageHandler, validator RecipientValidator, logger *zap.Logger, opts ...SMTPServerOption) *SMTPServer {
 	if config == nil {
 		config = DefaultSMTPServerConfig()
 	}
@@ -112,6 +161,11 @@ func NewSMTPServer(config *SMTPServerConfig, handler MessageHandler, validator R
 		handler:   handler,
 		validator: validator,
 		logger:    logger,
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	// Create the backend
@@ -190,24 +244,59 @@ type smtpBackend struct {
 
 // NewSession implements smtp.Backend
 func (b *smtpBackend) NewSession(c *smtp.Conn) (smtp.Session, error) {
+	remoteAddr := c.Conn().RemoteAddr().String()
+	clientIP := extractIP(remoteAddr)
+
 	b.logger.Debug("New SMTP session",
-		zap.String("remote_addr", c.Conn().RemoteAddr().String()))
+		zap.String("remote_addr", remoteAddr),
+		zap.String("client_ip", clientIP))
+
+	// Check rate limits for connection
+	if b.server.rateLimiter != nil {
+		if err := b.server.rateLimiter.AllowConnection(clientIP); err != nil {
+			b.logger.Warn("Connection rate limited",
+				zap.String("client_ip", clientIP),
+				zap.Error(err))
+			return nil, &smtp.SMTPError{
+				Code:         421,
+				EnhancedCode: smtp.EnhancedCode{4, 7, 0},
+				Message:      "Too many connections, please try again later",
+			}
+		}
+	}
 
 	return &smtpSession{
-		backend: b,
-		conn:    c,
-		logger:  b.logger,
+		backend:  b,
+		conn:     c,
+		clientIP: clientIP,
+		logger:   b.logger,
 	}, nil
+}
+
+// extractIP extracts the IP address from a remote address string
+func extractIP(addr string) string {
+	// Handle IPv6 addresses like [::1]:1234
+	if idx := strings.LastIndex(addr, "]:"); idx != -1 {
+		return strings.TrimPrefix(addr[:idx+1], "[")
+	}
+	// Handle IPv4 addresses like 192.168.1.1:1234
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		return addr[:idx]
+	}
+	return addr
 }
 
 // smtpSession implements smtp.Session
 type smtpSession struct {
-	backend *smtpBackend
-	conn    *smtp.Conn
-	logger  *zap.Logger
+	backend  *smtpBackend
+	conn     *smtp.Conn
+	clientIP string
+	logger   *zap.Logger
 
-	from string
-	to   []string
+	from       string
+	fromDomain string
+	to         []string
+	spfResult  *SPFCheckResult
 }
 
 // Mail implements smtp.Session - handles MAIL FROM command
@@ -237,6 +326,36 @@ func (s *smtpSession) Mail(from string, opts *smtp.MailOptions) error {
 	}
 
 	s.from = addr.Address
+
+	// Extract domain for SPF check
+	parts := strings.Split(s.from, "@")
+	if len(parts) == 2 {
+		s.fromDomain = parts[1]
+	}
+
+	// Perform SPF validation if enabled
+	if s.backend.server.spfValidator != nil && s.backend.server.config.EnableSPF && s.fromDomain != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		s.spfResult = s.backend.server.spfValidator.Check(ctx, s.clientIP, s.fromDomain, s.from)
+		s.logger.Debug("SPF check result",
+			zap.String("from", s.from),
+			zap.String("domain", s.fromDomain),
+			zap.String("client_ip", s.clientIP),
+			zap.String("result", string(s.spfResult.Result)),
+			zap.String("explanation", s.spfResult.Explanation))
+
+		// Handle SPF failure based on policy
+		if s.spfResult.Result == SPFFail && s.backend.server.config.SPFFailAction == "reject" {
+			return &smtp.SMTPError{
+				Code:         550,
+				EnhancedCode: smtp.EnhancedCode{5, 7, 23},
+				Message:      fmt.Sprintf("SPF validation failed: %s", s.spfResult.Explanation),
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -317,6 +436,20 @@ func (s *smtpSession) Rcpt(to string, opts *smtp.RcptOptions) error {
 func (s *smtpSession) Data(r io.Reader) error {
 	s.logger.Debug("DATA", zap.String("from", s.from), zap.Strings("to", s.to))
 
+	// Check rate limits for message
+	if s.backend.server.rateLimiter != nil {
+		if err := s.backend.server.rateLimiter.AllowMessage(s.clientIP, len(s.to)); err != nil {
+			s.logger.Warn("Message rate limited",
+				zap.String("client_ip", s.clientIP),
+				zap.Error(err))
+			return &smtp.SMTPError{
+				Code:         451,
+				EnhancedCode: smtp.EnhancedCode{4, 7, 0},
+				Message:      "Too many messages, please try again later",
+			}
+		}
+	}
+
 	// Read the message data
 	var buf bytes.Buffer
 	maxSize := int64(s.backend.server.config.MaxMessageSize)
@@ -340,12 +473,60 @@ func (s *smtpSession) Data(r io.Reader) error {
 		}
 	}
 
+	data := buf.Bytes()
+
+	// Check if this is a bounce message
+	if s.backend.server.bounceHandler != nil && s.backend.server.bounceHandler.IsBounce(s.from, data) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := s.backend.server.bounceHandler.ProcessBounce(ctx, s.from, s.to, data); err != nil {
+			s.logger.Error("Failed to process bounce",
+				zap.String("from", s.from),
+				zap.Error(err))
+		} else {
+			s.logger.Info("Bounce message processed",
+				zap.String("from", s.from),
+				zap.Strings("to", s.to))
+			return nil // Bounce handled, don't process as regular message
+		}
+	}
+
+	// Perform DKIM verification if enabled
+	var dkimResult *DKIMVerificationResult
+	if s.backend.server.dkimVerifier != nil && s.backend.server.config.EnableDKIM {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		dkimResult = s.backend.server.dkimVerifier.Verify(ctx, data)
+		cancel()
+
+		s.logger.Debug("DKIM verification result",
+			zap.Bool("valid", dkimResult.Valid),
+			zap.Int("signatures", len(dkimResult.Signatures)),
+			zap.String("error", dkimResult.Error))
+
+		// Handle DKIM failure based on policy
+		if !dkimResult.Valid && s.backend.server.config.DKIMFailAction == "reject" {
+			// Only reject if there were signatures that failed verification
+			// Don't reject unsigned mail
+			if len(dkimResult.Signatures) > 0 {
+				return &smtp.SMTPError{
+					Code:         550,
+					EnhancedCode: smtp.EnhancedCode{5, 7, 20},
+					Message:      fmt.Sprintf("DKIM verification failed: %s", dkimResult.Error),
+				}
+			}
+		}
+	}
+
 	// Process the message
 	if s.backend.server.handler != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if err := s.backend.server.handler.HandleMessage(ctx, s.from, s.to, buf.Bytes()); err != nil {
+		// Add verification results to context
+		ctx = contextWithVerificationResults(ctx, s.spfResult, dkimResult)
+
+		if err := s.backend.server.handler.HandleMessage(ctx, s.from, s.to, data); err != nil {
 			s.logger.Error("Failed to handle message",
 				zap.String("from", s.from),
 				zap.Strings("to", s.to),
@@ -371,8 +552,57 @@ func (s *smtpSession) Data(r io.Reader) error {
 	s.logger.Info("Message received",
 		zap.String("from", s.from),
 		zap.Strings("to", s.to),
-		zap.Int64("size", n))
+		zap.Int64("size", n),
+		zap.String("spf", s.spfResultString()),
+		zap.String("dkim", dkimResultString(dkimResult)))
 
+	return nil
+}
+
+// spfResultString returns a string representation of the SPF result
+func (s *smtpSession) spfResultString() string {
+	if s.spfResult == nil {
+		return "none"
+	}
+	return string(s.spfResult.Result)
+}
+
+// dkimResultString returns a string representation of the DKIM result
+func dkimResultString(r *DKIMVerificationResult) string {
+	if r == nil {
+		return "none"
+	}
+	if r.Valid {
+		return "pass"
+	}
+	if len(r.Signatures) == 0 {
+		return "none"
+	}
+	return "fail"
+}
+
+// Context key for SPF result
+type spfResultKeyType string
+
+const spfResultKey spfResultKeyType = "spf_result"
+
+// contextWithVerificationResults adds verification results to a context
+func contextWithVerificationResults(ctx context.Context, spf *SPFCheckResult, dkim *DKIMVerificationResult) context.Context {
+	if spf != nil {
+		ctx = context.WithValue(ctx, spfResultKey, spf)
+	}
+	if dkim != nil {
+		// dkimResultKey is defined in dkim_verify.go
+		ctx = context.WithValue(ctx, dkimResultKeyType("dkim_result"), dkim)
+	}
+	return ctx
+}
+
+// GetSPFResult retrieves the SPF result from a context
+func GetSPFResult(ctx context.Context) *SPFCheckResult {
+	if v := ctx.Value(spfResultKey); v != nil {
+		return v.(*SPFCheckResult)
+	}
 	return nil
 }
 

@@ -79,6 +79,109 @@ func WithSoftBounceCallback(fn func(ctx context.Context, bounce *BounceInfo) err
 	}
 }
 
+// RecordOutboundFailure records a bounce from an outbound delivery failure
+// This is called by the outbound queue when a message permanently fails
+func (h *BounceHandler) RecordOutboundFailure(ctx context.Context, messageID string, recipients []string, err error) error {
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+
+	// Classify the bounce type based on error message
+	bounceType := h.classifyFromError(errStr)
+
+	h.logger.Debug("Recording outbound failure as bounce",
+		zap.String("message_id", messageID),
+		zap.Strings("recipients", recipients),
+		zap.String("bounce_type", string(bounceType)))
+
+	// Record a bounce for each recipient
+	for _, recipient := range recipients {
+		bounce := &BounceInfo{
+			Type:              bounceType,
+			OriginalRecipient: recipient,
+			OriginalMessageID: messageID,
+			Reason:            errStr,
+			DiagnosticCode:    extractSMTPCodeFromError(errStr),
+			ReceivedAt:        time.Now(),
+		}
+
+		// Store in database if available
+		if h.db != nil {
+			if storeErr := h.storeBounce(ctx, bounce); storeErr != nil {
+				h.logger.Error("Failed to store outbound failure bounce",
+					zap.String("recipient", recipient),
+					zap.Error(storeErr))
+			}
+		}
+
+		// Call appropriate callback
+		switch bounceType {
+		case BounceTypeHard:
+			if h.onHardBounce != nil {
+				h.onHardBounce(ctx, bounce)
+			}
+		case BounceTypeSoft:
+			if h.onSoftBounce != nil {
+				h.onSoftBounce(ctx, bounce)
+			}
+		}
+	}
+
+	return nil
+}
+
+// classifyFromError classifies a bounce type based on the error message
+func (h *BounceHandler) classifyFromError(errStr string) BounceType {
+	errLower := strings.ToLower(errStr)
+
+	// Hard bounce indicators
+	hardIndicators := []string{
+		"user unknown", "no such user", "does not exist",
+		"mailbox not found", "invalid recipient", "invalid address",
+		"550 5.1.1", "550 5.1.2", "551", "553", "554",
+		"address rejected", "recipient rejected",
+	}
+
+	for _, indicator := range hardIndicators {
+		if strings.Contains(errLower, indicator) {
+			return BounceTypeHard
+		}
+	}
+
+	// Soft bounce indicators
+	softIndicators := []string{
+		"mailbox full", "over quota", "temporarily",
+		"try again", "connection refused", "timeout",
+		"connection reset", "no route to host",
+		"421", "450", "451", "452",
+	}
+
+	for _, indicator := range softIndicators {
+		if strings.Contains(errLower, indicator) {
+			return BounceTypeSoft
+		}
+	}
+
+	return BounceTypeUnknown
+}
+
+// extractSMTPCodeFromError extracts an SMTP status code from an error string
+func extractSMTPCodeFromError(errStr string) string {
+	// Look for patterns like "550", "5.1.1", "550 5.1.1"
+	for i := 0; i < len(errStr)-2; i++ {
+		if errStr[i] >= '4' && errStr[i] <= '5' {
+			if errStr[i+1] >= '0' && errStr[i+1] <= '9' {
+				if errStr[i+2] >= '0' && errStr[i+2] <= '9' {
+					// Found a 3-digit code
+					return errStr[i : i+3]
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // NewBounceHandler creates a new bounce handler
 func NewBounceHandler(db *sql.DB, logger *zap.Logger, opts ...BounceHandlerOption) *BounceHandler {
 	h := &BounceHandler{
