@@ -1,9 +1,9 @@
 # RFC-001: Remove Stalwart, Replace with Lightweight SMTP
 
-**Status:** In Progress (Phase 3 Complete)
+**Status:** Complete (All Phases Done)
 **Author:** coldforge
 **Date:** 2026-02-04
-**Updated:** 2026-02-18
+**Updated:** 2026-02-19
 
 ## Summary
 
@@ -190,13 +190,34 @@ Things Stalwart handled that we need to own:
    - Added SMTP_INBOUND_* environment variables
    - Port 25 mapping (requires SMTP_INBOUND_ENABLED=true)
 
-### Phase 4: Hardening
+### Phase 4: Hardening ✅ COMPLETE
 
-1. Add rate limiting on inbound SMTP
-2. Add rspamd sidecar for spam filtering (or basic checks)
-3. Add SPF validation for inbound mail
-4. Add DKIM verification for inbound mail
-5. Add bounce handling for outbound failures
+1. ✅ Add rate limiting on inbound SMTP
+   - Created `internal/transport/ratelimit.go`
+   - Per-IP connection and message rate tracking
+   - Configurable limits: connections/minute, messages/minute, recipients/message
+   - Automatic block/unblock with configurable duration
+   - Whitelisted IPs bypass rate limiting
+   - RateLimitError with retry-after information
+2. ⏳ Add rspamd sidecar for spam filtering (deferred to future)
+3. ✅ Add SPF validation for inbound mail
+   - Created `internal/transport/spf.go`
+   - DNS TXT record lookup and parsing
+   - SPF result types: pass, fail, softfail, neutral, none, temperror, permerror
+   - Configurable lookup limit and timeout
+4. ✅ Add DKIM verification for inbound mail
+   - Created `internal/transport/dkim_verify.go`
+   - Uses emersion/go-msgauth for verification
+   - Signature parsing with domain and selector extraction
+   - Support for required domain validation
+   - DKIMVerificationResult with per-signature details
+5. ✅ Add bounce handling for outbound failures
+   - Created `internal/transport/bounce.go`
+   - Bounce detection via empty sender, DSN subjects, multipart/report
+   - Bounce classification: hard (permanent), soft (temporary), unknown
+   - Database storage for bounce tracking (email_bounces table)
+   - Callbacks for hard/soft bounce events
+   - Configurable cleanup of old bounce records
 
 ## New dependencies
 

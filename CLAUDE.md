@@ -2,6 +2,11 @@
 
 **SMTP + Nostr signing/encryption - not a bridge, an integration**
 
+## REQUIRED READING (Before ANY Action)
+
+**Claude MUST read this file at the start of every session:**
+- `~/claude/coldforge/cloistr/CLAUDE.md` - Cloistr project rules (contains further required reading)
+
 ## Documentation
 
 Full documentation: `~/claude/coldforge/services/email/CLAUDE.md`
@@ -148,24 +153,42 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - Integration with main.go (enabled via SMTP_INBOUND_ENABLED)
   - Docker-compose updated with port 25 mapping
   - Unit tests for server config and validators
+- [x] SMTP hardening (RFC-001 Phase 4)
+  - Rate limiting on inbound SMTP (ratelimit.go)
+    - Per-IP connection and message rate tracking
+    - Configurable limits and block duration
+    - IP whitelisting support
+  - SPF validation for inbound mail (spf.go)
+    - DNS TXT record lookup and parsing
+    - All SPF result types supported
+  - DKIM verification for inbound mail (dkim_verify.go)
+    - Signature verification using emersion/go-msgauth
+    - Per-signature result tracking
+  - Bounce handling for outbound failures (bounce.go)
+    - Detection via DSN patterns and empty sender
+    - Hard/soft/unknown classification
+    - Database storage for bounce tracking
+  - Unit tests for all hardening modules
 
 ### Next Steps
 
 See RFCs for detailed plans:
-- **[RFC-001](docs/001-stalwart-removal-migration.md)**: Complete SMTP hardening
+- **[RFC-001](docs/001-stalwart-removal-migration.md)**: ✅ Complete
 - **[RFC-002](docs/002-nostr-email-integration.md)**: Nostr as identity layer for SMTP
 
 **Immediate:**
-1. SMTP hardening (RFC-001 Phase 4)
-   - Rate limiting on inbound SMTP
-   - SPF validation for inbound mail
-   - DKIM verification for inbound mail
-   - Bounce handling for outbound failures
-
-**Near-term:**
-2. Lightning spam control (RFC-002 future)
+1. Lightning spam control (RFC-002 future)
    - Per-user payment requirements
    - LUD-16 integration
+
+2. Rspamd integration (optional)
+   - Spam filtering sidecar
+   - Basic spam scoring
+
+**Near-term:**
+3. Production deployment
+   - DNS configuration (SPF, DKIM, DMARC, PTR records)
+   - TLS certificate setup for SMTP
 
 ## Quick Commands
 
@@ -216,8 +239,12 @@ internal/
 │   ├── smtp.go            # SMTP outbound transport
 │   ├── inbound.go         # SMTP inbound server (go-smtp)
 │   ├── dkim.go            # DKIM signing module
+│   ├── dkim_verify.go     # DKIM verification module
 │   ├── mx.go              # MX resolver for direct delivery
-│   └── queue.go           # PostgreSQL-backed outbound queue
+│   ├── queue.go           # PostgreSQL-backed outbound queue
+│   ├── ratelimit.go       # Rate limiting for inbound SMTP
+│   ├── spf.go             # SPF validation module
+│   └── bounce.go          # Bounce detection and handling
 └── storage/
     ├── postgres.go         # PostgreSQL database layer
     └── redis.go            # Session store

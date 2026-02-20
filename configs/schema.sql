@@ -229,3 +229,22 @@ CREATE INDEX idx_outbound_queue_status ON outbound_queue(status);
 CREATE INDEX idx_outbound_queue_next_attempt ON outbound_queue(next_attempt) WHERE status IN ('pending', 'retry');
 CREATE INDEX idx_outbound_queue_message_id ON outbound_queue(message_id);
 CREATE INDEX idx_outbound_queue_created_at ON outbound_queue(created_at);
+
+-- Email bounces table
+-- Tracks bounce information for outbound email delivery failures
+CREATE TABLE IF NOT EXISTS email_bounces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    original_recipient VARCHAR(255) NOT NULL,
+    original_message_id VARCHAR(255),
+    bounce_type VARCHAR(20) NOT NULL DEFAULT 'unknown',
+    reason TEXT,
+    diagnostic_code VARCHAR(50),
+    remote_server VARCHAR(255),
+    received_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_email_bounces_recipient ON email_bounces(original_recipient);
+CREATE INDEX idx_email_bounces_message_id ON email_bounces(original_message_id);
+CREATE INDEX idx_email_bounces_type ON email_bounces(bounce_type);
+CREATE INDEX idx_email_bounces_received_at ON email_bounces(received_at DESC);
