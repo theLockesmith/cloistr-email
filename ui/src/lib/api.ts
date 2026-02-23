@@ -66,6 +66,9 @@ export interface Email {
   folder: string
   created_at: string
   read_at?: string
+  // Nostr signature verification (RFC-002)
+  nostr_verified?: boolean
+  nostr_verified_at?: string
 }
 
 export interface EmailListResponse {

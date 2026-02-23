@@ -139,6 +139,10 @@ type GetEmailResponseV2 struct {
 	CreatedAt string `json:"created_at"`
 	ReadAt    string `json:"read_at,omitempty"`
 	Folder    string `json:"folder"`
+
+	// Nostr signature verification (RFC-002)
+	NostrVerified   bool   `json:"nostr_verified"`
+	NostrVerifiedAt string `json:"nostr_verified_at,omitempty"`
 }
 
 // EncryptionCapabilityResponse describes a user's encryption capabilities

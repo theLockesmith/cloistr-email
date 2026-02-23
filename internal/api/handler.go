@@ -277,14 +277,16 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 
 // EmailResponse represents an email in API responses
 type EmailResponse struct {
-	ID          string `json:"id"`
-	From        string `json:"from"`
-	To          string `json:"to"`
-	Subject     string `json:"subject"`
-	Body        string `json:"body"`
-	IsEncrypted bool   `json:"is_encrypted"`
-	SenderNpub  string `json:"sender_npub,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	ID             string `json:"id"`
+	From           string `json:"from"`
+	To             string `json:"to"`
+	Subject        string `json:"subject"`
+	Body           string `json:"body"`
+	IsEncrypted    bool   `json:"is_encrypted"`
+	SenderNpub     string `json:"sender_npub,omitempty"`
+	NostrVerified  bool   `json:"nostr_verified"`
+	NostrVerifiedAt string `json:"nostr_verified_at,omitempty"`
+	CreatedAt      string `json:"created_at"`
 }
 
 // ListEmailsResponse is the response for listing emails

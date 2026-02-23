@@ -146,8 +146,8 @@ export default function EmailPage() {
             )}
           </div>
 
-          {/* Encryption badge */}
-          <div className="mt-3 flex items-center gap-2">
+          {/* Encryption and verification badges */}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
             {email.is_encrypted && (
               <span
                 className={`inline-flex items-center px-3 py-1 rounded-full text-sm ${
@@ -163,6 +163,11 @@ export default function EmailPage() {
                   : needsDecryption
                   ? '🔐 Encrypted (requires decryption)'
                   : '🔒 Encrypted'}
+              </span>
+            )}
+            {email.nostr_verified && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+                ✓ Verified sender
               </span>
             )}
             {email.encryption_mode && (

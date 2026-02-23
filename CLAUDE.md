@@ -181,32 +181,38 @@ Coldforge overview: `~/claude/coldforge/CLAUDE.md`
   - InboundProcessor verifies X-Nostr-* headers
   - Verification results stored in database (nostr_verified, nostr_verified_at)
   - Ready for UI "Verified sender" badge
+- [x] NIP proposal for X-Nostr-* email headers (RFC-002 Phase 3)
+  - Full specification at `docs/nip-smtp-signing.md`
+  - Header definitions, canonicalization algorithm, verification process
+  - Security considerations and test vectors
+  - Ready for submission to nostr-protocol/nips
+- [x] UI verification badge (RFC-002 Phase 2 completion)
+  - "Verified sender" badge in InboxPage (blue checkmark)
+  - "✓ Verified sender" pill badge in EmailPage detail view
+  - nostr_verified fields added to API responses
+  - Frontend Email interface updated with verification fields
 
 ### Next Steps
 
 See RFCs for detailed plans:
 - **[RFC-001](docs/001-stalwart-removal-migration.md)**: ✅ Complete
-- **[RFC-002](docs/002-nostr-email-integration.md)**: Phases 1-2 complete, Phase 3+ pending
+- **[RFC-002](docs/002-nostr-email-integration.md)**: Phases 1-3 complete, Phase 4+ pending
 
 **Immediate:**
-1. UI verification badge (RFC-002 Phase 2 completion)
-   - Display "Verified sender" badge for Nostr-verified emails
-   - Show verification status in email list and detail view
-
-2. RFC-002 Phase 3: Promote the standard
-   - Document the header format as a NIP proposal
-   - Create specification for X-Nostr-* email headers
+1. Submit NIP proposal to nostr-protocol/nips
+   - NIP draft: `docs/nip-smtp-signing.md`
+   - Covers X-Nostr-* headers, canonicalization, verification
 
 **Near-term:**
-3. Production deployment
+2. Production deployment
    - DNS configuration (SPF, DKIM, DMARC, PTR records)
    - TLS certificate setup for SMTP
 
-4. Lightning spam control (RFC-002 Phase 4)
+3. Lightning spam control (RFC-002 Phase 4)
    - Per-user payment requirements
    - LUD-16 integration
 
-5. Rspamd integration (optional)
+4. Rspamd integration (optional)
    - Spam filtering sidecar
    - Basic spam scoring
 

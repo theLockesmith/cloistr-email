@@ -310,15 +310,17 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 	}
 
 	result := &GetEmailResult{
-		ID:           email.ID,
-		MessageID:    messageID,
-		From:         email.FromAddress,
-		To:           email.ToAddress,
-		Subject:      email.Subject,
-		IsEncrypted:  email.IsEncrypted,
-		SenderPubkey: senderPubkey,
-		Folder:       email.Folder,
-		CreatedAt:    email.CreatedAt,
+		ID:              email.ID,
+		MessageID:       messageID,
+		From:            email.FromAddress,
+		To:              email.ToAddress,
+		Subject:         email.Subject,
+		IsEncrypted:     email.IsEncrypted,
+		SenderPubkey:    senderPubkey,
+		Folder:          email.Folder,
+		CreatedAt:       email.CreatedAt,
+		NostrVerified:   email.NostrVerified,
+		NostrVerifiedAt: email.NostrVerifiedAt,
 	}
 
 	if email.ReadAt != nil {
@@ -402,6 +404,10 @@ type GetEmailResult struct {
 	Folder    string
 	CreatedAt time.Time
 	ReadAt    *time.Time
+
+	// Nostr signature verification (RFC-002)
+	NostrVerified   bool
+	NostrVerifiedAt *time.Time
 }
 
 // ListEmails retrieves a list of emails for a user

@@ -158,6 +158,11 @@ export default function InboxPage() {
                         🔒
                       </span>
                     )}
+                    {email.nostr_verified && (
+                      <span className="flex-shrink-0 text-blue-600" title="Verified sender (Nostr signature)">
+                        ✓
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-600 truncate">
                     {folder === 'sent' ? `To: ${email.to}` : email.from}

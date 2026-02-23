@@ -183,10 +183,14 @@ func (h *EmailHandler) GetEmailV2(w http.ResponseWriter, r *http.Request) {
 		MessageID:                result.MessageID,
 		Folder:                   result.Folder,
 		CreatedAt:                result.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		NostrVerified:            result.NostrVerified,
 	}
 
 	if result.ReadAt != nil {
 		resp.ReadAt = result.ReadAt.Format("2006-01-02T15:04:05Z")
+	}
+	if result.NostrVerifiedAt != nil {
+		resp.NostrVerifiedAt = result.NostrVerifiedAt.Format("2006-01-02T15:04:05Z")
 	}
 
 	h.respondJSON(w, http.StatusOK, resp)
@@ -247,15 +251,20 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 			senderNpub = *e.SenderNpub
 		}
 
-		emailResponses = append(emailResponses, EmailResponse{
-			ID:          e.ID,
-			From:        e.FromAddress,
-			To:          e.ToAddress,
-			Subject:     e.Subject,
-			IsEncrypted: e.IsEncrypted,
-			SenderNpub:  senderNpub,
-			CreatedAt:   e.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		})
+		resp := EmailResponse{
+			ID:            e.ID,
+			From:          e.FromAddress,
+			To:            e.ToAddress,
+			Subject:       e.Subject,
+			IsEncrypted:   e.IsEncrypted,
+			SenderNpub:    senderNpub,
+			NostrVerified: e.NostrVerified,
+			CreatedAt:     e.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+		if e.NostrVerifiedAt != nil {
+			resp.NostrVerifiedAt = e.NostrVerifiedAt.Format("2006-01-02T15:04:05Z")
+		}
+		emailResponses = append(emailResponses, resp)
 	}
 
 	h.respondJSON(w, http.StatusOK, ListEmailsResponse{
