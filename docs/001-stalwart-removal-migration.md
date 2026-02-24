@@ -87,7 +87,7 @@ Using `emersion/go-smtp`, implement an SMTP server that:
 - Accepts mail for `@coldforge.xyz` recipients
 - Validates recipients exist in our PostgreSQL user table
 - Parses the raw message (headers, body, attachments)
-- Checks for `X-Nostr-*` headers (encrypted mail from other coldforge users)
+- Checks for `X-Nostr-*` headers (encrypted mail from other Cloistr users)
 - Stores directly into PostgreSQL
 - Triggers notifications (future: websocket push, Nostr DM notification)
 

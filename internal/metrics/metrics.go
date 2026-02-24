@@ -1,4 +1,4 @@
-// Package metrics provides Prometheus metrics for coldforge-email
+// Package metrics provides Prometheus metrics for cloistr-email
 package metrics
 
 import (
@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-const namespace = "coldforge_email"
+const namespace = "cloistr_email"
 
 // Email metrics
 var (

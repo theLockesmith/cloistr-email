@@ -1,6 +1,6 @@
 # RFC-002: Nostr as the Identity Layer for SMTP
 
-**Status:** In Progress (Phases 1-2 Complete)
+**Status:** In Progress (Phases 1-3 Complete)
 **Author:** coldforge
 **Date:** 2026-02-04
 **Updated:** 2026-02-19
@@ -105,7 +105,7 @@ This is egalitarian. A person running a mail server on a Raspberry Pi has the sa
 
 ### Signing outbound email
 
-When a coldforge user sends an email:
+When a Cloistr user sends an email:
 
 ```go
 // Compute signature over canonical message representation
@@ -135,7 +135,7 @@ func SignEmail(msg *Message, signer Signer) error {
 
 ### Verifying inbound email
 
-When coldforge receives an email with Nostr headers:
+When Cloistr receives an email with Nostr headers:
 
 ```go
 func VerifyEmail(msg *Message) (*VerificationResult, error) {
@@ -270,11 +270,23 @@ When we receive email with `X-Nostr-*` headers:
 
 Mail without Nostr headers works exactly as before - this is additive, not breaking.
 
-### Phase 3: Promote the standard
+### Phase 3: Promote the standard ✅ COMPLETE
 
 - Document the header format as a NIP (or NIP extension)
 - Encourage other Nostr-aware mail services to adopt it
 - Build verification into Nostr clients that display email
+
+**Implementation:**
+- `docs/nip-smtp-signing.md` - Full NIP proposal for X-Nostr-* email headers
+- Specification includes:
+  - Header definitions (X-Nostr-Pubkey, X-Nostr-Sig, X-Nostr-Signed-Headers)
+  - Canonicalization algorithm for headers and body
+  - Signature generation using Nostr event kind 27235
+  - Verification process with pseudocode
+  - NIP-05 cross-verification flow
+  - Security considerations (replay attacks, key rotation, mailing lists)
+  - Test vectors for implementation compatibility
+- Ready for submission to nostr-protocol/nips repository
 
 ### Phase 4: Leverage for spam filtering
 
@@ -388,7 +400,7 @@ The header format should probably be standardized. Options:
 - Extension to NIP-05 (add signature verification spec)
 - Standalone specification outside NIP process (email-focused)
 
-## Implementation in coldforge-email
+## Implementation in cloistr-email
 
 ### What we add
 

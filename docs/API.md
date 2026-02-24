@@ -1,4 +1,4 @@
-# coldforge-email API Documentation
+# Cloistr Email API Documentation
 
 ## Base URL
 
@@ -455,7 +455,7 @@ Service health check.
 ```json
 {
   "status": "ok",
-  "service": "coldforge-email",
+  "service": "cloistr-email",
   "timestamp": "2026-01-17T10:00:00Z"
 }
 ```

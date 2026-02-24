@@ -1,12 +1,12 @@
 # Email Encryption Design
 
-coldforge-email provides end-to-end email encryption using Nostr cryptography (NIP-44).
+Cloistr Email provides end-to-end email encryption using Nostr cryptography (NIP-44).
 
 ## Concepts
 
 ### Why Nostr Keys for Email?
 
-Traditional email encryption (PGP, S/MIME) requires separate key management. With coldforge-email, we use your existing Nostr keypair:
+Traditional email encryption (PGP, S/MIME) requires separate key management. With Cloistr Email, we use your existing Nostr keypair:
 
 - **One identity:** Your Nostr key is your email identity
 - **No separate keys:** No need for PGP keys or certificates
@@ -244,7 +244,7 @@ npub := lookupNIP05("bob@example.com")
 
 ### Key Management
 
-- **Private keys:** Never stored in coldforge-email
+- **Private keys:** Never stored in Cloistr Email
 - **Decryption:** Always via nsecbunker (NIP-46)
 - **Key compromise:** If user's Nostr key is compromised, encryption fails
   - User should rotate key in nsecbunker

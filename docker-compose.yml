@@ -5,7 +5,7 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: coldforge_email
+      POSTGRES_DB: cloistr_email
       POSTGRES_USER: email_user
       POSTGRES_PASSWORD: dev_password
     ports:
@@ -14,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./configs/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U email_user -d coldforge_email"]
+      test: ["CMD-SHELL", "pg_isready -U email_user -d cloistr_email"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,8 +30,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # Coldforge Email backend service
-  coldforge-email:
+  # Cloistr Email backend service
+  cloistr-email:
     build:
       context: .
       dockerfile: Dockerfile
@@ -40,7 +40,7 @@ services:
       - ENVIRONMENT=development
       - LISTEN_ADDR=0.0.0.0:8080
       - METRICS_ADDR=0.0.0.0:9090
-      - DATABASE_URL=postgres://email_user:dev_password@postgres:5432/coldforge_email
+      - DATABASE_URL=postgres://email_user:dev_password@postgres:5432/cloistr_email
       - REDIS_URL=redis://redis:6379
       - SMTP_HOST=localhost
       - SMTP_PORT=587
@@ -67,14 +67,14 @@ services:
       retries: 3
 
   # Frontend (TypeScript/React)
-  coldforge-email-ui:
+  cloistr-email-ui:
     build:
       context: ./ui
       dockerfile: Dockerfile
     ports:
       - "3001:3000"
     depends_on:
-      - coldforge-email
+      - cloistr-email
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 30s
@@ -86,4 +86,4 @@ volumes:
 
 networks:
   default:
-    name: coldforge-email
+    name: cloistr-email

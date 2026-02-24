@@ -1,4 +1,4 @@
-# coldforge-email Deployment Guide
+# Cloistr Email Deployment Guide
 
 ## Local Development
 
@@ -13,8 +13,8 @@
 
 ```bash
 # Clone repository
-git clone git@gitlab-coldforge:coldforge/coldforge-email.git
-cd coldforge-email
+git clone git@gitlab-coldforge:coldforge/cloistr-email.git
+cd cloistr-email
 
 # Start all services
 docker-compose up
@@ -109,7 +109,7 @@ Create `.well-known/nostr.json` endpoint:
 
 1. **Create Atlas role:**
    ```
-   ~/Atlas/roles/kube/coldforge-email/
+   ~/Atlas/roles/kube/cloistr-email/
    ```
 
 2. **Configure Kubernetes manifests:**
@@ -124,7 +124,7 @@ Create `.well-known/nostr.json` endpoint:
    apiVersion: networking.k8s.io/v1
    kind: Ingress
    metadata:
-     name: coldforge-email
+     name: cloistr-email
    spec:
      rules:
      - host: mail.coldforge.xyz
@@ -133,20 +133,20 @@ Create `.well-known/nostr.json` endpoint:
          - path: /
            backend:
              service:
-               name: coldforge-email
+               name: cloistr-email
                port:
                  number: 3001  # Frontend
          - path: /api
            backend:
              service:
-               name: coldforge-email-api
+               name: cloistr-email-api
                port:
                  number: 8080  # Backend
    ```
 
 4. **Initialize database:**
    ```bash
-   kubectl exec -it coldforge-email-backend -- ./coldforge-email migrate
+   kubectl exec -it cloistr-email-backend -- ./cloistr-email migrate
    ```
 
 5. **Configure Stalwart:**
@@ -167,7 +167,7 @@ Create `.well-known/nostr.json` endpoint:
    kubectl get pods -n coldforge
 
    # View logs
-   kubectl logs -f deployment/coldforge-email -n coldforge
+   kubectl logs -f deployment/cloistr-email -n coldforge
    ```
 
 ### Domain Configuration
@@ -202,10 +202,10 @@ certbot certonly -d mail.coldforge.xyz -d coldforge.xyz
 
 ```bash
 # Automated daily backups
-kubectl exec coldforge-email-postgres -- pg_dump -U postgres coldforge_email | gzip > backup.sql.gz
+kubectl exec cloistr-email-postgres -- pg_dump -U postgres cloistr_email | gzip > backup.sql.gz
 
 # Restore
-gunzip -c backup.sql.gz | kubectl exec -i coldforge-email-postgres -- psql -U postgres
+gunzip -c backup.sql.gz | kubectl exec -i cloistr-email-postgres -- psql -U postgres
 ```
 
 **Email Storage:**
@@ -220,51 +220,51 @@ Logs are sent to stdout and available via:
 
 ```bash
 # View backend logs
-kubectl logs -f deployment/coldforge-email-backend -n coldforge
+kubectl logs -f deployment/cloistr-email-backend -n coldforge
 
 # View frontend logs
-kubectl logs -f deployment/coldforge-email-frontend -n coldforge
+kubectl logs -f deployment/cloistr-email-frontend -n coldforge
 
 # Stream all logs
-kubectl logs -f -l app=coldforge-email -n coldforge
+kubectl logs -f -l app=cloistr-email -n coldforge
 ```
 
 ### Metrics
 
 Prometheus metrics available at:
 ```
-http://coldforge-email-api:9090/metrics
+http://cloistr-email-api:9090/metrics
 ```
 
 **Available metrics:**
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `coldforge_email_emails_sent_total` | Counter | transport, encrypted, status | Total emails sent |
-| `coldforge_email_emails_received_total` | Counter | transport, verified | Total emails received |
-| `coldforge_email_email_send_duration_seconds` | Histogram | transport | Email send latency |
-| `coldforge_email_nostr_signatures_total` | Counter | operation, result | Nostr signature operations |
-| `coldforge_email_nostr_verifications_total` | Counter | result | Email signature verifications |
-| `coldforge_email_encryption_operations_total` | Counter | operation, mode, result | Encryption operations |
-| `coldforge_email_nip05_lookups_total` | Counter | result | NIP-05 lookups (success/failure/cached) |
-| `coldforge_email_nip05_lookup_duration_seconds` | Histogram | - | NIP-05 lookup latency |
-| `coldforge_email_nip05_cache_size` | Gauge | - | Current NIP-05 cache entries |
-| `coldforge_email_auth_attempts_total` | Counter | method, result | Authentication attempts |
-| `coldforge_email_active_sessions` | Gauge | - | Current active sessions |
-| `coldforge_email_http_requests_total` | Counter | method, path, status | HTTP requests |
-| `coldforge_email_http_request_duration_seconds` | Histogram | method, path | HTTP request latency |
-| `coldforge_email_db_query_duration_seconds` | Histogram | operation | Database query latency |
-| `coldforge_email_smtp_connections_total` | Counter | direction, result | SMTP connection attempts |
-| `coldforge_email_lightning_payments_total` | Counter | result | Lightning payments (future) |
+| `cloistr_email_emails_sent_total` | Counter | transport, encrypted, status | Total emails sent |
+| `cloistr_email_emails_received_total` | Counter | transport, verified | Total emails received |
+| `cloistr_email_email_send_duration_seconds` | Histogram | transport | Email send latency |
+| `cloistr_email_nostr_signatures_total` | Counter | operation, result | Nostr signature operations |
+| `cloistr_email_nostr_verifications_total` | Counter | result | Email signature verifications |
+| `cloistr_email_encryption_operations_total` | Counter | operation, mode, result | Encryption operations |
+| `cloistr_email_nip05_lookups_total` | Counter | result | NIP-05 lookups (success/failure/cached) |
+| `cloistr_email_nip05_lookup_duration_seconds` | Histogram | - | NIP-05 lookup latency |
+| `cloistr_email_nip05_cache_size` | Gauge | - | Current NIP-05 cache entries |
+| `cloistr_email_auth_attempts_total` | Counter | method, result | Authentication attempts |
+| `cloistr_email_active_sessions` | Gauge | - | Current active sessions |
+| `cloistr_email_http_requests_total` | Counter | method, path, status | HTTP requests |
+| `cloistr_email_http_request_duration_seconds` | Histogram | method, path | HTTP request latency |
+| `cloistr_email_db_query_duration_seconds` | Histogram | operation | Database query latency |
+| `cloistr_email_smtp_connections_total` | Counter | direction, result | SMTP connection attempts |
+| `cloistr_email_lightning_payments_total` | Counter | result | Lightning payments (future) |
 
 ### Health Checks
 
 ```bash
 # Service health
-curl http://coldforge-email:8080/health
+curl http://cloistr-email:8080/health
 
 # Readiness check
-curl http://coldforge-email:8080/ready
+curl http://cloistr-email:8080/ready
 ```
 
 ## Troubleshooting
@@ -304,7 +304,7 @@ curl http://coldforge-email:8080/ready
 
 1. Connect to PostgreSQL:
    ```bash
-   kubectl exec -it coldforge-email-postgres -- psql -U email_user coldforge_email
+   kubectl exec -it cloistr-email-postgres -- psql -U email_user cloistr_email
    ```
 
 2. Check schema:
@@ -317,13 +317,13 @@ curl http://coldforge-email:8080/ready
 
 ```bash
 # View deployment history
-kubectl rollout history deployment/coldforge-email-backend -n coldforge
+kubectl rollout history deployment/cloistr-email-backend -n coldforge
 
 # Rollback to previous version
-kubectl rollout undo deployment/coldforge-email-backend -n coldforge
+kubectl rollout undo deployment/cloistr-email-backend -n coldforge
 
 # Rollback to specific revision
-kubectl rollout undo deployment/coldforge-email-backend --to-revision=2 -n coldforge
+kubectl rollout undo deployment/cloistr-email-backend --to-revision=2 -n coldforge
 ```
 
 ## Performance Tuning
@@ -354,12 +354,12 @@ VACUUM ANALYZE;
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: coldforge-email
+  name: cloistr-email
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: coldforge-email-backend
+    name: cloistr-email-backend
   minReplicas: 2
   maxReplicas: 10
   metrics:

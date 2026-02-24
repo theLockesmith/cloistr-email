@@ -4,7 +4,7 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-white shadow">
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-gray-900">Coldforge Mail</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Cloistr Mail</h1>
       </div>
 
       <nav className="px-6 py-4">

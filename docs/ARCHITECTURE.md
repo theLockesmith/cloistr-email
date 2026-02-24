@@ -1,8 +1,8 @@
-# coldforge-email Architecture
+# Cloistr Email Architecture
 
 ## System Overview
 
-coldforge-email is a Nostr-native email service that uses Nostr identity as the trust layer for SMTP. Instead of relying on DKIM/SPF/DMARC (domain-level authentication), emails are signed with the sender's Nostr key and verified via NIP-05.
+Cloistr Email is a Nostr-native email service that uses Nostr identity as the trust layer for SMTP. Instead of relying on DKIM/SPF/DMARC (domain-level authentication), emails are signed with the sender's Nostr key and verified via NIP-05.
 
 **Key insight:** Don't replace SMTP, fix its authentication problem. Nostr provides the identity layer SMTP never had.
 
@@ -187,14 +187,14 @@ Starts:
 - PostgreSQL (port 5432)
 - Redis (port 6379)
 - Stalwart (ports 25, 143, 587, 993, 6001)
-- coldforge-email backend (port 8080)
+- Cloistr Email backend (port 8080)
 - Frontend (port 3001)
 
 ### Production Deployment
 
-Using Atlas/Kubernetes (see `~/Atlas/roles/kube/coldforge-email/`):
+Using Atlas/Kubernetes (see `~/Atlas/roles/kube/cloistr-email/`):
 
-1. Build Docker image: `docker build -t coldforge-email:latest .`
+1. Build Docker image: `docker build -t cloistr-email:latest .`
 2. Push to registry
 3. Deploy via Atlas manifests
 4. Configure Stalwart for domain
@@ -263,14 +263,14 @@ Available at `:9090/metrics`. Key metrics:
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `coldforge_email_emails_sent_total` | Counter | Emails sent by transport/status |
-| `coldforge_email_email_send_duration_seconds` | Histogram | Send latency |
-| `coldforge_email_nip05_lookups_total` | Counter | NIP-05 lookups (cached/success/failure) |
-| `coldforge_email_nip05_cache_size` | Gauge | Cache entries |
-| `coldforge_email_auth_attempts_total` | Counter | Auth attempts by method/result |
-| `coldforge_email_active_sessions` | Gauge | Current sessions |
-| `coldforge_email_http_requests_total` | Counter | HTTP requests by method/path/status |
-| `coldforge_email_http_request_duration_seconds` | Histogram | HTTP latency |
+| `cloistr_email_emails_sent_total` | Counter | Emails sent by transport/status |
+| `cloistr_email_email_send_duration_seconds` | Histogram | Send latency |
+| `cloistr_email_nip05_lookups_total` | Counter | NIP-05 lookups (cached/success/failure) |
+| `cloistr_email_nip05_cache_size` | Gauge | Cache entries |
+| `cloistr_email_auth_attempts_total` | Counter | Auth attempts by method/result |
+| `cloistr_email_active_sessions` | Gauge | Current sessions |
+| `cloistr_email_http_requests_total` | Counter | HTTP requests by method/path/status |
+| `cloistr_email_http_request_duration_seconds` | Histogram | HTTP latency |
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete metrics reference.
 

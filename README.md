@@ -1,10 +1,10 @@
-# coldforge-email
+# cloistr-email
 
 Email with Nostr identity and encryption - SMTP enhanced, not replaced.
 
 ## Overview
 
-coldforge-email is a Nostr-native email service that:
+Cloistr Email is a Nostr-native email service that:
 
 - **Authenticates via NIP-46/NIP-07** - Users sign in with their Nostr key (nsecbunker or browser extension)
 - **Signs emails with Nostr keys** - Cryptographic sender verification without DKIM/SPF/DMARC
@@ -23,7 +23,7 @@ See the RFC documents for our architectural roadmap:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│            coldforge-email Service                      │
+│            Cloistr Email Service                        │
 ├─────────────────────────────────────────────────────────┤
 │ ┌─────────────────────────────────────────────────────┐ │
 │ │ Auth Module (NIP-46 / NIP-07)                       │ │
@@ -115,7 +115,7 @@ One address works everywhere:
 ## Project Structure
 
 ```
-coldforge-email/
+cloistr-email/
 ├── cmd/
 │   └── email/
 │       └── main.go                 # Entry point
@@ -160,8 +160,8 @@ coldforge-email/
 
 ```bash
 # Clone the repository
-git clone git@gitlab-coldforge:coldforge/coldforge-email.git
-cd coldforge-email
+git clone git@gitlab-coldforge:coldforge/cloistr-email.git
+cd cloistr-email
 
 # Start services with Docker Compose
 docker-compose up
@@ -188,11 +188,11 @@ go test -v -race ./...
 
 ```bash
 # Local build
-docker build -t coldforge-email:latest .
+docker build -t cloistr-email:latest .
 
 # Push to registry
-docker tag coldforge-email:latest $REGISTRY/coldforge-email:latest
-docker push $REGISTRY/coldforge-email:latest
+docker tag cloistr-email:latest $REGISTRY/cloistr-email:latest
+docker push $REGISTRY/cloistr-email:latest
 ```
 
 ## Configuration
@@ -203,7 +203,7 @@ Key environment variables:
 
 ```bash
 # Database
-DATABASE_URL=postgres://user:pass@localhost:5432/coldforge_email
+DATABASE_URL=postgres://user:pass@localhost:5432/cloistr_email
 
 # Cache
 REDIS_URL=redis://localhost:6379
@@ -222,10 +222,10 @@ METRICS_ADDR=0.0.0.0:9090
 Prometheus metrics available at `:9090/metrics`. See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full metrics reference.
 
 Key metrics:
-- `coldforge_email_emails_sent_total` - Email send counts by transport/status
-- `coldforge_email_nip05_lookups_total` - NIP-05 lookup results
-- `coldforge_email_auth_attempts_total` - Authentication attempts
-- `coldforge_email_http_requests_total` - HTTP request counts
+- `cloistr_email_emails_sent_total` - Email send counts by transport/status
+- `cloistr_email_nip05_lookups_total` - NIP-05 lookup results
+- `cloistr_email_auth_attempts_total` - Authentication attempts
+- `cloistr_email_http_requests_total` - HTTP request counts
 
 ## API Endpoints
 

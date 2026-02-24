@@ -1,4 +1,4 @@
-# coldforge-email Configuration
+# cloistr-email Configuration
 
 # Server Configuration
 server:
@@ -10,7 +10,7 @@ server:
 
 # Database Configuration
 database:
-  url: "postgres://email_user:password@localhost:5432/coldforge_email"
+  url: "postgres://email_user:password@localhost:5432/cloistr_email"
   max_connections: 20
   connection_timeout: "10s"
   ssl_mode: "disable" # Use "require" in production
