@@ -419,7 +419,7 @@ The header format should probably be standardized. Options:
 | Schnorr signing via Nostr key | Done (via `go-nostr`) |
 | NIP-46 remote signer | Done (`internal/auth/nip46.go`) |
 | NIP-07 client-side signing | Done (`internal/encryption/signer.go`) |
-| X-Nostr-* header handling | Partial (encryption headers exist, need signing headers) |
+| X-Nostr-* header handling | Complete (signing + encryption headers implemented) |
 
 ### Database changes
 

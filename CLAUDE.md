@@ -9,8 +9,9 @@
 
 ## Documentation
 
-Full documentation: `~/claude/coldforge/services/email/CLAUDE.md`
-Coldforge overview: `~/claude/coldforge/CLAUDE.md`
+Service documentation: `~/claude/coldforge/cloistr/services/email/CLAUDE.md`
+Cloistr project rules: `~/claude/coldforge/cloistr/CLAUDE.md`
+Coldforge company rules: `~/claude/coldforge/CLAUDE.md`
 
 ## Autonomous Work Mode (CRITICAL)
 
