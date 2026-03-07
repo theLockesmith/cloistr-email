@@ -5,6 +5,7 @@ go 1.24.1
 toolchain go1.24.12
 
 require (
+	git.coldforge.xyz/coldforge/cloistr-common v0.1.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/emersion/go-msgauth v0.7.0
 	github.com/emersion/go-smtp v0.24.0
