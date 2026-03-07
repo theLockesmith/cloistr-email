@@ -4,7 +4,7 @@ stages:
 
 test:unit:
   stage: test
-  image: golang:1.21-alpine
+  image: golang:1.25-alpine
   script:
     - for i in 1 2 3 4 5; do apk add --no-cache git gcc musl-dev && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
     - go mod download
