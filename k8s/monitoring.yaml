@@ -1,0 +1,196 @@
+# ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloistr-email
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    release: prometheus  # Match your Prometheus Operator installation
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloistr-email
+      app.kubernetes.io/component: backend
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+    - coldforge
+---
+# PrometheusRule for alerting
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cloistr-email-alerts
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    release: prometheus
+spec:
+  groups:
+  - name: cloistr-email.rules
+    rules:
+    # High error rate on email sending
+    - alert: HighEmailSendErrorRate
+      expr: |
+        (
+          sum(rate(cloistr_email_emails_sent_total{status="error"}[5m]))
+          /
+          sum(rate(cloistr_email_emails_sent_total[5m]))
+        ) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High email send error rate"
+        description: "More than 10% of emails are failing to send over the last 5 minutes."
+
+    # Email send latency too high
+    - alert: HighEmailSendLatency
+      expr: |
+        histogram_quantile(0.95, sum(rate(cloistr_email_email_send_duration_seconds_bucket[5m])) by (le))
+        > 10
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High email send latency"
+        description: "95th percentile email send latency is above 10 seconds."
+
+    # Nostr signature verification failures
+    - alert: HighSignatureVerificationFailures
+      expr: |
+        (
+          sum(rate(cloistr_email_nostr_verifications_total{result="failure"}[10m]))
+          /
+          sum(rate(cloistr_email_nostr_verifications_total[10m]))
+        ) > 0.2
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High Nostr signature verification failure rate"
+        description: "More than 20% of signature verifications are failing."
+
+    # Database connection issues
+    - alert: DatabaseQueryLatencyHigh
+      expr: |
+        histogram_quantile(0.95, sum(rate(cloistr_email_db_query_duration_seconds_bucket[5m])) by (le, operation))
+        > 1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High database query latency"
+        description: "95th percentile database query latency is above 1 second."
+
+    # SMTP connection failures
+    - alert: SMTPConnectionFailures
+      expr: |
+        sum(rate(cloistr_email_smtp_connections_total{result="error"}[5m])) > 5
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "SMTP connection failures"
+        description: "More than 5 SMTP connection failures per second."
+
+    # Service down
+    - alert: CloistrEmailDown
+      expr: up{job="cloistr-email"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Cloistr Email service is down"
+        description: "Cloistr Email backend is not responding to Prometheus scrapes."
+
+    # High HTTP error rate
+    - alert: HighHTTPErrorRate
+      expr: |
+        (
+          sum(rate(cloistr_email_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(cloistr_email_http_requests_total[5m]))
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High HTTP 5xx error rate"
+        description: "More than 5% of HTTP requests are returning 5xx errors."
+
+    # Certificate expiring soon
+    - alert: TLSCertificateExpiringSoon
+      expr: |
+        (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 14
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "TLS certificate expiring soon"
+        description: "TLS certificate will expire in less than 14 days."
+
+    # NIP-05 lookup failures
+    - alert: HighNIP05LookupFailures
+      expr: |
+        (
+          sum(rate(cloistr_email_nip05_lookups_total{result="failure"}[10m]))
+          /
+          sum(rate(cloistr_email_nip05_lookups_total[10m]))
+        ) > 0.3
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High NIP-05 lookup failure rate"
+        description: "More than 30% of NIP-05 lookups are failing."
+
+    # Low active sessions (potential auth issues)
+    - alert: NoActiveSessions
+      expr: cloistr_email_active_sessions == 0
+      for: 30m
+      labels:
+        severity: info
+      annotations:
+        summary: "No active sessions"
+        description: "No active user sessions for 30 minutes. This may be normal during low-traffic periods."
+
+    # PostgreSQL down
+    - alert: PostgreSQLDown
+      expr: pg_up{job="cloistr-email-postgres"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "PostgreSQL is down"
+        description: "PostgreSQL database is not responding."
+
+    # Redis down
+    - alert: RedisDown
+      expr: redis_up{job="cloistr-email-redis"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Redis is down"
+        description: "Redis cache is not responding."
+
+    # Disk space warning for PostgreSQL
+    - alert: PostgreSQLDiskSpaceLow
+      expr: |
+        (
+          kubelet_volume_stats_used_bytes{persistentvolumeclaim="cloistr-email-postgres-pvc"}
+          /
+          kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="cloistr-email-postgres-pvc"}
+        ) > 0.8
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "PostgreSQL disk space low"
+        description: "PostgreSQL persistent volume is more than 80% full."

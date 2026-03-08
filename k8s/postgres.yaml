@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloistr-email-postgres-secret
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: postgres
+type: Opaque
+stringData:
+  POSTGRES_USER: email_user
+  POSTGRES_PASSWORD: CHANGE_ME_SECURE_PASSWORD
+  POSTGRES_DB: cloistr_email
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cloistr-email-postgres-pvc
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: postgres
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard  # Adjust for your cluster
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cloistr-email-postgres
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: cloistr-email-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloistr-email
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloistr-email
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - name: postgres
+          containerPort: 5432
+        envFrom:
+        - secretRef:
+            name: cloistr-email-postgres-secret
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - email_user
+            - -d
+            - cloistr_email
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - email_user
+            - -d
+            - cloistr_email
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: cloistr-email-postgres-pvc
+      - name: init-scripts
+        configMap:
+          name: cloistr-email-postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloistr-email-postgres
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: postgres
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: postgres
+  selector:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: postgres
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloistr-email-postgres-init
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: postgres
+data:
+  01-schema.sql: |
+    -- See configs/schema.sql for full schema
+    -- This is loaded on first container creation

@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloistr-email-backend
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloistr-email-smtp
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: smtp
+  annotations:
+    # For cloud load balancers that need to preserve client IP
+    service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local  # Preserve client IP
+  ports:
+  - name: smtp
+    port: 25
+    targetPort: 25
+    protocol: TCP
+  - name: smtps
+    port: 465
+    targetPort: 465
+    protocol: TCP
+  - name: submission
+    port: 587
+    targetPort: 587
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloistr-email-frontend
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: frontend

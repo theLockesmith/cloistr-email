@@ -25,6 +25,12 @@ dist/
 # Environment variables
 .env
 .env.local
+.env.production
+.env.staging
+
+# DKIM keys (generated secrets)
+dkim-keys/
+*.private.pem
 
 # Logs
 logs/

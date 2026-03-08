@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloistr-email-config
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+    app.kubernetes.io/component: backend
+data:
+  # Server configuration
+  LISTEN_ADDR: ":8080"
+  METRICS_ADDR: ":9090"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+
+  # SMTP Outbound
+  SMTP_PORT: "587"
+  SMTP_DELIVERY_MODE: "direct"  # direct, relay, or hybrid
+
+  # SMTP Inbound
+  SMTP_INBOUND_ENABLED: "true"
+  SMTP_INBOUND_ADDR: ":25"
+  SMTP_INBOUND_DOMAIN: "coldforge.xyz"
+  SMTP_INBOUND_DOMAINS: "coldforge.xyz,mail.coldforge.xyz"
+
+  # DKIM
+  DKIM_DOMAIN: "coldforge.xyz"
+  DKIM_SELECTOR: "mail"
+
+  # Rate limiting
+  RATE_LIMIT_CONNECTIONS_PER_MINUTE: "30"
+  RATE_LIMIT_MESSAGES_PER_HOUR: "100"
+  RATE_LIMIT_BLOCK_DURATION: "1h"
+
+  # Cache settings
+  NIP05_CACHE_TTL: "24h"
+  RELAY_PREFS_CACHE_TTL: "1h"
+
+  # Cloistr integration
+  USE_CLOISTR_FALLBACK: "true"

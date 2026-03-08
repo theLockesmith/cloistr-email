@@ -1,0 +1,106 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cloistr-email
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+  annotations:
+    # cert-manager
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # nginx ingress controller
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss://*.coldforge.xyz;" always;
+
+    # HSTS
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+    nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - mail.coldforge.xyz
+    - email.coldforge.xyz
+    secretName: cloistr-email-tls
+  rules:
+  - host: mail.coldforge.xyz
+    http:
+      paths:
+      # API routes
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: cloistr-email-backend
+            port:
+              number: 8080
+      # Health checks
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: cloistr-email-backend
+            port:
+              number: 8080
+      - path: /ready
+        pathType: Exact
+        backend:
+          service:
+            name: cloistr-email-backend
+            port:
+              number: 8080
+      # Frontend (catch-all)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloistr-email-frontend
+            port:
+              number: 80
+  - host: email.coldforge.xyz
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: cloistr-email-backend
+            port:
+              number: 8080
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cloistr-email-frontend
+            port:
+              number: 80
+---
+# Certificate resource for cert-manager
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cloistr-email-tls
+  namespace: coldforge
+  labels:
+    app.kubernetes.io/name: cloistr-email
+spec:
+  secretName: cloistr-email-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: mail.coldforge.xyz
+  dnsNames:
+  - mail.coldforge.xyz
+  - email.coldforge.xyz

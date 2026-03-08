@@ -192,6 +192,38 @@ Coldforge company rules: `~/claude/coldforge/CLAUDE.md`
   - "✓ Verified sender" pill badge in EmailPage detail view
   - nostr_verified fields added to API responses
   - Frontend Email interface updated with verification fields
+- [x] cloistr-common integration
+  - Relay preferences client (`internal/relays/`) wrapping cloistr-common/relayprefs
+  - API endpoint `/api/v1/relays/prefs` for querying user relay preferences
+  - Environment-based configuration (DISCOVERY_INTERNAL, RELAY_LIST, etc.)
+  - Cloistr service fallback (discover.cloistr.xyz, relay.cloistr.xyz)
+  - Unit tests for relay preferences integration
+- [x] Production deployment configuration
+  - DKIM key generation script (`scripts/generate-dkim-keys.sh`)
+  - DNS setup documentation (`docs/DNS-SETUP.md`)
+    - MX, SPF, DKIM, DMARC, PTR records
+    - Verification commands
+    - Common issues and troubleshooting
+  - TLS certificate guide (`docs/TLS-SETUP.md`)
+    - Let's Encrypt with certbot
+    - Kubernetes cert-manager
+    - SMTP TLS configuration
+  - Kubernetes manifests (`k8s/`)
+    - Backend and frontend Deployments
+    - PostgreSQL StatefulSet with persistence
+    - Redis Deployment with persistence
+    - Services (ClusterIP for internal, LoadBalancer for SMTP)
+    - Ingress with cert-manager integration
+    - ConfigMap and Secret templates
+    - HPA for autoscaling
+    - PodDisruptionBudget for HA
+  - Prometheus alerting rules (`k8s/monitoring.yaml`)
+    - Email send error rate
+    - Signature verification failures
+    - Database latency
+    - SMTP connection failures
+    - Certificate expiration
+  - Production environment template (`.env.production.example`)
 
 ### Next Steps
 
@@ -204,11 +236,13 @@ See RFCs for detailed plans:
    - NIP draft: `docs/nip-smtp-signing.md`
    - Covers X-Nostr-* headers, canonicalization, verification
 
-**Near-term:**
-2. Production deployment
-   - DNS configuration (SPF, DKIM, DMARC, PTR records)
-   - TLS certificate setup for SMTP
+2. Deploy to production
+   - Generate DKIM keys: `./scripts/generate-dkim-keys.sh`
+   - Configure DNS records (see `docs/DNS-SETUP.md`)
+   - Set up TLS certificates (see `docs/TLS-SETUP.md`)
+   - Deploy to Kubernetes: `kubectl apply -k k8s/`
 
+**Near-term:**
 3. Lightning spam control (RFC-002 Phase 4)
    - Per-user payment requirements
    - LUD-16 integration
@@ -259,6 +293,8 @@ internal/
 │   └── errors.go          # Identity-related errors
 ├── metrics/
 │   └── metrics.go         # Prometheus instrumentation
+├── relays/
+│   └── relays.go          # Relay preferences (cloistr-common integration)
 ├── signing/
 │   └── signer.go          # Nostr signing interface (BIP-340)
 ├── transport/
@@ -282,7 +318,24 @@ ui/                         # React frontend
 docs/
 ├── 001-stalwart-removal-migration.md  # RFC: Remove Stalwart
 ├── 002-nostr-email-integration.md     # RFC: Nostr identity layer
+├── DNS-SETUP.md            # DNS configuration guide
+├── TLS-SETUP.md            # TLS certificate guide
 └── ...                     # Other documentation
+k8s/                        # Kubernetes manifests
+├── namespace.yaml          # Namespace definition
+├── configmap.yaml          # Non-sensitive configuration
+├── secret.yaml             # Secret template (do not commit values!)
+├── backend-deployment.yaml # Backend API deployment
+├── frontend-deployment.yaml # Frontend UI deployment
+├── postgres.yaml           # PostgreSQL StatefulSet
+├── redis.yaml              # Redis deployment
+├── services.yaml           # Service definitions
+├── ingress.yaml            # Ingress + Certificate
+├── hpa.yaml                # Autoscaling + PDB
+├── monitoring.yaml         # ServiceMonitor + PrometheusRules
+└── kustomization.yaml      # Kustomize configuration
+scripts/
+└── generate-dkim-keys.sh   # DKIM key generation
 ```
 
 ## Key Architectural Decisions
@@ -327,6 +380,40 @@ The transport layer is designed for future extensibility:
 | Creating Dockerfiles | `docker` |
 | Setting up Kubernetes deployment | `atlas-deploy` |
 | Security-sensitive code (auth, crypto) | `security` |
+
+## Shared Libraries
+
+### cloistr-common
+
+Integrated via `git.coldforge.xyz/coldforge/cloistr-common`. Provides:
+
+**relayprefs** - Relay preference discovery for users
+
+```go
+import "git.coldforge.xyz/coldforge/cloistr-email/internal/relays"
+
+// Create client from environment
+client := relays.NewClient(logger)
+
+// Get user's relay preferences
+prefs, err := client.GetRelayPrefs(ctx, userPubkey)
+
+// Get specific relay types
+readRelays, _ := client.GetReadRelays(ctx, pubkey)
+writeRelays, _ := client.GetWriteRelays(ctx, pubkey)
+```
+
+**Environment Variables for Relay Preferences:**
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DISCOVERY_INTERNAL` | Self-hosted discovery URL | (none) |
+| `RELAY_LIST` | Comma-separated relays for direct query | (none) |
+| `DISCOVERY_EXTERNAL` | Third-party discovery URL | (none) |
+| `USE_CLOISTR_FALLBACK` | Use Cloistr services as fallback | `true` |
+| `RELAY_PREFS_CACHE_TTL` | Cache duration | `1h` |
+
+**Query Chain:** Cache → Internal Discovery → Relay List → External Discovery → Cloistr Discovery → Cloistr Relay
 
 ## NIPs Used
 
