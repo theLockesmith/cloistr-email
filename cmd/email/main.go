@@ -16,6 +16,7 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/email"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/relays"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/transport"
 	"github.com/gorilla/mux"
@@ -72,6 +73,9 @@ func main() {
 		logger.Fatal("Failed to initialize auth handler", zap.Error(err))
 	}
 
+	// Initialize relay preferences client (cloistr-common integration)
+	relayClient := relays.NewClient(logger)
+
 	// Initialize API handler
 	apiHandler := api.NewHandler(
 		db,
@@ -79,6 +83,7 @@ func main() {
 		sessionStore,
 		cfg,
 		logger,
+		api.WithRelayClient(relayClient),
 	)
 
 	// Setup routes
@@ -135,6 +140,10 @@ func main() {
 	contactRoutes.HandleFunc("", apiHandler.AddContact).Methods("POST")
 	contactRoutes.HandleFunc("/{id}", apiHandler.GetContact).Methods("GET")
 	contactRoutes.HandleFunc("/{id}", apiHandler.DeleteContact).Methods("DELETE")
+
+	// Relay preferences endpoint (cloistr-common integration)
+	relayRoutes := v1.PathPrefix("/relays").Subrouter()
+	relayRoutes.HandleFunc("/prefs", apiHandler.GetRelayPrefs).Methods("GET")
 
 	// Middleware
 	router.Use(loggingMiddleware(logger))

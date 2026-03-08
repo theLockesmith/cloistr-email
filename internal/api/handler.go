@@ -9,6 +9,7 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/config"
 	_ "git.coldforge.xyz/coldforge/cloistr-email/internal/encryption" // Will be used for email encryption
+	"git.coldforge.xyz/coldforge/cloistr-email/internal/relays"
 	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
@@ -24,11 +25,22 @@ const (
 
 // Handler implements the API endpoints
 type Handler struct {
-	db       *storage.PostgreSQL
-	auth     *auth.NIP46Handler
-	sessions auth.SessionStore
-	config   *config.Config
-	logger   *zap.Logger
+	db          *storage.PostgreSQL
+	auth        *auth.NIP46Handler
+	sessions    auth.SessionStore
+	config      *config.Config
+	logger      *zap.Logger
+	relayClient *relays.Client
+}
+
+// HandlerOption is a functional option for configuring the Handler
+type HandlerOption func(*Handler)
+
+// WithRelayClient sets the relay preferences client
+func WithRelayClient(client *relays.Client) HandlerOption {
+	return func(h *Handler) {
+		h.relayClient = client
+	}
 }
 
 // NewHandler creates a new API handler
@@ -38,14 +50,21 @@ func NewHandler(
 	sessions auth.SessionStore,
 	cfg *config.Config,
 	logger *zap.Logger,
+	opts ...HandlerOption,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		db:       db,
 		auth:     nip46,
 		sessions: sessions,
 		config:   cfg,
 		logger:   logger,
 	}
+
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	return h
 }
 
 // Response helpers
@@ -658,4 +677,73 @@ func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.respondJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+// ===== Relay Preferences Endpoints =====
+
+// RelayPrefsResponse represents relay preferences in API responses
+type RelayPrefsResponse struct {
+	Pubkey string        `json:"pubkey"`
+	Source string        `json:"source"`
+	Relays []RelayConfig `json:"relays"`
+}
+
+// RelayConfig represents a single relay configuration
+type RelayConfig struct {
+	URL   string `json:"url"`
+	Read  bool   `json:"read"`
+	Write bool   `json:"write"`
+}
+
+// GetRelayPrefs retrieves relay preferences for the authenticated user or a specified pubkey
+func (h *Handler) GetRelayPrefs(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("Getting relay preferences")
+
+	if h.relayClient == nil {
+		h.respondError(w, http.StatusServiceUnavailable, "relay preferences not configured")
+		return
+	}
+
+	// Get pubkey from query param or use authenticated user
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		userID := getUserID(r.Context())
+		if userID == "" {
+			h.respondError(w, http.StatusBadRequest, "pubkey query parameter required when not authenticated")
+			return
+		}
+		pubkey = userID
+	}
+
+	// Validate pubkey format (64 hex chars)
+	if len(pubkey) != 64 {
+		h.respondError(w, http.StatusBadRequest, "invalid pubkey format: expected 64 hex characters")
+		return
+	}
+
+	// Get relay preferences
+	prefs, err := h.relayClient.GetRelayPrefs(r.Context(), pubkey)
+	if err != nil {
+		h.logger.Error("Failed to get relay preferences",
+			zap.String("pubkey", pubkey[:16]+"..."),
+			zap.Error(err))
+		h.respondError(w, http.StatusInternalServerError, "failed to get relay preferences")
+		return
+	}
+
+	// Convert to response format
+	relayConfigs := make([]RelayConfig, len(prefs.Relays))
+	for i, r := range prefs.Relays {
+		relayConfigs[i] = RelayConfig{
+			URL:   r.URL,
+			Read:  r.Read,
+			Write: r.Write,
+		}
+	}
+
+	h.respondJSON(w, http.StatusOK, RelayPrefsResponse{
+		Pubkey: prefs.Pubkey,
+		Source: prefs.Source,
+		Relays: relayConfigs,
+	})
 }
