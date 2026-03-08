@@ -4,7 +4,10 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-white shadow">
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-gray-900">Cloistr Mail</h1>
+        <Link to="/inbox" className="flex items-center gap-3">
+          <img src="/cloistr-icon.svg" alt="Cloistr" className="w-8 h-8" />
+          <h1 className="text-2xl font-bold text-gray-900">Cloistr Mail</h1>
+        </Link>
       </div>
 
       <nav className="px-6 py-4">
