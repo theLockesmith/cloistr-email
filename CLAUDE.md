@@ -1,426 +1,126 @@
 # CLAUDE.md - coldforge-email
 
-**SMTP + Nostr signing/encryption - not a bridge, an integration**
+**SMTP + Nostr signing/encryption (Go backend, React frontend)**
 
-## REQUIRED READING (Before ANY Action)
+**Status:** Production | **Domain:** email.cloistr.xyz
 
-**Claude MUST read this file at the start of every session:**
-- `~/claude/coldforge/cloistr/CLAUDE.md` - Cloistr project rules (contains further required reading)
+## Required Reading
 
-## Documentation
+| Document | Purpose |
+|----------|---------|
+| `~/claude/coldforge/cloistr/CLAUDE.md` | Cloistr project rules |
+| [docs/reference.md](docs/reference.md) | Full API, config, architecture |
+| [docs/001-stalwart-removal-migration.md](docs/001-stalwart-removal-migration.md) | RFC-001 |
+| [docs/002-nostr-email-integration.md](docs/002-nostr-email-integration.md) | RFC-002 |
 
-Service documentation: `~/claude/coldforge/cloistr/services/email/CLAUDE.md`
-Cloistr project rules: `~/claude/coldforge/cloistr/CLAUDE.md`
-Coldforge company rules: `~/claude/coldforge/CLAUDE.md`
-
-## Autonomous Work Mode (CRITICAL)
+## Autonomous Work Mode
 
 **Work autonomously. Do NOT stop to ask what to do next.**
 
-- Keep working until the task is complete or you hit a genuine blocker
-- Use the "Next Steps" section in the service docs to know what to work on
-- Make reasonable decisions - don't ask for permission on obvious choices
-- Only stop to ask if there's a true ambiguity that affects architecture
-- If tests fail, fix them. If code needs review, use the reviewer agent. Keep going.
-- Update this CLAUDE.md and the service docs as you make progress
+- Keep working until task complete or genuine blocker
+- Make reasonable decisions - don't ask permission on obvious choices
+- If tests fail, fix them. Use reviewer agent. Keep going.
 
-## Current Status
+## Agent Usage
 
-### Completed
-- [x] Project scaffolded (Go backend, React frontend)
-- [x] NIP-46 authentication client implemented
-  - bunker:// URL parsing
-  - Challenge creation and verification
-  - Relay connection and messaging
-  - Session management with Redis
-  - NIP-44 encrypt/decrypt via remote signer
-- [x] ~~Stalwart Mail client~~ (removed - RFC-001 Phase 1 complete)
-- [x] API handlers with auth middleware
-- [x] Email encryption format (NIP-44 based)
-  - EmailEncryptor for encrypt/decrypt via bunker
-  - Custom X-Nostr-* headers for metadata
-  - RFC 5322 raw email formatting
-  - Header parsing for encrypted emails
-- [x] NIP-05 key discovery
-  - NIP05Resolver for .well-known/nostr.json lookup
-  - Caching with configurable TTL
-  - CompositeKeyResolver for multiple sources
-- [x] PostgreSQL database layer
-  - User, Email, Contact, Attachment models
-  - Full CRUD operations with pagination
-  - Email filtering (direction, status, folder, labels, search)
-  - Soft delete with deleted_at timestamps
-  - NIP-05 cache persistence
-  - Audit logging support
-- [x] Transport abstraction layer
-  - Swappable delivery mechanisms (SMTP, future Nostr-native)
-  - Message struct for transport-agnostic representation
-  - Manager for routing between transports
-  - Hybrid mode: try Nostr first, fall back to SMTP
-- [x] Unified address system (identity package)
-  - npub ↔ email@coldforge.xyz mapping
-  - Sender validation (must have unified address to send)
-  - Local part validation (reserved names, format rules)
-  - Recipient resolution with NIP-05 discovery
-- [x] NIP-07 client-side encryption support
-  - Signer abstraction (NIP-46 vs NIP-07)
-  - Pre-encrypted body support in API
-  - Client-side decryption flow for NIP-07 users
-  - EncryptionService for coordinating modes
-- [x] SMTP transport implementation
-  - Full SMTP submission to Stalwart via port 587
-  - STARTTLS support
-  - RFC 5322 email formatting with X-Nostr-* headers
-  - Per-recipient encryption support
-  - Health checks
-- [x] Email service layer
-  - Coordinates identity, encryption, storage, and transport
-  - SendRequest/SendResult for full email workflow
-  - GetEmail with decryption handling (server or client-side)
-  - ListEmails with filtering and pagination
-- [x] V2 API endpoints for email operations
-  - SendEmailV2 with encryption mode support
-  - GetEmailV2 with decryption handling
-  - ListEmailsV2 with filtering
-  - DeleteEmailV2
-- [x] Unit tests (200+ tests passing)
-- [x] Frontend integration with NIP-07 support
-- [x] Integration tests for email encryption flow
-  - Email storage CRUD with PostgreSQL
-  - Encrypted email workflow tests
-  - Raw email formatting and parsing
-  - NIP-05 cache integration
-- [x] Docker deployment configuration
-  - Production-ready Dockerfile with Go 1.24
-  - nginx-based frontend serving with SPA routing
-  - docker-compose with PostgreSQL, Redis
-  - NIP-07 browser extension integration (nostr.ts)
-  - LoginPage with NIP-07 and NIP-46 auth options
-  - ComposePage with encryption mode selection
-  - EmailPage with client-side decryption
-  - InboxPage with folder tabs, search, pagination
-  - Updated api.ts with v2 endpoints and types
-  - useAuth hook with loginWithExtension/loginWithBunker
-- [x] Kubernetes deployment configuration (Atlas roles)
-  - Complete Atlas role at ~/Atlas/roles/kube/coldforge-email/
-  - Backend and frontend deployments with HA (2 replicas each)
-  - PostgreSQL and Redis deployments with persistent storage
-  - Ingress configuration for email.coldforge.xyz
-  - ServiceMonitor for Prometheus metrics scraping
-  - Grafana dashboard with 8 monitoring panels
-  - ConfigMaps and Secrets for configuration
-  - Resource limits and health checks
-  - Comprehensive README with deployment guide
-- [x] Prometheus metrics instrumentation
-  - Email send/receive counters and latency histograms
-  - NIP-05 lookup metrics with cache hit tracking
-  - Authentication metrics and active session gauge
-  - HTTP request metrics with path normalization
-  - /metrics endpoint on port 9090
-- [x] RFC documentation
-  - RFC-001: Stalwart removal migration plan
-  - RFC-002: Nostr as identity layer for SMTP
-- [x] Nostr email signing (RFC-002 Phase 1)
-  - BIP-340 Schnorr signatures using go-nostr
-  - Signing package with Signer interface
-  - EmailSigner with RFC-002 canonicalization
-  - EmailVerifier with NIP-05 cross-verification
-  - X-Nostr-Pubkey, X-Nostr-Sig, X-Nostr-Signed-Headers headers
-  - SMTP transport auto-signs outbound emails when signer provided
-  - Database columns for verification status (nostr_verified, nostr_verified_at)
-  - Unit tests for signing and verification (20+ tests)
-- [x] Stalwart removal (RFC-001 Phase 1)
-  - Removed stalwart.go client and tests
-  - Removed Stalwart from NIP-46 handler
-  - Updated config to use direct SMTP settings
-  - Removed Stalwart from docker-compose
-- [x] Own outbound delivery (RFC-001 Phase 2)
-  - DKIM signing module using emersion/go-msgauth
-  - RSA key parsing (PKCS#1 and PKCS#8)
-  - DNS TXT record generation for public key
-  - MX resolver with caching for direct delivery
-  - PostgreSQL-backed outbound queue with retry logic
-  - Delivery modes: relay, direct, hybrid
-  - SMTP transport integration with DKIM signing
-  - Database migration for outbound_queue table
-  - Unit tests for DKIM, MX resolver, and queue
-- [x] Inbound SMTP server (RFC-001 Phase 3)
-  - go-smtp server on port 25 using emersion/go-smtp
-  - SMTPServer with configurable domains and TLS support
-  - InboundProcessor for message parsing and storage
-  - Nostr signature verification on incoming mail
-  - Multipart MIME parsing (text/plain, text/html)
-  - Recipient validation against PostgreSQL user table
-  - Integration with main.go (enabled via SMTP_INBOUND_ENABLED)
-  - Docker-compose updated with port 25 mapping
-  - Unit tests for server config and validators
-- [x] SMTP hardening (RFC-001 Phase 4)
-  - Rate limiting on inbound SMTP (ratelimit.go)
-    - Per-IP connection and message rate tracking
-    - Configurable limits and block duration
-    - IP whitelisting support
-  - SPF validation for inbound mail (spf.go)
-    - DNS TXT record lookup and parsing
-    - All SPF result types supported
-  - DKIM verification for inbound mail (dkim_verify.go)
-    - Signature verification using emersion/go-msgauth
-    - Per-signature result tracking
-  - Bounce handling for outbound failures (bounce.go)
-    - Detection via DSN patterns and empty sender
-    - Hard/soft/unknown classification
-    - Database storage for bounce tracking
-  - Unit tests for all hardening modules
-- [x] Hardening integration into inbound SMTP flow
-  - Rate limiting integrated at connection and message level
-  - SPF validation during MAIL FROM command
-  - DKIM verification during DATA command
-  - Verification results passed to handler via context
-  - Bounce detection and processing for incoming DSN messages
-  - Outbound queue integration with bounce recording on permanent failures
-- [x] Nostr signature verification on inbound mail (RFC-002 Phase 2)
-  - EmailVerifier with NIP-05 cross-verification
-  - InboundProcessor verifies X-Nostr-* headers
-  - Verification results stored in database (nostr_verified, nostr_verified_at)
-  - Ready for UI "Verified sender" badge
-- [x] NIP proposal for X-Nostr-* email headers (RFC-002 Phase 3)
-  - Full specification at `docs/nip-smtp-signing.md`
-  - Header definitions, canonicalization algorithm, verification process
-  - Security considerations and test vectors
-  - Ready for submission to nostr-protocol/nips
-- [x] UI verification badge (RFC-002 Phase 2 completion)
-  - "Verified sender" badge in InboxPage (blue checkmark)
-  - "✓ Verified sender" pill badge in EmailPage detail view
-  - nostr_verified fields added to API responses
-  - Frontend Email interface updated with verification fields
-- [x] cloistr-common integration
-  - Relay preferences client (`internal/relays/`) wrapping cloistr-common/relayprefs
-  - API endpoint `/api/v1/relays/prefs` for querying user relay preferences
-  - Environment-based configuration (DISCOVERY_INTERNAL, RELAY_LIST, etc.)
-  - Cloistr service fallback (discover.cloistr.xyz, relay.cloistr.xyz)
-  - Unit tests for relay preferences integration
-- [x] Production deployment configuration
-  - DKIM key generation script (`scripts/generate-dkim-keys.sh`)
-  - DNS setup documentation (`docs/DNS-SETUP.md`)
-    - MX, SPF, DKIM, DMARC, PTR records
-    - Verification commands
-    - Common issues and troubleshooting
-  - TLS certificate guide (`docs/TLS-SETUP.md`)
-    - Let's Encrypt with certbot
-    - Kubernetes cert-manager
-    - SMTP TLS configuration
-  - Kubernetes manifests (`k8s/`)
-    - Backend and frontend Deployments
-    - PostgreSQL StatefulSet with persistence
-    - Redis Deployment with persistence
-    - Services (ClusterIP for internal, LoadBalancer for SMTP)
-    - Ingress with cert-manager integration
-    - ConfigMap and Secret templates
-    - HPA for autoscaling
-    - PodDisruptionBudget for HA
-  - Prometheus alerting rules (`k8s/monitoring.yaml`)
-    - Email send error rate
-    - Signature verification failures
-    - Database latency
-    - SMTP connection failures
-    - Certificate expiration
-  - Production environment template (`.env.production.example`)
-
-### Next Steps
-
-See RFCs for detailed plans:
-- **[RFC-001](docs/001-stalwart-removal-migration.md)**: ✅ Complete
-- **[RFC-002](docs/002-nostr-email-integration.md)**: Phases 1-3 complete, Phase 4+ pending
-
-**Immediate:**
-1. Submit NIP proposal to nostr-protocol/nips
-   - NIP draft: `docs/nip-smtp-signing.md`
-   - Covers X-Nostr-* headers, canonicalization, verification
-
-2. Deploy to production
-   - Generate DKIM keys: `./scripts/generate-dkim-keys.sh`
-   - Configure DNS records (see `docs/DNS-SETUP.md`)
-   - Set up TLS certificates (see `docs/TLS-SETUP.md`)
-   - Deploy to Kubernetes: `kubectl apply -k k8s/`
-
-**Near-term:**
-3. Lightning spam control (RFC-002 Phase 4)
-   - Per-user payment requirements
-   - LUD-16 integration
-
-4. Rspamd integration (optional)
-   - Spam filtering sidecar
-   - Basic spam scoring
+| When | Agent |
+|------|-------|
+| Starting work / need context | `explore` |
+| After significant code changes | `reviewer` |
+| Writing/running tests | `test-writer` / `tester` |
+| Security-sensitive code | `security` |
 
 ## Quick Commands
 
 ```bash
-# Run tests
-go test ./...
-
-# Build
-go build ./...
-
-# Run locally
-docker-compose up
-
-# Build Docker image
-docker build -t coldforge-email .
+go test ./...           # Run tests
+go build ./...          # Build
+docker-compose up       # Run locally
+docker build -t coldforge-email .  # Docker build
 ```
 
-## Architecture
+## Project Structure
 
 ```
-cmd/email/main.go           # Server entrypoint
+cmd/email/              Entry point
 internal/
-├── api/
-│   ├── handler.go         # REST API endpoints (v1)
-│   ├── email_handler.go   # Email endpoints using full service (v2)
-│   └── email_types.go     # Enhanced API types for v2 endpoints
-├── auth/
-│   └── nip46.go           # NIP-46 authentication
-├── config/config.go        # Configuration
-├── email/
-│   ├── service.go         # Email service (coordinates all layers)
-│   ├── signing.go         # Email signing (RFC-002)
-│   ├── verify.go          # Signature verification
-│   └── inbound.go         # Inbound email processing pipeline
-├── encryption/
-│   ├── email.go           # Email encryption (NIP-44)
-│   ├── nip05.go           # Key discovery (NIP-05)
-│   └── signer.go          # Signer abstraction (NIP-46/NIP-07)
-├── identity/
-│   ├── address.go         # Unified address management
-│   └── errors.go          # Identity-related errors
-├── metrics/
-│   └── metrics.go         # Prometheus instrumentation
-├── relays/
-│   └── relays.go          # Relay preferences (cloistr-common integration)
-├── signing/
-│   └── signer.go          # Nostr signing interface (BIP-340)
-├── transport/
-│   ├── transport.go       # Transport abstraction layer
-│   ├── smtp.go            # SMTP outbound transport
-│   ├── inbound.go         # SMTP inbound server (go-smtp)
-│   ├── dkim.go            # DKIM signing module
-│   ├── dkim_verify.go     # DKIM verification module
-│   ├── mx.go              # MX resolver for direct delivery
-│   ├── queue.go           # PostgreSQL-backed outbound queue
-│   ├── ratelimit.go       # Rate limiting for inbound SMTP
-│   ├── spf.go             # SPF validation module
-│   └── bounce.go          # Bounce detection and handling
-└── storage/
-    ├── postgres.go         # PostgreSQL database layer
-    └── redis.go            # Session store
-tests/
-├── unit/                   # Unit tests
-└── integration/            # Integration tests
-ui/                         # React frontend
-docs/
-├── 001-stalwart-removal-migration.md  # RFC: Remove Stalwart
-├── 002-nostr-email-integration.md     # RFC: Nostr identity layer
-├── DNS-SETUP.md            # DNS configuration guide
-├── TLS-SETUP.md            # TLS certificate guide
-└── ...                     # Other documentation
-k8s/                        # Kubernetes manifests
-├── namespace.yaml          # Namespace definition
-├── configmap.yaml          # Non-sensitive configuration
-├── secret.yaml             # Secret template (do not commit values!)
-├── backend-deployment.yaml # Backend API deployment
-├── frontend-deployment.yaml # Frontend UI deployment
-├── postgres.yaml           # PostgreSQL StatefulSet
-├── redis.yaml              # Redis deployment
-├── services.yaml           # Service definitions
-├── ingress.yaml            # Ingress + Certificate
-├── hpa.yaml                # Autoscaling + PDB
-├── monitoring.yaml         # ServiceMonitor + PrometheusRules
-└── kustomization.yaml      # Kustomize configuration
-scripts/
-└── generate-dkim-keys.sh   # DKIM key generation
+  api/                  REST API (v1 + v2 endpoints)
+  auth/                 NIP-46 authentication
+  email/                Email service, signing, verification
+  encryption/           NIP-44 encryption, NIP-05 discovery
+  identity/             Unified address management
+  signing/              BIP-340 Schnorr signatures
+  transport/            SMTP (inbound/outbound), DKIM, SPF, queue
+  storage/              PostgreSQL, Redis
+ui/                     React frontend
+k8s/                    Kubernetes manifests
 ```
 
-## Key Architectural Decisions
+## Key Features
 
-### Unified Address System
-Users must have a `@coldforge.xyz` address to send email. This ensures:
-- Clear identity: npub123... maps to alice@coldforge.xyz
-- No confusing npub addresses visible to recipients
-- Consistent from-address validation
+| Feature | Status |
+|---------|--------|
+| NIP-46 auth (server-side encryption) | Done |
+| NIP-07 auth (client-side encryption) | Done |
+| NIP-44 email encryption | Done |
+| NIP-05 key discovery | Done |
+| BIP-340 email signing | Done |
+| SMTP inbound (port 25) | Done |
+| SMTP outbound + DKIM | Done |
+| SPF/DKIM verification | Done |
+| Rate limiting | Done |
+| Bounce handling | Done |
+| Verified sender badges | Done |
+| Relay preferences (cloistr-common) | Done |
+| 200+ unit tests | Done |
 
-### Dual Encryption Modes
-Support both NIP-46 (server-side) and NIP-07 (client-side):
-- **NIP-46**: Server has bunker access, encrypts/decrypts on user's behalf
-- **NIP-07**: Zero-knowledge mode, client encrypts before sending, server stores ciphertext
-- Users can switch modes; server tracks which mode was used per message
+## Core Endpoints
 
-### Transport Abstraction
-The transport layer is designed for future extensibility:
-- Direct SMTP submission with multiple delivery modes:
-  - **Relay**: Send through configured relay server
-  - **Direct**: Deliver via MX lookup to recipient servers
-  - **Hybrid**: Direct for known domains, relay for others
-- DKIM signing for domain authentication
-- PostgreSQL-backed queue with retry logic
-- Future Nostr-native protocol (when/if it exists)
-- Hybrid mode: try Nostr first, fall back to SMTP
-- Easy to add new transports without changing core logic
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v2/email/send` | Send encrypted email |
+| GET | `/api/v2/email/{id}` | Get email (with decryption) |
+| GET | `/api/v2/email` | List emails (filtered) |
+| DELETE | `/api/v2/email/{id}` | Delete email |
+| GET | `/api/v1/relays/prefs` | User relay preferences |
 
-## Agent Usage (IMPORTANT)
+## Roadmap
 
-**Use agents proactively. Do not wait for explicit instructions.**
+| Item | Priority |
+|------|----------|
+| Submit NIP proposal (X-Nostr-* headers) | P1 |
+| Lightning spam control | P2 |
+| Rspamd integration | P3 |
 
-| When... | Use agent... |
-|---------|-------------|
-| Starting new work or need context | `explore` |
-| Need to research NIPs or protocols | `explore` |
-| Writing or modifying code | `reviewer` after significant changes |
-| Writing tests | `test-writer` |
-| Running tests | `tester` |
-| Investigating bugs | `debugger` |
-| Updating documentation | `documenter` |
-| Creating Dockerfiles | `docker` |
-| Setting up Kubernetes deployment | `atlas-deploy` |
-| Security-sensitive code (auth, crypto) | `security` |
+## Deployment
 
-## Shared Libraries
+```bash
+# Generate DKIM keys
+./scripts/generate-dkim-keys.sh
 
-### cloistr-common
-
-Integrated via `git.coldforge.xyz/coldforge/cloistr-common`. Provides:
-
-**relayprefs** - Relay preference discovery for users
-
-```go
-import "git.coldforge.xyz/coldforge/cloistr-email/internal/relays"
-
-// Create client from environment
-client := relays.NewClient(logger)
-
-// Get user's relay preferences
-prefs, err := client.GetRelayPrefs(ctx, userPubkey)
-
-// Get specific relay types
-readRelays, _ := client.GetReadRelays(ctx, pubkey)
-writeRelays, _ := client.GetWriteRelays(ctx, pubkey)
+# Deploy to Kubernetes
+kubectl apply -k k8s/
 ```
 
-**Environment Variables for Relay Preferences:**
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `DISCOVERY_INTERNAL` | Self-hosted discovery URL | (none) |
-| `RELAY_LIST` | Comma-separated relays for direct query | (none) |
-| `DISCOVERY_EXTERNAL` | Third-party discovery URL | (none) |
-| `USE_CLOISTR_FALLBACK` | Use Cloistr services as fallback | `true` |
-| `RELAY_PREFS_CACHE_TTL` | Cache duration | `1h` |
-
-**Query Chain:** Cache → Internal Discovery → Relay List → External Discovery → Cloistr Discovery → Cloistr Relay
+**DNS Setup:** See [docs/DNS-SETUP.md](docs/DNS-SETUP.md)
+**TLS Setup:** See [docs/TLS-SETUP.md](docs/TLS-SETUP.md)
+**Atlas Role:** `~/Atlas/roles/kube/coldforge-email/`
 
 ## NIPs Used
 
-| NIP | Purpose | Status |
-|-----|---------|--------|
-| NIP-46 | Authentication via nsecbunker | ✅ Implemented |
-| NIP-44 | Email body encryption | ✅ Implemented |
-| NIP-05 | Email-to-npub discovery | ✅ Implemented |
-| NIP-07 | Browser extension (client-side encryption) | ✅ Implemented |
-| BIP-340 | Schnorr signatures for email signing | ✅ Implemented |
+| NIP | Purpose |
+|-----|---------|
+| NIP-46 | Authentication via bunker |
+| NIP-44 | Email body encryption |
+| NIP-05 | Email-to-npub discovery |
+| NIP-07 | Browser extension signing |
+| BIP-340 | Schnorr email signatures |
+
+## See Also
+
+- [NIP draft](docs/nip-smtp-signing.md) - X-Nostr-* email headers spec
+- [cloistr-common](https://git.coldforge.xyz/coldforge/cloistr-common) - Shared libraries
+
+---
+
+**Last Updated:** 2026-03-11
