@@ -34,7 +34,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: backend
-        image: registry.coldforge.xyz/coldforge/cloistr-email:latest
+        image: registry.aegis-hq.xyz/coldforge/cloistr-email:latest
         imagePullPolicy: Always
         ports:
         - name: http

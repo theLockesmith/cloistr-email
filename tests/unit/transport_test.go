@@ -50,7 +50,7 @@ func TestTransportManager(t *testing.T) {
 func TestMessage(t *testing.T) {
 	t.Run("Message struct fields", func(t *testing.T) {
 		msg := &transport.Message{
-			FromAddress:         "alice@coldforge.xyz",
+			FromAddress:         "alice@cloistr.xyz",
 			ToAddresses:         []string{"bob@example.com"},
 			CCAddresses:         []string{"carol@example.com"},
 			BCCAddresses:        []string{"dave@example.com"},
@@ -61,13 +61,13 @@ func TestMessage(t *testing.T) {
 			HTMLBody:            "<p>Test Body</p>",
 			IsPreEncrypted:      false,
 			EncryptionRequested: true,
-			MessageID:           "msg123@coldforge.xyz",
+			MessageID:           "msg123@cloistr.xyz",
 			InReplyTo:           "original@example.com",
 			References:          []string{"ref1@example.com", "ref2@example.com"},
 			PreferredTransport:  transport.TransportSMTP,
 		}
 
-		if msg.FromAddress != "alice@coldforge.xyz" {
+		if msg.FromAddress != "alice@cloistr.xyz" {
 			t.Errorf("FromAddress mismatch: %s", msg.FromAddress)
 		}
 		if len(msg.ToAddresses) != 1 {
@@ -136,7 +136,7 @@ func TestSMTPTransportCanDeliver(t *testing.T) {
 		expected bool
 	}{
 		{"user@example.com", true},
-		{"alice@coldforge.xyz", true},
+		{"alice@cloistr.xyz", true},
 		{"user@sub.domain.com", true},
 		{"invalid", false},
 		{"@example.com", false},
@@ -228,7 +228,7 @@ func TestManagerSend(t *testing.T) {
 		mgr.RegisterTransport(mockTransport)
 
 		msg := &transport.Message{
-			FromAddress: "alice@coldforge.xyz",
+			FromAddress: "alice@cloistr.xyz",
 			ToAddresses: []string{"bob@example.com"},
 			Subject:     "Test",
 			Body:        "Test body",
@@ -251,7 +251,7 @@ func TestManagerSend(t *testing.T) {
 		// Don't register any transport
 
 		msg := &transport.Message{
-			FromAddress: "alice@coldforge.xyz",
+			FromAddress: "alice@cloistr.xyz",
 			ToAddresses: []string{"bob@example.com"},
 			Subject:     "Test",
 			Body:        "Test body",
@@ -280,7 +280,7 @@ func TestManagerSend(t *testing.T) {
 		mgr.RegisterTransport(nostrTransport)
 
 		msg := &transport.Message{
-			FromAddress:        "alice@coldforge.xyz",
+			FromAddress:        "alice@cloistr.xyz",
 			ToAddresses:        []string{"bob@example.com"},
 			Subject:            "Test",
 			Body:               "Test body",

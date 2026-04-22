@@ -86,7 +86,7 @@ Currently we focus on encryption. Email signing with Nostr keys is planned as th
 **Format:**
 
 ```
-From: alice@coldforge.xyz
+From: alice@cloistr.xyz
 To: bob@example.com
 Subject: Hello Bob
 X-Nostr-Encrypted: true
@@ -101,7 +101,7 @@ X-Nostr-Algorithm: nip44
 **Example:**
 
 ```
-From: alice@coldforge.xyz
+From: alice@cloistr.xyz
 To: bob@example.com
 Subject: Hello Bob
 X-Nostr-Encrypted: true

@@ -68,7 +68,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@coldforge.xyz
+    email: admin@cloistr.xyz
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:

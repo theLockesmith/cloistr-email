@@ -184,7 +184,7 @@ type DecryptResponseV2 struct {
 
 // RegisterAddressRequest is the request to register a unified address
 type RegisterAddressRequest struct {
-	// LocalPart is the desired username (e.g., "alice" for alice@coldforge.xyz)
+	// LocalPart is the desired username (e.g., "alice" for alice@cloistr.xyz)
 	LocalPart string `json:"local_part"`
 
 	// DisplayName is the user's display name
@@ -193,7 +193,7 @@ type RegisterAddressRequest struct {
 
 // RegisterAddressResponse is the response after registering an address
 type RegisterAddressResponse struct {
-	// Email is the full email address (alice@coldforge.xyz)
+	// Email is the full email address (alice@cloistr.xyz)
 	Email string `json:"email"`
 
 	// LocalPart is the username portion
@@ -208,7 +208,7 @@ type UnifiedAddressResponse struct {
 	// Npub is the user's Nostr public key (hex)
 	Npub string `json:"npub"`
 
-	// Email is their unified address (alice@coldforge.xyz)
+	// Email is their unified address (alice@cloistr.xyz)
 	Email string `json:"email,omitempty"`
 
 	// LocalPart is the username portion

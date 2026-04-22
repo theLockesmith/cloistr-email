@@ -29,7 +29,7 @@ spec:
         fsGroup: 101
       containers:
       - name: frontend
-        image: registry.coldforge.xyz/coldforge/cloistr-email-ui:latest
+        image: registry.aegis-hq.xyz/coldforge/cloistr-email-ui:latest
         imagePullPolicy: Always
         ports:
         - name: http

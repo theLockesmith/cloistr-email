@@ -42,11 +42,11 @@ func TestParseAddressFormats(t *testing.T) {
 
 func TestEmailParsing(t *testing.T) {
 	// Sample email message
-	rawEmail := []byte(`From: Alice <alice@coldforge.xyz>
+	rawEmail := []byte(`From: Alice <alice@cloistr.xyz>
 To: bob@example.com
 Subject: Test Email
 Date: Tue, 18 Feb 2026 12:00:00 +0000
-Message-ID: <test123@coldforge.xyz>
+Message-ID: <test123@cloistr.xyz>
 MIME-Version: 1.0
 Content-Type: text/plain; charset=utf-8
 
@@ -67,11 +67,11 @@ Alice
 
 func TestEmailWithNostrHeaders(t *testing.T) {
 	// Sample email with Nostr signature headers
-	rawEmail := []byte(`From: alice@coldforge.xyz
+	rawEmail := []byte(`From: alice@cloistr.xyz
 To: bob@example.com
 Subject: Signed Email
 Date: Tue, 18 Feb 2026 12:00:00 +0000
-Message-ID: <signed123@coldforge.xyz>
+Message-ID: <signed123@cloistr.xyz>
 X-Nostr-Pubkey: abc123def456789012345678901234567890123456789012345678901234
 X-Nostr-Sig: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 X-Nostr-Signed-Headers: from;to;subject;date;message-id
@@ -88,11 +88,11 @@ This email is signed with Nostr.
 
 func TestEmailWithEncryption(t *testing.T) {
 	// Sample encrypted email
-	rawEmail := []byte(`From: alice@coldforge.xyz
-To: bob@coldforge.xyz
+	rawEmail := []byte(`From: alice@cloistr.xyz
+To: bob@cloistr.xyz
 Subject: Encrypted Email
 Date: Tue, 18 Feb 2026 12:00:00 +0000
-Message-ID: <encrypted123@coldforge.xyz>
+Message-ID: <encrypted123@cloistr.xyz>
 X-Nostr-Encryption: nip44
 X-Nostr-Pubkey: abc123def456789012345678901234567890123456789012345678901234
 Content-Type: text/plain; charset=utf-8
@@ -106,11 +106,11 @@ BASE64ENCRYPTEDCONTENT==
 
 func TestMultipartEmail(t *testing.T) {
 	// Sample multipart email
-	rawEmail := []byte(`From: alice@coldforge.xyz
+	rawEmail := []byte(`From: alice@cloistr.xyz
 To: bob@example.com
 Subject: Multipart Email
 Date: Tue, 18 Feb 2026 12:00:00 +0000
-Message-ID: <multipart123@coldforge.xyz>
+Message-ID: <multipart123@cloistr.xyz>
 MIME-Version: 1.0
 Content-Type: multipart/alternative; boundary="boundary123"
 
@@ -137,7 +137,7 @@ Content-Type: text/html; charset=utf-8
 func TestBounceEmail(t *testing.T) {
 	// Bounce emails have empty sender (RFC 5321)
 	rawEmail := []byte(`From: <>
-To: alice@coldforge.xyz
+To: alice@cloistr.xyz
 Subject: Delivery Status Notification
 Date: Tue, 18 Feb 2026 12:00:00 +0000
 Message-ID: <bounce123@mailer.example.com>

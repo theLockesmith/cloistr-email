@@ -150,7 +150,7 @@ func TestBounceClassification(t *testing.T) {
 func TestBounceMessageParsing(t *testing.T) {
 	// Sample bounce message with diagnostic info
 	bounceMessage := []byte(`From: mailer-daemon@mail.example.com
-To: sender@coldforge.xyz
+To: sender@cloistr.xyz
 Subject: Delivery Status Notification (Failure)
 Date: Mon, 17 Feb 2026 12:00:00 +0000
 Content-Type: multipart/report; report-type=delivery-status; boundary="boundary"

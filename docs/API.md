@@ -92,7 +92,7 @@ Verify NIP-46 signature and create session.
     "token": "session-token",
     "user": {
       "npub": "npub1...",
-      "email": "user@coldforge.xyz"
+      "email": "user@cloistr.xyz"
     },
     "expires_at": "2026-01-18T10:30:00Z"
   }
@@ -146,7 +146,7 @@ List emails for authenticated user.
     "emails": [
       {
         "id": "uuid",
-        "from": "alice@coldforge.xyz",
+        "from": "alice@cloistr.xyz",
         "to": "bob@example.com",
         "subject": "Hello Bob",
         "preview": "This is a preview of the email...",
@@ -215,7 +215,7 @@ Get a single email.
   "status": "ok",
   "data": {
     "id": "uuid",
-    "from": "alice@coldforge.xyz",
+    "from": "alice@cloistr.xyz",
     "to": "bob@example.com",
     "subject": "Hello Bob",
     "body": "This is the full email body",
@@ -254,7 +254,7 @@ Send a reply to an email.
   "status": "ok",
   "data": {
     "id": "uuid",
-    "to": "alice@coldforge.xyz",
+    "to": "alice@cloistr.xyz",
     "subject": "Re: Hello Bob",
     "created_at": "2026-01-17T10:05:00Z"
   }
@@ -339,7 +339,7 @@ Get authenticated user's key information.
   "status": "ok",
   "data": {
     "npub": "npub1user...",
-    "email": "user@coldforge.xyz",
+    "email": "user@cloistr.xyz",
     "public_key": "...",
     "encryption_method": "nip44"
   }

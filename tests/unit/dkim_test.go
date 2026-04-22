@@ -123,11 +123,11 @@ func TestDKIMSignerSign(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a simple email message
-	message := []byte("From: sender@coldforge.xyz\r\n" +
+	message := []byte("From: sender@cloistr.xyz\r\n" +
 		"To: recipient@example.com\r\n" +
 		"Subject: Test Email\r\n" +
 		"Date: Mon, 17 Feb 2026 10:00:00 +0000\r\n" +
-		"Message-ID: <test@coldforge.xyz>\r\n" +
+		"Message-ID: <test@cloistr.xyz>\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/plain; charset=utf-8\r\n" +
 		"\r\n" +
@@ -147,7 +147,7 @@ func TestDKIMSignerSign(t *testing.T) {
 	assert.Contains(t, signedStr, "a=rsa-sha256", "Signature should contain algorithm")
 
 	// Verify the original message is preserved after the signature
-	assert.Contains(t, signedStr, "From: sender@coldforge.xyz", "Original From header should be present")
+	assert.Contains(t, signedStr, "From: sender@cloistr.xyz", "Original From header should be present")
 	assert.Contains(t, signedStr, "Hello, this is a test email.", "Original body should be present")
 }
 
@@ -194,7 +194,7 @@ func TestDKIMSignerCustomHeaders(t *testing.T) {
 	require.NotNil(t, signer)
 
 	// Sign a message
-	message := []byte("From: sender@coldforge.xyz\r\n" +
+	message := []byte("From: sender@cloistr.xyz\r\n" +
 		"To: recipient@example.com\r\n" +
 		"Subject: Test\r\n" +
 		"\r\n" +

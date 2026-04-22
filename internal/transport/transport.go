@@ -29,7 +29,7 @@ const (
 // to the appropriate format (RFC 5322 for SMTP, Nostr event for relays).
 type Message struct {
 	// Identity fields (who)
-	FromAddress string // Traditional email: alice@coldforge.xyz
+	FromAddress string // Traditional email: alice@cloistr.xyz
 	ToAddresses []string // Can have multiple recipients
 	CCAddresses []string
 	BCCAddresses []string

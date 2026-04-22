@@ -1208,3 +1208,118 @@ func encodeJSON(v interface{}) ([]byte, error) {
 	}
 	return json.Marshal(v)
 }
+
+// ============================================================================
+// Address Operations (uses cloistr-me's 'addresses' table)
+// ============================================================================
+//
+// NOTE: Address mappings (npub <-> email) are owned by cloistr-me.
+// cloistr-email queries the shared 'addresses' table directly.
+// Both services use the same PostgreSQL database.
+//
+// cloistr-me schema:
+//   addresses(id, username, domain, pubkey, active, verified,
+//             created_at, updated_at, expires_at, grace_period_ends, ban_reason)
+
+// Address represents an address record from cloistr-me's addresses table
+type Address struct {
+	ID              int64
+	Username        string // local part (alice)
+	Domain          string // domain (cloistr.xyz)
+	Pubkey          string // hex npub
+	Active          bool
+	Verified        bool
+	DisplayName     *string // nullable, added via migration
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ExpiresAt       *time.Time
+	GracePeriodEnds *time.Time
+	BanReason       *string
+}
+
+// Email returns the full email address (username@domain)
+func (a *Address) Email() string {
+	return a.Username + "@" + a.Domain
+}
+
+// GetAddressByPubkey retrieves an address by pubkey (npub)
+func (db *PostgreSQL) GetAddressByPubkey(ctx context.Context, pubkey string) (*Address, error) {
+	db.logger.Debug("Getting address by pubkey", zap.String("pubkey", pubkey))
+
+	query := `
+		SELECT id, username, domain, pubkey, active, verified, display_name,
+		       created_at, updated_at, expires_at, grace_period_ends, ban_reason
+		FROM addresses
+		WHERE pubkey = $1 AND active = true
+	`
+
+	addr := &Address{}
+	err := db.db.QueryRowContext(ctx, query, pubkey).Scan(
+		&addr.ID, &addr.Username, &addr.Domain, &addr.Pubkey,
+		&addr.Active, &addr.Verified, &addr.DisplayName,
+		&addr.CreatedAt, &addr.UpdatedAt, &addr.ExpiresAt,
+		&addr.GracePeriodEnds, &addr.BanReason,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address by pubkey: %w", err)
+	}
+
+	return addr, nil
+}
+
+// GetAddressByEmail retrieves an address by email (username@domain)
+func (db *PostgreSQL) GetAddressByEmail(ctx context.Context, email string) (*Address, error) {
+	db.logger.Debug("Getting address by email", zap.String("email", email))
+
+	// Parse email into username and domain
+	parts := strings.SplitN(strings.ToLower(email), "@", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid email format: %s", email)
+	}
+	username, domain := parts[0], parts[1]
+
+	query := `
+		SELECT id, username, domain, pubkey, active, verified, display_name,
+		       created_at, updated_at, expires_at, grace_period_ends, ban_reason
+		FROM addresses
+		WHERE username = $1 AND domain = $2 AND active = true
+	`
+
+	addr := &Address{}
+	err := db.db.QueryRowContext(ctx, query, username, domain).Scan(
+		&addr.ID, &addr.Username, &addr.Domain, &addr.Pubkey,
+		&addr.Active, &addr.Verified, &addr.DisplayName,
+		&addr.CreatedAt, &addr.UpdatedAt, &addr.ExpiresAt,
+		&addr.GracePeriodEnds, &addr.BanReason,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address by email: %w", err)
+	}
+
+	return addr, nil
+}
+
+// UsernameExists checks if a username is already taken for a given domain
+func (db *PostgreSQL) UsernameExists(ctx context.Context, username, domain string) (bool, error) {
+	db.logger.Debug("Checking username existence",
+		zap.String("username", username),
+		zap.String("domain", domain))
+
+	query := `SELECT EXISTS(SELECT 1 FROM addresses WHERE username = $1 AND domain = $2)`
+
+	var exists bool
+	err := db.db.QueryRowContext(ctx, query, strings.ToLower(username), strings.ToLower(domain)).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check username existence: %w", err)
+	}
+
+	return exists, nil
+}

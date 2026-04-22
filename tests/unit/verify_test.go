@@ -73,10 +73,10 @@ func TestVerifySignedEmail(t *testing.T) {
 
 	// Sign an email
 	headers := map[string]string{
-		"from":       "alice@coldforge.xyz",
+		"from":       "alice@cloistr.xyz",
 		"to":         "bob@example.com",
 		"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-		"message-id": "test-verify@coldforge.xyz",
+		"message-id": "test-verify@cloistr.xyz",
 		"subject":    "Test Email",
 	}
 	body := "Hello Bob!"
@@ -93,7 +93,7 @@ func TestVerifySignedEmail(t *testing.T) {
 		NostrPubkey:        signResult.Pubkey,
 		NostrSig:           signResult.Signature,
 		NostrSignedHeaders: signResult.SignedHeaders,
-		FromAddress:        "alice@coldforge.xyz",
+		FromAddress:        "alice@cloistr.xyz",
 	}
 
 	result := verifier.Verify(ctx, verifiableEmail)
@@ -116,10 +116,10 @@ func TestVerifyTamperedEmail(t *testing.T) {
 	ctx := context.Background()
 
 	headers := map[string]string{
-		"from":       "alice@coldforge.xyz",
+		"from":       "alice@cloistr.xyz",
 		"to":         "bob@example.com",
 		"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-		"message-id": "test-tamper@coldforge.xyz",
+		"message-id": "test-tamper@cloistr.xyz",
 		"subject":    "Test Email",
 	}
 	body := "Original message"
@@ -195,7 +195,7 @@ func TestVerifyTamperedEmail(t *testing.T) {
 				NostrPubkey:        signResult.Pubkey,
 				NostrSig:           signResult.Signature,
 				NostrSignedHeaders: signResult.SignedHeaders,
-				FromAddress:        "alice@coldforge.xyz",
+				FromAddress:        "alice@cloistr.xyz",
 			}
 
 			// Apply modification
@@ -222,10 +222,10 @@ func TestVerifyWithNIP05(t *testing.T) {
 	ctx := context.Background()
 
 	headers := map[string]string{
-		"from":       "alice@coldforge.xyz",
+		"from":       "alice@cloistr.xyz",
 		"to":         "bob@example.com",
 		"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-		"message-id": "test-nip05@coldforge.xyz",
+		"message-id": "test-nip05@cloistr.xyz",
 		"subject":    "Test",
 	}
 	body := "Hello"
@@ -241,7 +241,7 @@ func TestVerifyWithNIP05(t *testing.T) {
 		{
 			name: "NIP-05 matches",
 			setupResolver: func(r *MockNIP05Resolver) {
-				r.AddMapping("alice@coldforge.xyz", signer.PublicKey())
+				r.AddMapping("alice@cloistr.xyz", signer.PublicKey())
 			},
 			expectNIP05Valid: true,
 		},
@@ -250,7 +250,7 @@ func TestVerifyWithNIP05(t *testing.T) {
 			setupResolver: func(r *MockNIP05Resolver) {
 				otherKey := nostr.GeneratePrivateKey()
 				otherPubkey, _ := nostr.GetPublicKey(otherKey)
-				r.AddMapping("alice@coldforge.xyz", otherPubkey)
+				r.AddMapping("alice@cloistr.xyz", otherPubkey)
 			},
 			expectNIP05Valid: false,
 		},
@@ -276,7 +276,7 @@ func TestVerifyWithNIP05(t *testing.T) {
 				NostrPubkey:        signResult.Pubkey,
 				NostrSig:           signResult.Signature,
 				NostrSignedHeaders: signResult.SignedHeaders,
-				FromAddress:        "alice@coldforge.xyz",
+				FromAddress:        "alice@cloistr.xyz",
 			}
 
 			result := verifier.Verify(ctx, verifiableEmail)
@@ -285,7 +285,7 @@ func TestVerifyWithNIP05(t *testing.T) {
 			assert.True(t, result.Signed)
 			assert.True(t, result.Valid)
 			assert.Equal(t, tt.expectNIP05Valid, result.NIP05Verified)
-			assert.Equal(t, "alice@coldforge.xyz", result.NIP05Address)
+			assert.Equal(t, "alice@cloistr.xyz", result.NIP05Address)
 		})
 	}
 }
@@ -302,10 +302,10 @@ func TestVerifyEmailConvenience(t *testing.T) {
 	ctx := context.Background()
 
 	headers := map[string]string{
-		"From":       "alice@coldforge.xyz",
+		"From":       "alice@cloistr.xyz",
 		"To":         "bob@example.com",
 		"Date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-		"Message-ID": "test-conv@coldforge.xyz",
+		"Message-ID": "test-conv@cloistr.xyz",
 		"Subject":    "Test",
 	}
 	body := "Test body"
@@ -348,18 +348,18 @@ func TestExtractEmailAddress(t *testing.T) {
 	}{
 		{
 			name:         "simple email",
-			fromHeader:   "alice@coldforge.xyz",
-			expectedAddr: "alice@coldforge.xyz",
+			fromHeader:   "alice@cloistr.xyz",
+			expectedAddr: "alice@cloistr.xyz",
 		},
 		{
 			name:         "name with angle brackets",
-			fromHeader:   "Alice <alice@coldforge.xyz>",
-			expectedAddr: "alice@coldforge.xyz",
+			fromHeader:   "Alice <alice@cloistr.xyz>",
+			expectedAddr: "alice@cloistr.xyz",
 		},
 		{
 			name:         "quoted name with angle brackets",
-			fromHeader:   "\"Alice Smith\" <alice@coldforge.xyz>",
-			expectedAddr: "alice@coldforge.xyz",
+			fromHeader:   "\"Alice Smith\" <alice@cloistr.xyz>",
+			expectedAddr: "alice@cloistr.xyz",
 		},
 	}
 
@@ -373,7 +373,7 @@ func TestExtractEmailAddress(t *testing.T) {
 				"from":       tt.expectedAddr,
 				"to":         "bob@example.com",
 				"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-				"message-id": "test@coldforge.xyz",
+				"message-id": "test@cloistr.xyz",
 				"subject":    "Test",
 			}
 			body := "Test"
@@ -386,7 +386,7 @@ func TestExtractEmailAddress(t *testing.T) {
 				"from":                   tt.expectedAddr, // Use same for signature
 				"to":                     "bob@example.com",
 				"date":                   "Mon, 17 Feb 2026 10:00:00 +0000",
-				"message-id":             "test@coldforge.xyz",
+				"message-id":             "test@cloistr.xyz",
 				"subject":                "Test",
 				"x-nostr-pubkey":         signResult.Pubkey,
 				"x-nostr-sig":            signResult.Signature,

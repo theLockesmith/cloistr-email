@@ -21,7 +21,7 @@ commonLabels:
   app.kubernetes.io/version: "1.0.0"
 
 images:
-- name: registry.coldforge.xyz/coldforge/cloistr-email
+- name: registry.aegis-hq.xyz/coldforge/cloistr-email
   newTag: latest
-- name: registry.coldforge.xyz/coldforge/cloistr-email-ui
+- name: registry.aegis-hq.xyz/coldforge/cloistr-email-ui
   newTag: latest

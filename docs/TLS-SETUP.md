@@ -32,7 +32,7 @@ brew install certbot
 sudo certbot certonly --standalone \
     -d mail.coldforge.xyz \
     -d coldforge.xyz \
-    --email admin@coldforge.xyz \
+    --email admin@cloistr.xyz \
     --agree-tos
 ```
 
@@ -100,7 +100,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@coldforge.xyz
+    email: admin@cloistr.xyz
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
@@ -115,7 +115,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: admin@coldforge.xyz
+    email: admin@cloistr.xyz
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:

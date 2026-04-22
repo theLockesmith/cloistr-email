@@ -116,14 +116,14 @@ func TestEmailSignerSign(t *testing.T) {
 			name: "sign email with all headers",
 			email: &email.SignableEmail{
 				Headers: map[string]string{
-					"from":       "alice@coldforge.xyz",
+					"from":       "alice@cloistr.xyz",
 					"to":         "bob@example.com",
 					"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-					"message-id": "test-123@coldforge.xyz",
+					"message-id": "test-123@cloistr.xyz",
 					"subject":    "Test Email",
 				},
 				Body:      "Hello Bob!",
-				MessageID: "test-123@coldforge.xyz",
+				MessageID: "test-123@cloistr.xyz",
 				Date:      "Mon, 17 Feb 2026 10:00:00 +0000",
 			},
 			wantErr: false,
@@ -132,7 +132,7 @@ func TestEmailSignerSign(t *testing.T) {
 			name: "sign email with minimal headers",
 			email: &email.SignableEmail{
 				Headers: map[string]string{
-					"from": "alice@coldforge.xyz",
+					"from": "alice@cloistr.xyz",
 					"to":   "bob@example.com",
 				},
 				Body: "Minimal email",
@@ -143,17 +143,17 @@ func TestEmailSignerSign(t *testing.T) {
 			name: "sign email with CC and threading headers",
 			email: &email.SignableEmail{
 				Headers: map[string]string{
-					"from":        "alice@coldforge.xyz",
+					"from":        "alice@cloistr.xyz",
 					"to":          "bob@example.com",
 					"cc":          "charlie@example.com",
 					"date":        "Mon, 17 Feb 2026 10:00:00 +0000",
-					"message-id":  "test-456@coldforge.xyz",
+					"message-id":  "test-456@cloistr.xyz",
 					"subject":     "Re: Previous Email",
-					"in-reply-to": "<prev-123@coldforge.xyz>",
-					"references":  "<orig-001@coldforge.xyz> <prev-123@coldforge.xyz>",
+					"in-reply-to": "<prev-123@cloistr.xyz>",
+					"references":  "<orig-001@cloistr.xyz> <prev-123@cloistr.xyz>",
 				},
 				Body:      "This is a reply.",
-				MessageID: "test-456@coldforge.xyz",
+				MessageID: "test-456@cloistr.xyz",
 			},
 			wantErr: false,
 		},
@@ -195,10 +195,10 @@ func TestSignatureHeaders(t *testing.T) {
 
 	testEmail := &email.SignableEmail{
 		Headers: map[string]string{
-			"from":       "alice@coldforge.xyz",
+			"from":       "alice@cloistr.xyz",
 			"to":         "bob@example.com",
 			"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-			"message-id": "test-sig@coldforge.xyz",
+			"message-id": "test-sig@cloistr.xyz",
 			"subject":    "Test",
 		},
 		Body: "Test body",
@@ -232,7 +232,7 @@ func TestCanonicalization(t *testing.T) {
 	// Create two emails with different whitespace/formatting
 	email1 := &email.SignableEmail{
 		Headers: map[string]string{
-			"from":       "alice@coldforge.xyz",
+			"from":       "alice@cloistr.xyz",
 			"to":         "bob@example.com",
 			"subject":    "Test  ",             // trailing spaces
 			"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
@@ -243,7 +243,7 @@ func TestCanonicalization(t *testing.T) {
 
 	email2 := &email.SignableEmail{
 		Headers: map[string]string{
-			"from":       "alice@coldforge.xyz",
+			"from":       "alice@cloistr.xyz",
 			"to":         "bob@example.com",
 			"subject":    "Test",
 			"date":       "Mon, 17 Feb 2026 10:00:00 +0000",
@@ -275,10 +275,10 @@ func TestSignEmailConvenience(t *testing.T) {
 	ctx := context.Background()
 
 	headers := map[string]string{
-		"From":       "alice@coldforge.xyz",
+		"From":       "alice@cloistr.xyz",
 		"To":         "bob@example.com",
 		"Date":       "Mon, 17 Feb 2026 10:00:00 +0000",
-		"Message-ID": "test@coldforge.xyz",
+		"Message-ID": "test@cloistr.xyz",
 		"Subject":    "Test",
 	}
 	body := "Test body"

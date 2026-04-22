@@ -83,8 +83,8 @@ Users don't enter passwords. Instead:
 Emails can be encrypted using NIP-44:
 
 ```
-From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 X-Nostr-Encrypted: true
 X-Nostr-Sender: npub1bob...
 
@@ -108,9 +108,9 @@ One address works everywhere:
 
 | Protocol | Function | Example |
 |----------|----------|---------|
-| Email | Receives SMTP mail | alice@coldforge.xyz |
-| NIP-05 | Nostr identity | `user@coldforge.xyz` -> `npub1...` |
-| Lightning | Receives payments | zaps to alice@coldforge.xyz |
+| Email | Receives SMTP mail | alice@cloistr.xyz |
+| NIP-05 | Nostr identity | `user@cloistr.xyz` -> `npub1...` |
+| Lightning | Receives payments | zaps to alice@cloistr.xyz |
 
 ## Project Structure
 

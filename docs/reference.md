@@ -154,8 +154,8 @@ k8s/                        Kubernetes manifests
 
 ### Unified Address System
 
-Users must have a `@coldforge.xyz` address to send email:
-- npub123... maps to alice@coldforge.xyz
+Users must have a `@cloistr.xyz` address to send email:
+- npub123... maps to alice@cloistr.xyz
 - Consistent from-address validation
 - No confusing npub addresses to recipients
 

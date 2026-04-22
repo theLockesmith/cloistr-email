@@ -14,30 +14,33 @@ ENV VITE_API_URL=${VITE_API_URL}
 
 RUN npm run build
 
-# Runtime stage - use nginx for better performance
-FROM nginx:1.25-alpine
+# Runtime stage - use unprivileged nginx for OpenShift compatibility
+FROM nginxinc/nginx-unprivileged:1.25-alpine
 
-# Copy custom nginx config for SPA routing
+# Copy app files
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Nginx config for SPA
+# Create nginx config for SPA with unprivileged port
+USER root
 RUN echo 'server { \
-    listen 3000; \
+    listen 8080; \
     root /usr/share/nginx/html; \
     index index.html; \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
     location /api { \
-        proxy_pass http://cloistr-email:8080; \
+        proxy_pass http://cloistr-email-backend; \
         proxy_set_header Host $host; \
         proxy_set_header X-Real-IP $remote_addr; \
     } \
-}' > /etc/nginx/conf.d/default.conf
+}' > /etc/nginx/conf.d/default.conf && \
+    chown -R nginx:nginx /usr/share/nginx/html
+USER nginx
 
-EXPOSE 3000
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
+  CMD wget --quiet --tries=1 --spider http://localhost:8080 || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

@@ -82,10 +82,10 @@ func TestSimpleRecipientValidator(t *testing.T) {
 
 	t.Run("accepts mail for allowed domains", func(t *testing.T) {
 		validator := &transport.SimpleRecipientValidator{
-			AllowedDomains: []string{"coldforge.xyz", "example.com"},
+			AllowedDomains: []string{"cloistr.xyz", "example.com"},
 		}
 
-		err := validator.ValidateRecipient(ctx, "alice@coldforge.xyz")
+		err := validator.ValidateRecipient(ctx, "alice@cloistr.xyz")
 		assert.NoError(t, err)
 
 		err = validator.ValidateRecipient(ctx, "bob@example.com")
@@ -94,7 +94,7 @@ func TestSimpleRecipientValidator(t *testing.T) {
 
 	t.Run("rejects mail for disallowed domains", func(t *testing.T) {
 		validator := &transport.SimpleRecipientValidator{
-			AllowedDomains: []string{"coldforge.xyz"},
+			AllowedDomains: []string{"cloistr.xyz"},
 		}
 
 		err := validator.ValidateRecipient(ctx, "user@other.com")
@@ -104,19 +104,19 @@ func TestSimpleRecipientValidator(t *testing.T) {
 
 	t.Run("handles case-insensitive domains", func(t *testing.T) {
 		validator := &transport.SimpleRecipientValidator{
-			AllowedDomains: []string{"ColdForge.XYZ"},
+			AllowedDomains: []string{"Cloistr.XYZ"},
 		}
 
-		err := validator.ValidateRecipient(ctx, "user@coldforge.xyz")
+		err := validator.ValidateRecipient(ctx, "user@cloistr.xyz")
 		assert.NoError(t, err)
 
-		err = validator.ValidateRecipient(ctx, "user@COLDFORGE.XYZ")
+		err = validator.ValidateRecipient(ctx, "user@CLOISTR.XYZ")
 		assert.NoError(t, err)
 	})
 
 	t.Run("rejects invalid address format", func(t *testing.T) {
 		validator := &transport.SimpleRecipientValidator{
-			AllowedDomains: []string{"coldforge.xyz"},
+			AllowedDomains: []string{"cloistr.xyz"},
 		}
 
 		err := validator.ValidateRecipient(ctx, "invalid-address")

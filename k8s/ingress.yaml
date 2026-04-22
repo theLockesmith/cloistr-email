@@ -32,7 +32,7 @@ spec:
   tls:
   - hosts:
     - mail.coldforge.xyz
-    - email.coldforge.xyz
+    - email.cloistr.xyz
     secretName: cloistr-email-tls
   rules:
   - host: mail.coldforge.xyz
@@ -69,7 +69,7 @@ spec:
             name: cloistr-email-frontend
             port:
               number: 80
-  - host: email.coldforge.xyz
+  - host: email.cloistr.xyz
     http:
       paths:
       - path: /api
@@ -103,4 +103,4 @@ spec:
   commonName: mail.coldforge.xyz
   dnsNames:
   - mail.coldforge.xyz
-  - email.coldforge.xyz
+  - email.cloistr.xyz

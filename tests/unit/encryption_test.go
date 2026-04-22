@@ -209,18 +209,18 @@ func TestEmailEncryptor_PrepareEncryptedEmail(t *testing.T) {
 	}{
 		{
 			name:    "successful email preparation",
-			from:    "bob@coldforge.xyz",
-			to:      "alice@coldforge.xyz",
+			from:    "bob@cloistr.xyz",
+			to:      "alice@cloistr.xyz",
 			subject: "Test Subject",
 			body:    "Hello Alice!",
 			setupKeys: func(r *MockKeyResolver) {
-				r.SetKey("alice@coldforge.xyz", recipientPubkey)
+				r.SetKey("alice@cloistr.xyz", recipientPubkey)
 			},
 			encryptor: &MockEncryptor{},
 		},
 		{
 			name:    "recipient key not found",
-			from:    "bob@coldforge.xyz",
+			from:    "bob@cloistr.xyz",
 			to:      "unknown@example.com",
 			subject: "Test Subject",
 			body:    "Hello Unknown!",
@@ -233,12 +233,12 @@ func TestEmailEncryptor_PrepareEncryptedEmail(t *testing.T) {
 		},
 		{
 			name:    "encryption failure during preparation",
-			from:    "bob@coldforge.xyz",
-			to:      "alice@coldforge.xyz",
+			from:    "bob@cloistr.xyz",
+			to:      "alice@cloistr.xyz",
 			subject: "Test Subject",
 			body:    "Hello Alice!",
 			setupKeys: func(r *MockKeyResolver) {
-				r.SetKey("alice@coldforge.xyz", recipientPubkey)
+				r.SetKey("alice@cloistr.xyz", recipientPubkey)
 			},
 			encryptor: &MockEncryptor{
 				EncryptFunc: func(ctx context.Context, userPubkey, recipientPubkey, plaintext string) (string, error) {
@@ -343,8 +343,8 @@ func TestEncryptedEmail_FormatRawEmail(t *testing.T) {
 		{
 			name: "encrypted email format",
 			email: &encryption.EncryptedEmail{
-				From:            "bob@coldforge.xyz",
-				To:              "alice@coldforge.xyz",
+				From:            "bob@cloistr.xyz",
+				To:              "alice@cloistr.xyz",
 				Subject:         "Test Subject",
 				Body:            "encrypted-content",
 				IsEncrypted:     true,
@@ -353,8 +353,8 @@ func TestEncryptedEmail_FormatRawEmail(t *testing.T) {
 				Algorithm:       encryption.AlgorithmNIP44,
 			},
 			checkContains: []string{
-				"From: bob@coldforge.xyz",
-				"To: alice@coldforge.xyz",
+				"From: bob@cloistr.xyz",
+				"To: alice@cloistr.xyz",
 				"Subject: Test Subject",
 				"MIME-Version: 1.0",
 				"Content-Type: text/plain; charset=utf-8",
@@ -368,15 +368,15 @@ func TestEncryptedEmail_FormatRawEmail(t *testing.T) {
 		{
 			name: "unencrypted email format",
 			email: &encryption.EncryptedEmail{
-				From:        "bob@coldforge.xyz",
-				To:          "alice@coldforge.xyz",
+				From:        "bob@cloistr.xyz",
+				To:          "alice@cloistr.xyz",
 				Subject:     "Plain Subject",
 				Body:        "plain-content",
 				IsEncrypted: false,
 			},
 			checkContains: []string{
-				"From: bob@coldforge.xyz",
-				"To: alice@coldforge.xyz",
+				"From: bob@cloistr.xyz",
+				"To: alice@cloistr.xyz",
 				"Subject: Plain Subject",
 				"MIME-Version: 1.0",
 			},
@@ -406,8 +406,8 @@ func TestParseEncryptedEmailHeaders(t *testing.T) {
 	}{
 		{
 			name: "encrypted email headers",
-			rawEmail: `From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+			rawEmail: `From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 Subject: Test
 X-Nostr-Encrypted: true
 X-Nostr-Sender: senderpubkey
@@ -422,8 +422,8 @@ body content`,
 		},
 		{
 			name: "unencrypted email headers",
-			rawEmail: `From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+			rawEmail: `From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 Subject: Test
 
 body content`,
@@ -431,7 +431,7 @@ body content`,
 		},
 		{
 			name: "encrypted false header",
-			rawEmail: `From: bob@coldforge.xyz
+			rawEmail: `From: bob@cloistr.xyz
 X-Nostr-Encrypted: false
 
 body content`,
@@ -467,8 +467,8 @@ func TestParseRawEmail(t *testing.T) {
 	}{
 		{
 			name: "valid email parsing",
-			rawEmail: `From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+			rawEmail: `From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 Subject: Test
 
 Hello World`,
@@ -476,8 +476,8 @@ Hello World`,
 		},
 		{
 			name: "base64 encoded body",
-			rawEmail: `From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+			rawEmail: `From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 Content-Transfer-Encoding: base64
 
 SGVsbG8gV29ybGQ=`,

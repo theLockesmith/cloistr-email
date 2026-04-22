@@ -52,7 +52,7 @@ func TestEmailStorageIntegration(t *testing.T) {
 	t.Run("create and retrieve email", func(t *testing.T) {
 		email := &storage.Email{
 			UserID:      "test-user-1",
-			FromAddress: "alice@coldforge.xyz",
+			FromAddress: "alice@cloistr.xyz",
 			ToAddress:   "bob@example.com",
 			Subject:     "Test Email Subject",
 			Body:        "Hello, this is a test email body.",
@@ -90,8 +90,8 @@ func TestEmailStorageIntegration(t *testing.T) {
 
 		email := &storage.Email{
 			UserID:        "test-user-2",
-			FromAddress:   "alice@coldforge.xyz",
-			ToAddress:     "bob@coldforge.xyz",
+			FromAddress:   "alice@cloistr.xyz",
+			ToAddress:     "bob@cloistr.xyz",
 			Subject:       "Encrypted Test Email",
 			Body:          "AGVuY3J5cHRlZA==", // Simulated encrypted content
 			IsEncrypted:   true,
@@ -128,7 +128,7 @@ func TestEmailStorageIntegration(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			email := &storage.Email{
 				UserID:      userID,
-				FromAddress: "alice@coldforge.xyz",
+				FromAddress: "alice@cloistr.xyz",
 				ToAddress:   "bob@example.com",
 				Subject:     "List Test Email",
 				Body:        "Test body",
@@ -159,7 +159,7 @@ func TestEmailStorageIntegration(t *testing.T) {
 	t.Run("soft delete email", func(t *testing.T) {
 		email := &storage.Email{
 			UserID:      "test-user-delete",
-			FromAddress: "alice@coldforge.xyz",
+			FromAddress: "alice@cloistr.xyz",
 			ToAddress:   "bob@example.com",
 			Subject:     "Delete Test",
 			Body:        "To be deleted",
@@ -194,7 +194,7 @@ func TestEncryptedEmailFlow(t *testing.T) {
 		mockResolver := newMockKeyResolver()
 
 		// Setup recipient key
-		recipientEmail := "alice@coldforge.xyz"
+		recipientEmail := "alice@cloistr.xyz"
 		recipientPubkey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 		mockResolver.SetKey(recipientEmail, recipientPubkey)
 
@@ -205,7 +205,7 @@ func TestEncryptedEmailFlow(t *testing.T) {
 
 		email, err := encryptor.PrepareEncryptedEmail(
 			ctx,
-			"bob@coldforge.xyz",
+			"bob@cloistr.xyz",
 			recipientEmail,
 			"Secret Subject",
 			"This is a secret message",
@@ -291,8 +291,8 @@ func TestEncryptedEmailFlow(t *testing.T) {
 func TestRawEmailFormatting(t *testing.T) {
 	t.Run("encrypted email includes X-Nostr headers", func(t *testing.T) {
 		email := &encryption.EncryptedEmail{
-			From:            "bob@coldforge.xyz",
-			To:              "alice@coldforge.xyz",
+			From:            "bob@cloistr.xyz",
+			To:              "alice@cloistr.xyz",
 			Subject:         "Encrypted Message",
 			Body:            "ZW5jcnlwdGVkLWNvbnRlbnQ=",
 			IsEncrypted:     true,
@@ -303,8 +303,8 @@ func TestRawEmailFormatting(t *testing.T) {
 
 		raw := email.FormatRawEmail()
 
-		assert.Contains(t, raw, "From: bob@coldforge.xyz")
-		assert.Contains(t, raw, "To: alice@coldforge.xyz")
+		assert.Contains(t, raw, "From: bob@cloistr.xyz")
+		assert.Contains(t, raw, "To: alice@cloistr.xyz")
 		assert.Contains(t, raw, "Subject: Encrypted Message")
 		assert.Contains(t, raw, "X-Nostr-Encrypted: true")
 		assert.Contains(t, raw, "X-Nostr-Sender: senderpubkey123")
@@ -315,7 +315,7 @@ func TestRawEmailFormatting(t *testing.T) {
 
 	t.Run("unencrypted email has no X-Nostr headers", func(t *testing.T) {
 		email := &encryption.EncryptedEmail{
-			From:        "bob@coldforge.xyz",
+			From:        "bob@cloistr.xyz",
 			To:          "alice@example.com",
 			Subject:     "Plain Message",
 			Body:        "Hello, this is a plain message.",
@@ -324,7 +324,7 @@ func TestRawEmailFormatting(t *testing.T) {
 
 		raw := email.FormatRawEmail()
 
-		assert.Contains(t, raw, "From: bob@coldforge.xyz")
+		assert.Contains(t, raw, "From: bob@cloistr.xyz")
 		assert.Contains(t, raw, "To: alice@example.com")
 		assert.Contains(t, raw, "Subject: Plain Message")
 		assert.NotContains(t, raw, "X-Nostr-Encrypted:")
@@ -335,8 +335,8 @@ func TestRawEmailFormatting(t *testing.T) {
 // TestRawEmailParsing tests parsing raw emails with encryption metadata
 func TestRawEmailParsing(t *testing.T) {
 	t.Run("parse encrypted email headers", func(t *testing.T) {
-		rawEmail := `From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+		rawEmail := `From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 Subject: Encrypted Test
 X-Nostr-Encrypted: true
 X-Nostr-Sender: senderpubkey123
@@ -357,7 +357,7 @@ encrypted body content`
 	})
 
 	t.Run("parse unencrypted email", func(t *testing.T) {
-		rawEmail := `From: bob@coldforge.xyz
+		rawEmail := `From: bob@cloistr.xyz
 To: alice@example.com
 Subject: Plain Message
 
@@ -373,8 +373,8 @@ Hello World`
 	})
 
 	t.Run("parse base64 encoded body", func(t *testing.T) {
-		rawEmail := `From: bob@coldforge.xyz
-To: alice@coldforge.xyz
+		rawEmail := `From: bob@cloistr.xyz
+To: alice@cloistr.xyz
 Content-Transfer-Encoding: base64
 
 SGVsbG8gV29ybGQ=`
@@ -420,7 +420,7 @@ func TestNIP05CacheIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("cache NIP-05 lookup result", func(t *testing.T) {
-		email := "alice@coldforge.xyz"
+		email := "alice@cloistr.xyz"
 		npub := "npub1alice00000000000000000000000000000000000000000000000000"
 		ttl := 24 * time.Hour
 

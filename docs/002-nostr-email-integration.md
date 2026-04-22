@@ -64,7 +64,7 @@ Nostr solves what PGP couldn't:
 ┌─────────────────────────────────────────────────────────────┐
 │                      Email Message                          │
 ├─────────────────────────────────────────────────────────────┤
-│ From: alice@coldforge.xyz                                   │
+│ From: alice@cloistr.xyz                                   │
 │ To: bob@example.com                                         │
 │ Subject: Hello                                              │
 │ X-Nostr-Pubkey: <alice's hex pubkey>                        │
@@ -78,7 +78,7 @@ Nostr solves what PGP couldn't:
 When Bob receives this:
 
 1. Extract `X-Nostr-Pubkey` and `X-Nostr-Sig` headers
-2. Look up `alice@coldforge.xyz` via NIP-05 (`coldforge.xyz/.well-known/nostr.json`)
+2. Look up `alice@cloistr.xyz` via NIP-05 (`coldforge.xyz/.well-known/nostr.json`)
 3. Verify the pubkey in the email matches the NIP-05 result
 4. Verify the signature against the signed headers + body
 5. If valid: **cryptographic proof Alice sent this message**
@@ -243,7 +243,7 @@ X-Nostr-Algorithm: nip44
 
 ### Phase 1: Sign our own outbound mail ✅ COMPLETE
 
-Every email sent from `@coldforge.xyz` includes Nostr signature headers. Recipients who understand the headers can verify; others ignore them (headers are invisible to normal email clients).
+Every email sent from `@cloistr.xyz` includes Nostr signature headers. Recipients who understand the headers can verify; others ignore them (headers are invisible to normal email clients).
 
 **Implementation:**
 - `internal/email/signing.go` - EmailSigner with RFC-002 canonicalization

@@ -9,7 +9,7 @@ This guide covers all DNS records required for production email delivery.
 Routes incoming email to your mail server.
 
 ```
-coldforge.xyz.    IN MX    10 mail.coldforge.xyz.
+cloistr.xyz.    IN MX    10 mail.cloistr.xyz.
 ```
 
 - **Priority 10**: Lower number = higher priority
@@ -20,8 +20,8 @@ coldforge.xyz.    IN MX    10 mail.coldforge.xyz.
 Point your mail server hostname to its IP address.
 
 ```
-mail.coldforge.xyz.    IN A       <YOUR_SERVER_IP>
-mail.coldforge.xyz.    IN AAAA    <YOUR_IPV6_ADDRESS>  # Optional but recommended
+mail.cloistr.xyz.    IN A       <YOUR_SERVER_IP>
+mail.cloistr.xyz.    IN AAAA    <YOUR_IPV6_ADDRESS>  # Optional but recommended
 ```
 
 ### 3. SPF Record (Sender Policy Framework)
@@ -29,18 +29,18 @@ mail.coldforge.xyz.    IN AAAA    <YOUR_IPV6_ADDRESS>  # Optional but recommende
 Specifies which servers can send email for your domain.
 
 ```
-coldforge.xyz.    IN TXT    "v=spf1 mx a:mail.coldforge.xyz -all"
+cloistr.xyz.    IN TXT    "v=spf1 mx a:mail.cloistr.xyz -all"
 ```
 
 **Explanation:**
 - `v=spf1` - SPF version
 - `mx` - Allow servers listed in MX records
-- `a:mail.coldforge.xyz` - Allow this specific hostname
+- `a:mail.cloistr.xyz` - Allow this specific hostname
 - `-all` - Reject (hard fail) all other sources
 
 **Softer option for testing:**
 ```
-coldforge.xyz.    IN TXT    "v=spf1 mx ~all"
+cloistr.xyz.    IN TXT    "v=spf1 mx ~all"
 ```
 - `~all` - Soft fail (mark as suspicious but deliver)
 
@@ -50,12 +50,12 @@ Cryptographic signature verification for outbound email.
 
 **Generate keys first:**
 ```bash
-./scripts/generate-dkim-keys.sh -d coldforge.xyz -s mail
+./scripts/generate-dkim-keys.sh -d cloistr.xyz -s mail
 ```
 
 **Add DNS record:**
 ```
-mail._domainkey.coldforge.xyz.    IN TXT    "v=DKIM1; k=rsa; p=<PUBLIC_KEY_BASE64>"
+mail._domainkey.cloistr.xyz.    IN TXT    "v=DKIM1; k=rsa; p=<PUBLIC_KEY_BASE64>"
 ```
 
 **Key rotation:**
@@ -68,7 +68,7 @@ mail._domainkey.coldforge.xyz.    IN TXT    "v=DKIM1; k=rsa; p=<PUBLIC_KEY_BASE6
 Policy for handling authentication failures.
 
 ```
-_dmarc.coldforge.xyz.    IN TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc@coldforge.xyz; ruf=mailto:dmarc@coldforge.xyz; sp=quarantine; adkim=r; aspf=r"
+_dmarc.cloistr.xyz.    IN TXT    "v=DMARC1; p=quarantine; rua=mailto:dmarc@cloistr.xyz; ruf=mailto:dmarc@cloistr.xyz; sp=quarantine; adkim=r; aspf=r"
 ```
 
 **Explanation:**
@@ -91,12 +91,12 @@ Maps IP address back to hostname. **Required by many mail servers.**
 
 Contact your hosting provider to set:
 ```
-<IP_REVERSED>.in-addr.arpa.    IN PTR    mail.coldforge.xyz.
+<IP_REVERSED>.in-addr.arpa.    IN PTR    mail.cloistr.xyz.
 ```
 
 Example for IP 192.0.2.1:
 ```
-1.2.0.192.in-addr.arpa.    IN PTR    mail.coldforge.xyz.
+1.2.0.192.in-addr.arpa.    IN PTR    mail.cloistr.xyz.
 ```
 
 ### 7. MTA-STS Record (Mail Transfer Agent Strict Transport Security)
@@ -105,14 +105,14 @@ Enforces TLS for incoming connections.
 
 **DNS record:**
 ```
-_mta-sts.coldforge.xyz.    IN TXT    "v=STSv1; id=20240101"
+_mta-sts.cloistr.xyz.    IN TXT    "v=STSv1; id=20240101"
 ```
 
-**Policy file** (serve at `https://mta-sts.coldforge.xyz/.well-known/mta-sts.txt`):
+**Policy file** (serve at `https://mta-sts.cloistr.xyz/.well-known/mta-sts.txt`):
 ```
 version: STSv1
 mode: enforce
-mx: mail.coldforge.xyz
+mx: mail.cloistr.xyz
 max_age: 604800
 ```
 
@@ -121,7 +121,7 @@ max_age: 604800
 Pins TLS certificate in DNS. Optional but adds security.
 
 ```
-_25._tcp.mail.coldforge.xyz.    IN TLSA    3 1 1 <CERTIFICATE_HASH>
+_25._tcp.mail.cloistr.xyz.    IN TLSA    3 1 1 <CERTIFICATE_HASH>
 ```
 
 Generate hash:
@@ -134,7 +134,7 @@ openssl x509 -in /path/to/cert.pem -noout -pubkey | \
 ## Complete DNS Zone Example
 
 ```zone
-; coldforge.xyz DNS Zone for Email
+; cloistr.xyz DNS Zone for Email
 $TTL 3600
 
 ; Mail server
@@ -142,7 +142,7 @@ mail                IN A        203.0.113.10
 mail                IN AAAA     2001:db8::10
 
 ; MX record
-@                   IN MX       10 mail.coldforge.xyz.
+@                   IN MX       10 mail.cloistr.xyz.
 
 ; SPF
 @                   IN TXT      "v=spf1 mx -all"
@@ -151,45 +151,45 @@ mail                IN AAAA     2001:db8::10
 mail._domainkey     IN TXT      "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA..."
 
 ; DMARC
-_dmarc              IN TXT      "v=DMARC1; p=quarantine; rua=mailto:dmarc@coldforge.xyz"
+_dmarc              IN TXT      "v=DMARC1; p=quarantine; rua=mailto:dmarc@cloistr.xyz"
 
 ; MTA-STS
 _mta-sts            IN TXT      "v=STSv1; id=20240101"
 
 ; SMTP TLS Reporting
-_smtp._tls          IN TXT      "v=TLSRPTv1; rua=mailto:tlsrpt@coldforge.xyz"
+_smtp._tls          IN TXT      "v=TLSRPTv1; rua=mailto:tlsrpt@cloistr.xyz"
 ```
 
 ## Verification Commands
 
 ### Check MX Record
 ```bash
-dig MX coldforge.xyz +short
-# Expected: 10 mail.coldforge.xyz.
+dig MX cloistr.xyz +short
+# Expected: 10 mail.cloistr.xyz.
 ```
 
 ### Check SPF Record
 ```bash
-dig TXT coldforge.xyz +short | grep spf
+dig TXT cloistr.xyz +short | grep spf
 # Expected: "v=spf1 mx -all"
 ```
 
 ### Check DKIM Record
 ```bash
-dig TXT mail._domainkey.coldforge.xyz +short
+dig TXT mail._domainkey.cloistr.xyz +short
 # Expected: "v=DKIM1; k=rsa; p=..."
 ```
 
 ### Check DMARC Record
 ```bash
-dig TXT _dmarc.coldforge.xyz +short
+dig TXT _dmarc.cloistr.xyz +short
 # Expected: "v=DMARC1; p=quarantine; ..."
 ```
 
 ### Check PTR (Reverse DNS)
 ```bash
 dig -x <YOUR_IP> +short
-# Expected: mail.coldforge.xyz.
+# Expected: mail.cloistr.xyz.
 ```
 
 ### Full Email Test
@@ -215,12 +215,12 @@ DNS TXT records have a 255-character limit per string.
 - Ensure `rua` email address is valid and monitored
 - Add external domain authorization if needed:
   ```
-  coldforge.xyz._report._dmarc.external.com.    IN TXT    "v=DMARC1"
+  cloistr.xyz._report._dmarc.external.com.    IN TXT    "v=DMARC1"
   ```
 
 ### PTR Record Mismatch
 - PTR must match forward DNS exactly
-- `mail.coldforge.xyz` must resolve to same IP that PTR points to
+- `mail.cloistr.xyz` must resolve to same IP that PTR points to
 - Contact hosting provider - you usually can't set PTR yourself
 
 ## DNS Propagation
@@ -230,9 +230,9 @@ Changes can take 24-48 hours to propagate globally.
 Monitor propagation:
 ```bash
 # Check multiple DNS servers
-dig @8.8.8.8 TXT _dmarc.coldforge.xyz
-dig @1.1.1.1 TXT _dmarc.coldforge.xyz
-dig @9.9.9.9 TXT _dmarc.coldforge.xyz
+dig @8.8.8.8 TXT _dmarc.cloistr.xyz
+dig @1.1.1.1 TXT _dmarc.cloistr.xyz
+dig @9.9.9.9 TXT _dmarc.cloistr.xyz
 ```
 
 Or use: https://dnschecker.org/
@@ -252,14 +252,14 @@ After DNS is configured, set environment variables:
 
 ```bash
 # .env.production
-DKIM_DOMAIN=coldforge.xyz
+DKIM_DOMAIN=cloistr.xyz
 DKIM_SELECTOR=mail
 DKIM_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
 ...
 -----END RSA PRIVATE KEY-----"
 
-SMTP_INBOUND_DOMAIN=coldforge.xyz
-SMTP_INBOUND_DOMAINS=coldforge.xyz,mail.coldforge.xyz
+SMTP_INBOUND_DOMAIN=cloistr.xyz
+SMTP_INBOUND_DOMAINS=cloistr.xyz,mail.cloistr.xyz
 ```
 
 See [Production Deployment Guide](./DEPLOYMENT.md) for full configuration.

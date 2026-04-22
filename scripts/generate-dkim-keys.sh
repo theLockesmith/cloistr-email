@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # Configuration
-DOMAIN="${DKIM_DOMAIN:-coldforge.xyz}"
+DOMAIN="${DKIM_DOMAIN:-cloistr.xyz}"
 SELECTOR="${DKIM_SELECTOR:-mail}"
 KEY_SIZE="${DKIM_KEY_SIZE:-2048}"
 OUTPUT_DIR="${DKIM_OUTPUT_DIR:-./dkim-keys}"
@@ -24,7 +24,7 @@ Usage: $(basename "$0") [OPTIONS]
 Generate DKIM keys for email authentication.
 
 Options:
-    -d, --domain DOMAIN     Domain to sign for (default: coldforge.xyz)
+    -d, --domain DOMAIN     Domain to sign for (default: cloistr.xyz)
     -s, --selector SELECTOR DKIM selector (default: mail)
     -k, --key-size SIZE     RSA key size in bits (default: 2048)
     -o, --output DIR        Output directory (default: ./dkim-keys)

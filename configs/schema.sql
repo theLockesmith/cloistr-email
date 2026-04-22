@@ -230,6 +230,10 @@ CREATE INDEX idx_outbound_queue_next_attempt ON outbound_queue(next_attempt) WHE
 CREATE INDEX idx_outbound_queue_message_id ON outbound_queue(message_id);
 CREATE INDEX idx_outbound_queue_created_at ON outbound_queue(created_at);
 
+-- NOTE: Address mappings (npub <-> email) are managed by cloistr-me's 'addresses' table.
+-- cloistr-email queries that table directly. Both services share the same database.
+-- See: https://git.coldforge.xyz/coldforge/cloistr-me (internal/storage/postgres.go)
+
 -- Email bounces table
 -- Tracks bounce information for outbound email delivery failures
 CREATE TABLE IF NOT EXISTS email_bounces (

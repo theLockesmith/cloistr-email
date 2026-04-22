@@ -1,5 +1,5 @@
 // Package identity handles unified address management and validation.
-// It enforces that users must have a coldforge.xyz address to send email,
+// It enforces that users must have a cloistr.xyz address to send email,
 // and manages the npub ↔ email address mapping.
 package identity
 
@@ -13,13 +13,13 @@ import (
 )
 
 // Domain is the email domain managed by this service
-const Domain = "coldforge.xyz"
+const Domain = "cloistr.xyz"
 
 // AddressType indicates whether an address is internal or external
 type AddressType int
 
 const (
-	// AddressTypeInternal is a @coldforge.xyz address
+	// AddressTypeInternal is a @cloistr.xyz address
 	AddressTypeInternal AddressType = iota
 
 	// AddressTypeExternal is any other domain
@@ -27,15 +27,15 @@ const (
 )
 
 // UnifiedAddress represents the connection between an npub and an email address.
-// This is the core identity concept - one npub maps to one @coldforge.xyz address.
+// This is the core identity concept - one npub maps to one @cloistr.xyz address.
 type UnifiedAddress struct {
 	// Npub is the user's Nostr public key (hex format)
 	Npub string
 
-	// LocalPart is the username portion (e.g., "alice" in alice@coldforge.xyz)
+	// LocalPart is the username portion (e.g., "alice" in alice@cloistr.xyz)
 	LocalPart string
 
-	// Email is the full email address (alice@coldforge.xyz)
+	// Email is the full email address (alice@cloistr.xyz)
 	Email string
 
 	// DisplayName is the user's chosen display name

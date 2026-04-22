@@ -75,7 +75,7 @@ The existing `internal/transport/smtp.go` already uses Go's `net/smtp` for the a
 
 - **Direct delivery via MX lookup** - resolve recipient domain, connect to their MX server, deliver directly. No relay needed.
 - **External relay** - use a dedicated SMTP relay service (Postfix, or a service like Amazon SES) for deliverability reputation.
-- **Both** - relay for external delivery, direct for `@coldforge.xyz` internal routing.
+- **Both** - relay for external delivery, direct for `@cloistr.xyz` internal routing.
 
 The `SMTPTransport` interface stays identical. We change the config to point at a relay or implement MX-based delivery.
 
@@ -84,7 +84,7 @@ The `SMTPTransport` interface stays identical. We change the config to point at 
 Using `emersion/go-smtp`, implement an SMTP server that:
 
 - Listens on port 25
-- Accepts mail for `@coldforge.xyz` recipients
+- Accepts mail for `@cloistr.xyz` recipients
 - Validates recipients exist in our PostgreSQL user table
 - Parses the raw message (headers, body, attachments)
 - Checks for `X-Nostr-*` headers (encrypted mail from other Cloistr users)
