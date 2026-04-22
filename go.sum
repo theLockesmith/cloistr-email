@@ -1,5 +1,5 @@
-git.aegis-hq.xyz/coldforge/cloistr-common v0.1.0 h1:f0Gwjth4TuLmnQ3J4qPGRz7UV9K8dieKN5gugFc5qrE=
-git.aegis-hq.xyz/coldforge/cloistr-common v0.1.0/go.mod h1:QCsFfBYxCzAg9R3HUkin/nT1QPuMQKUAkKEfVlQj8BE=
+git.aegis-hq.xyz/coldforge/cloistr-common v0.2.0 h1:ooYD72SYX20ckh0G8QRuriu+8PyCm9mAAN8eGQjGFEY=
+git.aegis-hq.xyz/coldforge/cloistr-common v0.2.0/go.mod h1:vukBKg8s+ChPN7cs0DhwAGpfW/Px2+fIYVfol164N9k=
 github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7OputlJIzU=
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
 github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 h1:ClzzXMDDuUbWfNNZqGeYq4PnYOlwlOVIvSyNaIy0ykg=
