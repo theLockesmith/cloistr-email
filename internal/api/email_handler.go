@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/email"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )

@@ -6,7 +6,7 @@ package relays
 import (
 	"context"
 
-	"git.coldforge.xyz/coldforge/cloistr-common/relayprefs"
+	"git.aegis-hq.xyz/coldforge/cloistr-common/relayprefs"
 	"go.uber.org/zap"
 )
 

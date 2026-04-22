@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/config"
-	_ "git.coldforge.xyz/coldforge/cloistr-email/internal/encryption" // Will be used for email encryption
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/relays"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/config"
+	_ "git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption" // Will be used for email encryption
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )

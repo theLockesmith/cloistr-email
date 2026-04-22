@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/email"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/signing"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/signing"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

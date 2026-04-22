@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/metrics"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/metrics"
 	"github.com/google/uuid"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"

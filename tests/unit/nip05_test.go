@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

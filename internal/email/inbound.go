@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/encryption"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/storage"
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/transport"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
 	"go.uber.org/zap"
 )
 

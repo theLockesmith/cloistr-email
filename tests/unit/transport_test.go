@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/transport"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
 	"go.uber.org/zap"
 )
 

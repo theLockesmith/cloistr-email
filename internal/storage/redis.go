@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/auth"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )

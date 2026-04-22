@@ -9,7 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/identity"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 )
 
 // AddressStoreAdapter adapts PostgreSQL to implement identity.AddressStore.

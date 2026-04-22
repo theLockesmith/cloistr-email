@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"git.coldforge.xyz/coldforge/cloistr-email/internal/signing"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/signing"
 	"github.com/nbd-wtf/go-nostr"
 	"go.uber.org/zap"
 )
