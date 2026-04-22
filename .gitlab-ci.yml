@@ -2,6 +2,9 @@ stages:
   - test
   - build
 
+variables:
+  IMAGE_NAME: registry.aegis-hq.xyz/coldforge/cloistr-email
+
 test:unit:
   stage: test
   image: golang:1.25-alpine
@@ -23,19 +26,17 @@ build:backend:
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
-  before_script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
   script:
-    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${CI_REGISTRY_IMAGE}-backend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-backend:latest
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"registry.aegis-hq.xyz\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${IMAGE_NAME}-backend:${CI_COMMIT_SHORT_SHA} --destination ${IMAGE_NAME}-backend:latest
 
 build:frontend:
   stage: build
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
-  before_script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
   script:
-    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${CI_REGISTRY_IMAGE}-frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-frontend:latest
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"registry.aegis-hq.xyz\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${IMAGE_NAME}-frontend:${CI_COMMIT_SHORT_SHA} --destination ${IMAGE_NAME}-frontend:latest
