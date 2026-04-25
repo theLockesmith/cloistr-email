@@ -85,10 +85,17 @@ type NIP05Resolver interface {
 	ResolvePubkey(ctx context.Context, email string) (string, error)
 }
 
+// AddressVerifier verifies address ownership via cloistr-me internal API.
+// This is optional - if nil, ownership is assumed valid (for backwards compatibility).
+type AddressVerifier interface {
+	VerifyAddressOwnership(ctx context.Context, pubkey, address string) (bool, error)
+}
+
 // Service manages unified addresses and validates email permissions
 type Service struct {
 	store    AddressStore
 	resolver NIP05Resolver
+	verifier AddressVerifier
 	logger   *zap.Logger
 }
 
@@ -101,8 +108,15 @@ func NewService(store AddressStore, resolver NIP05Resolver, logger *zap.Logger) 
 	}
 }
 
+// WithVerifier sets the address verifier for ownership checks via cloistr-me
+func (s *Service) WithVerifier(verifier AddressVerifier) *Service {
+	s.verifier = verifier
+	return s
+}
+
 // ValidateSender checks if a sender is allowed to send email.
 // Returns an error if the sender doesn't have a verified unified address.
+// If a verifier is configured, also validates ownership via cloistr-me API.
 func (s *Service) ValidateSender(ctx context.Context, npub string) (*UnifiedAddress, error) {
 	addr, err := s.store.GetByNpub(ctx, npub)
 	if err != nil {
@@ -115,6 +129,23 @@ func (s *Service) ValidateSender(ctx context.Context, npub string) (*UnifiedAddr
 
 	if !addr.Verified {
 		return nil, ErrAddressNotVerified
+	}
+
+	// If verifier is configured, also verify ownership via cloistr-me API
+	// This ensures cloistr-me (authoritative source) confirms the mapping
+	if s.verifier != nil {
+		owned, err := s.verifier.VerifyAddressOwnership(ctx, npub, addr.Email)
+		if err != nil {
+			s.logger.Warn("cloistr-me verification failed, allowing based on local data",
+				zap.String("email", addr.Email),
+				zap.Error(err))
+			// Don't fail if cloistr-me is unreachable - fall back to local data
+		} else if !owned {
+			s.logger.Warn("cloistr-me reports address not owned by pubkey",
+				zap.String("email", addr.Email),
+				zap.String("npub", npub[:16]+"..."))
+			return nil, ErrAddressOwnershipMismatch
+		}
 	}
 
 	return addr, nil

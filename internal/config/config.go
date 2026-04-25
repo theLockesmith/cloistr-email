@@ -46,6 +46,10 @@ type Config struct {
 	NSECBunkerRelayURL string
 	IdentityServiceURL string
 
+	// cloistr-me integration (address verification)
+	CloistrMeURL    string // Base URL for cloistr-me internal API
+	CloistrMeSecret string // Shared secret for internal API auth
+
 	// Logging
 	LogLevel string
 
@@ -93,6 +97,10 @@ func Load() (*Config, error) {
 		// Nostr
 		NSECBunkerRelayURL: getEnvRequired("NSECBUNKER_RELAY_URL"),
 		IdentityServiceURL: getEnv("IDENTITY_SERVICE_URL", "http://localhost:3000"),
+
+		// cloistr-me integration (address verification)
+		CloistrMeURL:    getEnv("CLOISTR_ME_URL", "http://cloistr-me.cloistr.svc.cluster.local:8080"),
+		CloistrMeSecret: getEnv("CLOISTR_ME_SECRET", ""),
 
 		// Logging
 		LogLevel: getEnv("LOG_LEVEL", "info"),

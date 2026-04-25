@@ -12,6 +12,9 @@ var (
 	// ErrFromAddressMismatch is returned when sender tries to use someone else's address
 	ErrFromAddressMismatch = errors.New("from address does not match sender's unified address")
 
+	// ErrAddressOwnershipMismatch is returned when cloistr-me reports the pubkey doesn't own the address
+	ErrAddressOwnershipMismatch = errors.New("address ownership verification failed: pubkey does not own this address")
+
 	// ErrNpubAlreadyRegistered is returned when npub already has an address
 	ErrNpubAlreadyRegistered = errors.New("npub already has a registered address")
 
