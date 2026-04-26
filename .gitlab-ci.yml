@@ -7,6 +7,8 @@ variables:
 
 test:unit:
   stage: test
+  tags:
+    - local
   image: golang:1.25-alpine
   script:
     - for i in 1 2 3 4 5; do apk add --no-cache git gcc musl-dev && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
@@ -16,6 +18,8 @@ test:unit:
 
 test:lint:
   stage: test
+  tags:
+    - local
   image: golangci/golangci-lint:latest
   script:
     - golangci-lint run ./...
