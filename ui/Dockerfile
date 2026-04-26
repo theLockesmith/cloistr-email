@@ -1,5 +1,5 @@
 # Build stage
-FROM oci.coldforge.xyz/docker-hub/library/node:20-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
 # Runtime stage - use unprivileged nginx for OpenShift compatibility
-FROM oci.coldforge.xyz/docker-hub/nginxinc/nginx-unprivileged:1.25-alpine
+FROM nginxinc/nginx-unprivileged:1.25-alpine
 
 # Copy app files
 COPY --from=builder /app/dist /usr/share/nginx/html
