@@ -2,6 +2,7 @@ package relays
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -10,6 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+// skipInCI skips tests that require external network access when running in CI
+func skipInCI(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	if os.Getenv("CI") != "" || os.Getenv("GITLAB_CI") != "" {
+		t.Skip("Skipping integration test in CI environment")
+	}
+}
 
 func TestNewClient(t *testing.T) {
 	logger := zap.NewNop()
@@ -91,12 +103,10 @@ func TestClientCacheOperations(t *testing.T) {
 	client.InvalidateAllCache()
 }
 
-// TestGetRelayPrefsWithMockRelay tests the relay lookup flow
-// This is a more integration-style test that requires network access
+// TestGetRelayPrefsIntegration tests the relay lookup flow
+// This is an integration test that requires network access to external relays
 func TestGetRelayPrefsIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+	skipInCI(t)
 
 	logger, _ := zap.NewDevelopment()
 
@@ -129,9 +139,7 @@ func TestGetRelayPrefsIntegration(t *testing.T) {
 }
 
 func TestGetReadWriteRelays(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+	skipInCI(t)
 
 	logger := zap.NewNop()
 
