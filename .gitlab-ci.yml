@@ -2,8 +2,6 @@ stages:
   - test
   - build
 
-variables:
-  IMAGE_NAME: registry.aegis-hq.xyz/coldforge/cloistr-email
 
 test:unit:
   stage: test
@@ -32,8 +30,8 @@ build:backend:
     entrypoint: [""]
   script:
     - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"registry.aegis-hq.xyz\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${IMAGE_NAME}-backend:${CI_COMMIT_SHORT_SHA} --destination ${IMAGE_NAME}-backend:latest
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${CI_REGISTRY_USER}\",\"password\":\"${CI_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${CI_REGISTRY_IMAGE}-backend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-backend:latest
 
 build:frontend:
   stage: build
@@ -42,5 +40,5 @@ build:frontend:
     entrypoint: [""]
   script:
     - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"registry.aegis-hq.xyz\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${IMAGE_NAME}-frontend:${CI_COMMIT_SHORT_SHA} --destination ${IMAGE_NAME}-frontend:latest
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${CI_REGISTRY_USER}\",\"password\":\"${CI_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${CI_REGISTRY_IMAGE}-frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-frontend:latest
