@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM oci.coldforge.xyz/docker-hub/library/golang:1.25-alpine AS builder
 
 RUN apk add --no-cache git gcc musl-dev
 
@@ -13,7 +13,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w" -o cloistr-email ./cmd/email/main.go
 
 # Runtime stage
-FROM alpine:latest
+FROM oci.coldforge.xyz/docker-hub/library/alpine:latest
 
 RUN apk --no-cache add ca-certificates
 
