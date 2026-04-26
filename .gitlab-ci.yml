@@ -30,7 +30,7 @@ build:backend:
     entrypoint: [""]
   script:
     - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"gitlab-ci-token\",\"password\":\"${CI_JOB_TOKEN}\"}}}" > /kaniko/.docker/config.json
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
     - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${CI_REGISTRY_IMAGE}-backend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-backend:latest
 
 build:frontend:
@@ -40,5 +40,5 @@ build:frontend:
     entrypoint: [""]
   script:
     - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"gitlab-ci-token\",\"password\":\"${CI_JOB_TOKEN}\"}}}" > /kaniko/.docker/config.json
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
     - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${CI_REGISTRY_IMAGE}-frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-frontend:latest
