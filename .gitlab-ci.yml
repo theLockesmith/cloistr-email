@@ -31,7 +31,7 @@ build:backend:
   script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${CI_REGISTRY_IMAGE}-backend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-backend:latest
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}/backend:latest
 
 build:frontend:
   stage: build
@@ -41,4 +41,4 @@ build:frontend:
   script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${CI_REGISTRY_IMAGE}-frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}-frontend:latest
+    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --destination ${CI_REGISTRY_IMAGE}/frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}/frontend:latest
