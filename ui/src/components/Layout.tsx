@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom'
-import { Header } from '@cloistr/ui/components'
+import { Header, Footer } from '@cloistr/ui/components'
 import Sidebar from './Sidebar'
 
 export default function Layout() {
@@ -11,6 +11,7 @@ export default function Layout() {
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
+        <Footer />
       </div>
     </div>
   )
