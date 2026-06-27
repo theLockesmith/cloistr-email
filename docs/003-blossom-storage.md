@@ -98,19 +98,23 @@ Problems:
 ### Database Schema Changes
 
 ```sql
--- Migration: Move content to Blossom references
+-- Migration: Add Blossom references (NON-destructive)
+-- body/html_body are KEPT (nullable) so existing inline emails still read.
+-- New emails set blossom_*_hash and leave body NULL; the read path falls back
+-- to the inline body whenever blossom_body_hash IS NULL (grandfathering).
 ALTER TABLE emails
-  -- Remove inline content
-  DROP COLUMN body,
-  DROP COLUMN html_body,
-  -- Add Blossom references
   ADD COLUMN blossom_body_hash VARCHAR(64),
   ADD COLUMN blossom_html_hash VARCHAR(64),
   ADD COLUMN blossom_subject_hash VARCHAR(64),  -- Optional: encrypt subject too
-  ADD COLUMN blossom_servers JSONB DEFAULT '[]'::jsonb,  -- User's preferred servers
+  ADD COLUMN blossom_servers JSONB DEFAULT '[]'::jsonb,  -- Servers the blob was stored to
   ADD COLUMN content_size_bytes BIGINT;  -- For quota tracking
 
 CREATE INDEX idx_emails_blossom_body ON emails(blossom_body_hash);
+
+-- NOTE: NIP-44 self-frames its nonce inside the ciphertext payload, and the
+-- content address is sha256(ciphertext). No separate encryption_nonce column
+-- is needed for Blossom content (the existing emails.encryption_nonce stays
+-- only for legacy inline rows).
 ```
 
 ### User Blossom Preferences
@@ -186,9 +190,19 @@ They do NOT learn:
 
 ## Implementation Phases
 
-### Phase 1: Attachments (Already Done)
-- Schema has `blossom_sha256`, `blossom_url`
-- Attachments already reference Blossom
+### Phase 0: Blossom Client (Keystone — NOT yet built)
+- No Blossom client exists in the codebase yet, and `cloistr-common` does not
+  ship one. This is the foundation everything below depends on.
+- Build `internal/blossom`: `Upload` (BUD-02, signed kind-24242 auth event),
+  `Download` with a server-fallback chain + sha256 verification, `Delete`
+  (BUD-02 GC), content addressing via sha256(ciphertext), and N-way upload
+  redundancy. Unit-tested against an in-process mock Blossom server.
+
+### Phase 1: Attachments (schema stub — wire to the real client)
+- The `attachments` table already has `blossom_sha256` / `blossom_url` columns,
+  but nothing uploads to Blossom yet — they are currently unpopulated stubs.
+- Route attachment upload/download through the Phase 0 client (lowest-risk
+  first real consumer of the client).
 
 ### Phase 2: Email Bodies
 - Add `blossom_body_hash`, `blossom_html_hash` columns
