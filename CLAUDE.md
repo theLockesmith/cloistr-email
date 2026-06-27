@@ -12,6 +12,7 @@
 | [docs/reference.md](docs/reference.md) | Full API, config, architecture |
 | [docs/001-stalwart-removal-migration.md](docs/001-stalwart-removal-migration.md) | RFC-001 |
 | [docs/002-nostr-email-integration.md](docs/002-nostr-email-integration.md) | RFC-002 |
+| [docs/003-blossom-storage.md](docs/003-blossom-storage.md) | RFC-003 |
 
 ## Autonomous Work Mode
 
@@ -89,6 +90,8 @@ k8s/                    Kubernetes manifests
 | Item | Priority |
 |------|----------|
 | Submit NIP proposal (X-Nostr-* headers) | P1 |
+| Blossom storage for email content ([RFC-003](docs/003-blossom-storage.md)) | P1 |
+| HashiCorp Vault integration (DKIM keys, dynamic DB creds) | P2 |
 | Lightning spam control | P2 |
 | Rspamd integration | P3 |
 
@@ -119,8 +122,8 @@ kubectl apply -k k8s/
 ## See Also
 
 - [NIP draft](docs/nip-smtp-signing.md) - X-Nostr-* email headers spec
-- [cloistr-common](https://git.coldforge.xyz/coldforge/cloistr-common) - Shared libraries
+- [cloistr-common](https://git.aegis-hq.xyz/coldforge/cloistr-common) - Shared libraries
 
 ---
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-05-03

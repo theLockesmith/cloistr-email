@@ -387,7 +387,7 @@ When processing multiple X-Nostr-Signature headers:
 
 ### Reference Implementation
 
-- **Go**: [cloistr-email](https://git.coldforge.xyz/coldforge/cloistr-email) - Full signing and verification
+- **Go**: [cloistr-email](https://git.aegis-hq.xyz/coldforge/cloistr-email) - Full signing and verification
   - `internal/email/signing.go` - Email signing
   - `internal/email/verify.go` - Signature verification
   - `internal/signing/signer.go` - BIP-340 Schnorr via go-nostr

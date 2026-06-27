@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/config"
 	_ "git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption" // Will be used for email encryption
@@ -77,9 +78,6 @@ func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{
 	}
 }
 
-func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
-	h.respondJSON(w, status, map[string]string{"error": message})
-}
 
 // AuthMiddleware validates session tokens and injects user context
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
@@ -87,14 +85,14 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			h.respondError(w, http.StatusUnauthorized, "missing authorization header")
+			errors.Unauthorized("AUTH_REQUIRED", "missing authorization header").WriteResponse(w)
 			return
 		}
 
 		// Expect "Bearer <token>" format
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			h.respondError(w, http.StatusUnauthorized, "invalid authorization header format")
+			errors.Unauthorized("AUTH_INVALID", "invalid authorization header format").WriteResponse(w)
 			return
 		}
 
@@ -104,7 +102,7 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 		session, err := h.auth.ValidateSession(r.Context(), token)
 		if err != nil {
 			h.logger.Debug("Session validation failed", zap.Error(err))
-			h.respondError(w, http.StatusUnauthorized, "invalid or expired session")
+			errors.Unauthorized("AUTH_INVALID", "invalid or expired session").WriteResponse(w)
 			return
 		}
 
@@ -150,12 +148,12 @@ func (h *Handler) StartNIP46Auth(w http.ResponseWriter, r *http.Request) {
 
 	var req StartAuthRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	if req.BunkerURL == "" {
-		h.respondError(w, http.StatusBadRequest, "bunker_url is required")
+		errors.BadRequest("VALIDATION_FAILED", "bunker_url is required").WriteResponse(w)
 		return
 	}
 
@@ -163,7 +161,7 @@ func (h *Handler) StartNIP46Auth(w http.ResponseWriter, r *http.Request) {
 	challenge, err := h.auth.CreateAuthChallenge(r.Context(), req.BunkerURL)
 	if err != nil {
 		h.logger.Error("Failed to create auth challenge", zap.Error(err))
-		h.respondError(w, http.StatusBadRequest, err.Error())
+		errors.BadRequest("VALIDATION_FAILED", err.Error()).WriteResponse(w)
 		return
 	}
 
@@ -195,12 +193,12 @@ func (h *Handler) VerifyNIP46Auth(w http.ResponseWriter, r *http.Request) {
 
 	var req VerifyAuthRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	if req.ChallengeID == "" || req.SignedEventJSON == "" {
-		h.respondError(w, http.StatusBadRequest, "challenge_id and signed_event are required")
+		errors.BadRequest("VALIDATION_FAILED", "challenge_id and signed_event are required").WriteResponse(w)
 		return
 	}
 
@@ -208,7 +206,7 @@ func (h *Handler) VerifyNIP46Auth(w http.ResponseWriter, r *http.Request) {
 	session, err := h.auth.VerifyAuthSignature(r.Context(), req.ChallengeID, req.SignedEventJSON)
 	if err != nil {
 		h.logger.Warn("Auth verification failed", zap.Error(err))
-		h.respondError(w, http.StatusUnauthorized, err.Error())
+		errors.Unauthorized("AUTH_INVALID", err.Error()).WriteResponse(w)
 		return
 	}
 
@@ -232,12 +230,12 @@ func (h *Handler) ConnectToBunker(w http.ResponseWriter, r *http.Request) {
 
 	var req ConnectBunkerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	if req.ChallengeID == "" {
-		h.respondError(w, http.StatusBadRequest, "challenge_id is required")
+		errors.BadRequest("VALIDATION_FAILED", "challenge_id is required").WriteResponse(w)
 		return
 	}
 
@@ -245,7 +243,7 @@ func (h *Handler) ConnectToBunker(w http.ResponseWriter, r *http.Request) {
 	session, err := h.auth.ConnectToBunker(r.Context(), req.ChallengeID)
 	if err != nil {
 		h.logger.Error("Bunker connection failed", zap.Error(err))
-		h.respondError(w, http.StatusInternalServerError, err.Error())
+		errors.InternalError("INTERNAL_ERROR", err.Error()).WriteResponse(w)
 		return
 	}
 
@@ -264,13 +262,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	session := getSession(r.Context())
 	if session == nil {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	if err := h.auth.Logout(r.Context(), session.ID); err != nil {
 		h.logger.Error("Logout failed", zap.Error(err))
-		h.respondError(w, http.StatusInternalServerError, "logout failed")
+		errors.InternalError("INTERNAL_ERROR", "logout failed").WriteResponse(w)
 		return
 	}
 
@@ -281,7 +279,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 	session := getSession(r.Context())
 	if session == nil {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
@@ -322,7 +320,7 @@ func (h *Handler) ListEmails(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
@@ -350,18 +348,18 @@ func (h *Handler) SendEmail(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	var req SendEmailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	if req.To == "" || req.Subject == "" {
-		h.respondError(w, http.StatusBadRequest, "to and subject are required")
+		errors.BadRequest("VALIDATION_FAILED", "to and subject are required").WriteResponse(w)
 		return
 	}
 
@@ -387,19 +385,19 @@ func (h *Handler) GetEmail(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	emailID := vars["id"]
 	if emailID == "" {
-		h.respondError(w, http.StatusBadRequest, "email id is required")
+		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
 		return
 	}
 
 	// TODO: Query database and decrypt if needed
-	h.respondError(w, http.StatusNotFound, "email not found")
+	errors.NotFound("RESOURCE_NOT_FOUND", "email not found").WriteResponse(w)
 }
 
 // ReplyEmail sends a reply to an email
@@ -408,14 +406,14 @@ func (h *Handler) ReplyEmail(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	emailID := vars["id"]
 	if emailID == "" {
-		h.respondError(w, http.StatusBadRequest, "email id is required")
+		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
 		return
 	}
 
@@ -429,14 +427,14 @@ func (h *Handler) DeleteEmail(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	emailID := vars["id"]
 	if emailID == "" {
-		h.respondError(w, http.StatusBadRequest, "email id is required")
+		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
 		return
 	}
 
@@ -461,13 +459,13 @@ func (h *Handler) DiscoverKey(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	email := r.URL.Query().Get("email")
 	if email == "" {
-		h.respondError(w, http.StatusBadRequest, "email query parameter is required")
+		errors.BadRequest("VALIDATION_FAILED", "email query parameter is required").WriteResponse(w)
 		return
 	}
 
@@ -495,18 +493,18 @@ func (h *Handler) ImportKey(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	var req ImportKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	if req.Email == "" || (req.Npub == "" && req.Pubkey == "") {
-		h.respondError(w, http.StatusBadRequest, "email and npub/pubkey are required")
+		errors.BadRequest("VALIDATION_FAILED", "email and npub/pubkey are required").WriteResponse(w)
 		return
 	}
 
@@ -520,7 +518,7 @@ func (h *Handler) GetMyKey(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
@@ -546,7 +544,7 @@ func (h *Handler) ListContacts(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
@@ -570,18 +568,18 @@ func (h *Handler) AddContact(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	var req AddContactRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	if req.Email == "" {
-		h.respondError(w, http.StatusBadRequest, "email is required")
+		errors.BadRequest("VALIDATION_FAILED", "email is required").WriteResponse(w)
 		return
 	}
 
@@ -598,19 +596,19 @@ func (h *Handler) GetContact(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	contactID := vars["id"]
 	if contactID == "" {
-		h.respondError(w, http.StatusBadRequest, "contact id is required")
+		errors.BadRequest("VALIDATION_FAILED", "contact id is required").WriteResponse(w)
 		return
 	}
 
 	// TODO: Query database
-	h.respondError(w, http.StatusNotFound, "contact not found")
+	errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
 }
 
 // UpdateContact updates a contact
@@ -619,14 +617,14 @@ func (h *Handler) UpdateContact(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	contactID := vars["id"]
 	if contactID == "" {
-		h.respondError(w, http.StatusBadRequest, "contact id is required")
+		errors.BadRequest("VALIDATION_FAILED", "contact id is required").WriteResponse(w)
 		return
 	}
 
@@ -640,14 +638,14 @@ func (h *Handler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	contactID := vars["id"]
 	if contactID == "" {
-		h.respondError(w, http.StatusBadRequest, "contact id is required")
+		errors.BadRequest("VALIDATION_FAILED", "contact id is required").WriteResponse(w)
 		return
 	}
 
@@ -700,7 +698,7 @@ func (h *Handler) GetRelayPrefs(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("Getting relay preferences")
 
 	if h.relayClient == nil {
-		h.respondError(w, http.StatusServiceUnavailable, "relay preferences not configured")
+		errors.ServiceUnavailable("SERVICE_UNAVAILABLE", "relay preferences not configured", 30).WriteResponse(w)
 		return
 	}
 
@@ -709,7 +707,7 @@ func (h *Handler) GetRelayPrefs(w http.ResponseWriter, r *http.Request) {
 	if pubkey == "" {
 		userID := getUserID(r.Context())
 		if userID == "" {
-			h.respondError(w, http.StatusBadRequest, "pubkey query parameter required when not authenticated")
+			errors.BadRequest("VALIDATION_FAILED", "pubkey query parameter required when not authenticated").WriteResponse(w)
 			return
 		}
 		pubkey = userID
@@ -717,7 +715,7 @@ func (h *Handler) GetRelayPrefs(w http.ResponseWriter, r *http.Request) {
 
 	// Validate pubkey format (64 hex chars)
 	if len(pubkey) != 64 {
-		h.respondError(w, http.StatusBadRequest, "invalid pubkey format: expected 64 hex characters")
+		errors.BadRequest("INVALID_PUBKEY", "invalid pubkey format: expected 64 hex characters").WriteResponse(w)
 		return
 	}
 
@@ -727,7 +725,7 @@ func (h *Handler) GetRelayPrefs(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to get relay preferences",
 			zap.String("pubkey", pubkey[:16]+"..."),
 			zap.Error(err))
-		h.respondError(w, http.StatusInternalServerError, "failed to get relay preferences")
+		errors.InternalError("INTERNAL_ERROR", "failed to get relay preferences").WriteResponse(w)
 		return
 	}
 

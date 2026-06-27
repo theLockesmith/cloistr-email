@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
@@ -35,9 +36,6 @@ func (h *EmailHandler) respondJSON(w http.ResponseWriter, status int, data inter
 	}
 }
 
-func (h *EmailHandler) respondError(w http.ResponseWriter, status int, message string) {
-	h.respondJSON(w, status, map[string]string{"error": message})
-}
 
 // SendEmailV2 sends an email with full encryption and transport support
 func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
@@ -46,23 +44,23 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	// Get user's npub from context (set by auth middleware)
 	userNpub := getUserID(r.Context())
 	if userNpub == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	var req SendEmailRequestV2
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid request body")
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
 		return
 	}
 
 	// Validate required fields
 	if len(req.To) == 0 {
-		h.respondError(w, http.StatusBadRequest, "at least one recipient is required")
+		errors.BadRequest("VALIDATION_FAILED", "at least one recipient is required").WriteResponse(w)
 		return
 	}
 	if req.Subject == "" {
-		h.respondError(w, http.StatusBadRequest, "subject is required")
+		errors.BadRequest("VALIDATION_FAILED", "subject is required").WriteResponse(w)
 		return
 	}
 
@@ -72,23 +70,23 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	case EncryptionModeServer:
 		encMode = encryption.ModeServerSide
 		if req.Body == "" {
-			h.respondError(w, http.StatusBadRequest, "body is required for server-side encryption")
+			errors.BadRequest("VALIDATION_FAILED", "body is required for server-side encryption").WriteResponse(w)
 			return
 		}
 	case EncryptionModeClient:
 		encMode = encryption.ModeClientSide
 		if req.PreEncryptedBody == "" {
-			h.respondError(w, http.StatusBadRequest, "pre_encrypted_body is required for client-side encryption")
+			errors.BadRequest("VALIDATION_FAILED", "pre_encrypted_body is required for client-side encryption").WriteResponse(w)
 			return
 		}
 	case EncryptionModeNone, "":
 		encMode = encryption.ModeNone
 		if req.Body == "" {
-			h.respondError(w, http.StatusBadRequest, "body is required")
+			errors.BadRequest("VALIDATION_FAILED", "body is required").WriteResponse(w)
 			return
 		}
 	default:
-		h.respondError(w, http.StatusBadRequest, "invalid encryption_mode: must be 'none', 'server', or 'client'")
+		errors.BadRequest("INVALID_INPUT", "invalid encryption_mode: must be 'none', 'server', or 'client'").WriteResponse(w)
 		return
 	}
 
@@ -112,7 +110,7 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	result, err := h.emailSvc.Send(r.Context(), sendReq)
 	if err != nil {
 		h.logger.Error("Failed to send email", zap.Error(err))
-		h.respondError(w, http.StatusInternalServerError, err.Error())
+		errors.InternalError("INTERNAL_ERROR", err.Error()).WriteResponse(w)
 		return
 	}
 
@@ -151,21 +149,21 @@ func (h *EmailHandler) GetEmailV2(w http.ResponseWriter, r *http.Request) {
 
 	userNpub := getUserID(r.Context())
 	if userNpub == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	emailID := vars["id"]
 	if emailID == "" {
-		h.respondError(w, http.StatusBadRequest, "email id is required")
+		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
 		return
 	}
 
 	result, err := h.emailSvc.GetEmail(r.Context(), userNpub, emailID)
 	if err != nil {
 		h.logger.Warn("Failed to get email", zap.Error(err), zap.String("email_id", emailID))
-		h.respondError(w, http.StatusNotFound, "email not found")
+		errors.NotFound("RESOURCE_NOT_FOUND", "email not found").WriteResponse(w)
 		return
 	}
 
@@ -202,7 +200,7 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 
 	userNpub := getUserID(r.Context())
 	if userNpub == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
@@ -239,7 +237,7 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 	emails, total, err := h.emailSvc.ListEmails(r.Context(), userNpub, filter, opts)
 	if err != nil {
 		h.logger.Error("Failed to list emails", zap.Error(err))
-		h.respondError(w, http.StatusInternalServerError, "failed to list emails")
+		errors.InternalError("INTERNAL_ERROR", "failed to list emails").WriteResponse(w)
 		return
 	}
 
@@ -281,20 +279,20 @@ func (h *EmailHandler) DeleteEmailV2(w http.ResponseWriter, r *http.Request) {
 
 	userNpub := getUserID(r.Context())
 	if userNpub == "" {
-		h.respondError(w, http.StatusUnauthorized, "not authenticated")
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	emailID := vars["id"]
 	if emailID == "" {
-		h.respondError(w, http.StatusBadRequest, "email id is required")
+		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
 		return
 	}
 
 	if err := h.emailSvc.DeleteEmail(r.Context(), userNpub, emailID); err != nil {
 		h.logger.Warn("Failed to delete email", zap.Error(err), zap.String("email_id", emailID))
-		h.respondError(w, http.StatusInternalServerError, "failed to delete email")
+		errors.InternalError("INTERNAL_ERROR", "failed to delete email").WriteResponse(w)
 		return
 	}
 

@@ -224,7 +224,7 @@ Users must have a `@cloistr.xyz` address to send email:
 ## cloistr-common Integration
 
 ```go
-import "git.coldforge.xyz/coldforge/cloistr-email/internal/relays"
+import "git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
 
 // Create client from environment
 client := relays.NewClient(logger)
