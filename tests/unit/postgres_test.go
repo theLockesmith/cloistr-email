@@ -386,7 +386,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 			WithArgs(
 				sqlmock.AnyArg(), email.UserID, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
-				email.IsEncrypted, nil, nil, nil,
+				email.IsEncrypted, nil, nil, nil, nil,
 				"sent", "active", "Sent", pq.Array([]string(nil)),
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
@@ -414,7 +414,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 			WithArgs(
 				sqlmock.AnyArg(), email.UserID, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
-				false, nil, nil, nil,
+				false, nil, nil, nil, nil,
 				"received", "active", "INBOX", pq.Array([]string(nil)),
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
@@ -439,7 +439,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 			WithArgs(
 				sqlmock.AnyArg(), email.UserID, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
-				false, nil, nil, nil,
+				false, nil, nil, nil, nil,
 				"draft", "active", "Drafts", pq.Array([]string(nil)),
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).

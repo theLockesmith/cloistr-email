@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS emails (
     html_body TEXT,
     is_encrypted BOOLEAN DEFAULT FALSE,
     encryption_nonce VARCHAR(255),
+    encryption_mode VARCHAR(16), -- 'none', 'server', 'client' (how body is encrypted at rest)
     sender_npub VARCHAR(63),
     recipient_npub VARCHAR(63),
     -- Email direction and status

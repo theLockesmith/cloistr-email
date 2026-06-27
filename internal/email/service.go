@@ -206,18 +206,26 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 			}
 		}
 
+		// Compute the at-rest representation of the body for the sender's
+		// stored copy. The transport `body` above is sent to recipients
+		// (encrypted per-recipient by the transport for server-side mode);
+		// the stored copy is encrypted independently so it never sits in
+		// plaintext when encryption was requested.
+		storedBody, storedMode := s.bodyAtRest(ctx, req)
+
 		email := &storage.Email{
-			UserID:      "", // Will be set by GetUserByNpub
-			MessageID:   stringPtr(deliveryResult.MessageID),
-			FromAddress: senderAddr.Email,
-			ToAddress:   req.To[0], // Primary recipient
-			Subject:     req.Subject,
-			Body:        body, // Store encrypted body if encrypted
-			IsEncrypted: isPreEncrypted || req.EncryptionMode == encryption.ModeServerSide,
-			SenderNpub:  stringPtr(req.SenderNpub),
-			Direction:   "sent",
-			Folder:      "sent",
-			Status:      "active",
+			UserID:         "", // Will be set by GetUserByNpub
+			MessageID:      stringPtr(deliveryResult.MessageID),
+			FromAddress:    senderAddr.Email,
+			ToAddress:      req.To[0], // Primary recipient
+			Subject:        req.Subject,
+			Body:           storedBody,
+			IsEncrypted:    storedMode != string(encryption.ModeNone),
+			EncryptionMode: stringPtr(storedMode),
+			SenderNpub:     stringPtr(req.SenderNpub),
+			Direction:      "sent",
+			Folder:         "sent",
+			Status:         "active",
 		}
 
 		// Get sender's user record
@@ -330,50 +338,48 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 		result.ReadAt = email.ReadAt
 	}
 
-	// Handle decryption
-	if email.IsEncrypted {
-		// Determine encryption mode - for now assume server-side if we have sender npub
-		mode := encryption.ModeServerSide
-		if senderPubkey == "" {
-			mode = encryption.ModeClientSide
-		}
-		result.EncryptionMode = mode
+	// Handle decryption based on the mode the body was actually stored under.
+	// Legacy rows (pre-migration) have a nil EncryptionMode; fall back to the
+	// IsEncrypted flag and never attempt server-side decryption on an unknown
+	// mode (which would feed possibly-plaintext bytes to the bunker).
+	mode := storedMode(email)
+	result.EncryptionMode = mode
 
-		if mode == encryption.ModeClientSide {
-			// Client must decrypt - return ciphertext
-			result.RequiresClientDecryption = true
-			result.EncryptedBody = email.Body
-		} else if mode == encryption.ModeServerSide && s.encryptionSvc != nil {
-			// Try server-side decryption
-			decryptReq := &encryption.DecryptionRequest{
-				Ciphertext:      email.Body,
-				RecipientPubkey: userNpub,
-				SenderPubkey:    senderPubkey,
-				Mode:            mode,
-			}
-
-			decryptResult, err := s.encryptionSvc.DecryptForRecipient(ctx, decryptReq)
-			if err != nil {
-				s.logger.Warn("Server-side decryption failed",
-					zap.String("email_id", emailID),
-					zap.Error(err))
-				// Return encrypted body for client to try
-				result.RequiresClientDecryption = true
-				result.EncryptedBody = email.Body
-			} else if decryptResult.RequiresClientDecryption {
-				result.RequiresClientDecryption = true
-				result.EncryptedBody = decryptResult.Ciphertext
-			} else {
-				result.Body = decryptResult.Plaintext
-			}
-		} else {
-			// Unknown mode or no encryption service - return ciphertext
-			result.RequiresClientDecryption = true
-			result.EncryptedBody = email.Body
-		}
-	} else {
-		// Not encrypted
+	switch mode {
+	case encryption.ModeNone:
 		result.Body = email.Body
+
+	case encryption.ModeClientSide:
+		// Client must decrypt - return ciphertext.
+		result.RequiresClientDecryption = true
+		result.EncryptedBody = email.Body
+
+	case encryption.ModeServerSide:
+		if s.encryptionSvc == nil {
+			result.RequiresClientDecryption = true
+			result.EncryptedBody = email.Body
+			break
+		}
+		// The stored copy is self-encrypted (sender<->sender); for a sent
+		// email senderPubkey == the reading user.
+		decryptResult, err := s.encryptionSvc.DecryptForRecipient(ctx, &encryption.DecryptionRequest{
+			Ciphertext:      email.Body,
+			RecipientPubkey: userNpub,
+			SenderPubkey:    senderPubkey,
+			Mode:            encryption.ModeServerSide,
+		})
+		if err != nil {
+			s.logger.Warn("Server-side decryption failed",
+				zap.String("email_id", emailID),
+				zap.Error(err))
+			result.RequiresClientDecryption = true
+			result.EncryptedBody = email.Body
+		} else if decryptResult.RequiresClientDecryption {
+			result.RequiresClientDecryption = true
+			result.EncryptedBody = decryptResult.Ciphertext
+		} else {
+			result.Body = decryptResult.Plaintext
+		}
 	}
 
 	// Mark as read if incoming
@@ -458,6 +464,53 @@ func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) err
 
 	// Soft delete
 	return s.db.DeleteEmail(ctx, emailID)
+}
+
+// storedMode resolves the encryption mode an email's body was persisted under.
+// Pre-migration rows have a nil EncryptionMode; fall back to the IsEncrypted
+// flag, treating unknown-but-encrypted bodies as client-decryptable rather than
+// risking a server-side decrypt of bytes that may not be ciphertext.
+func storedMode(email *storage.Email) encryption.EncryptionMode {
+	if email.EncryptionMode != nil && *email.EncryptionMode != "" {
+		return encryption.EncryptionMode(*email.EncryptionMode)
+	}
+	if email.IsEncrypted {
+		return encryption.ModeClientSide
+	}
+	return encryption.ModeNone
+}
+
+// bodyAtRest returns the body to persist for the sender's stored ("sent")
+// copy and the encryption mode recorded alongside it. Plaintext is never
+// stored when encryption was requested: server-side bodies are self-encrypted
+// (sender<->sender) so the sender can later read their own copy, and if that
+// encryption fails the body is dropped rather than persisted in the clear.
+func (s *Service) bodyAtRest(ctx context.Context, req *SendRequest) (string, string) {
+	switch req.EncryptionMode {
+	case encryption.ModeClientSide:
+		// Already ciphertext from the client (NIP-07).
+		return req.PreEncryptedBody, string(encryption.ModeClientSide)
+
+	case encryption.ModeServerSide:
+		if s.encryptionSvc == nil {
+			s.logger.Warn("No encryption service available; dropping sent-copy body to avoid storing plaintext")
+			return "", string(encryption.ModeServerSide)
+		}
+		res, err := s.encryptionSvc.EncryptForRecipient(ctx, &encryption.EncryptionRequest{
+			Plaintext:       req.Body,
+			SenderPubkey:    req.SenderNpub,
+			RecipientPubkey: req.SenderNpub, // self-encrypt the sender's stored copy
+			Mode:            encryption.ModeServerSide,
+		})
+		if err != nil {
+			s.logger.Warn("Failed to encrypt sent-copy body at rest; dropping body", zap.Error(err))
+			return "", string(encryption.ModeServerSide)
+		}
+		return res.Ciphertext, string(encryption.ModeServerSide)
+
+	default:
+		return req.Body, string(encryption.ModeNone)
+	}
 }
 
 func timePtr(t time.Time) *time.Time {

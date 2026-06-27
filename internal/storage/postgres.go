@@ -118,6 +118,7 @@ type Email struct {
 	HTMLBody          *string
 	IsEncrypted       bool
 	EncryptionNonce   *string
+	EncryptionMode    *string // "none", "server", "client" — how Body is encrypted at rest
 	SenderNpub        *string
 	RecipientNpub     *string
 	Direction         string // sent, received, draft
@@ -416,17 +417,17 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 	query := `
 		INSERT INTO emails (
 			id, user_id, message_id, from_address, to_address, cc, bcc,
-			subject, body, html_body, is_encrypted, encryption_nonce,
+			subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 			sender_npub, recipient_npub, direction, status, folder, labels
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING created_at, updated_at
 	`
 
 	err := db.db.QueryRowContext(ctx, query,
 		email.ID, email.UserID, email.MessageID, email.FromAddress, email.ToAddress,
 		email.CC, email.BCC, email.Subject, email.Body, email.HTMLBody,
-		email.IsEncrypted, email.EncryptionNonce, email.SenderNpub, email.RecipientNpub,
+		email.IsEncrypted, email.EncryptionNonce, email.EncryptionMode, email.SenderNpub, email.RecipientNpub,
 		email.Direction, email.Status, email.Folder, pq.Array(email.Labels),
 	).Scan(&email.CreatedAt, &email.UpdatedAt)
 
@@ -444,7 +445,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 
 	query := `
 		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
-		       subject, body, html_body, is_encrypted, encryption_nonce,
+		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
 		       stalwart_message_id, folder, labels, created_at, updated_at, deleted_at
 		FROM emails
@@ -456,7 +457,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 	err := db.db.QueryRowContext(ctx, query, id).Scan(
 		&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
-		&email.IsEncrypted, &email.EncryptionNonce, &email.SenderNpub, &email.RecipientNpub,
+		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 		&email.Direction, &email.Status, &email.ReadAt, &email.StalwartMessageID,
 		&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 	)
@@ -478,7 +479,7 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, userID, messageID
 
 	query := `
 		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
-		       subject, body, html_body, is_encrypted, encryption_nonce,
+		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
 		       stalwart_message_id, folder, labels, created_at, updated_at, deleted_at
 		FROM emails
@@ -490,7 +491,7 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, userID, messageID
 	err := db.db.QueryRowContext(ctx, query, userID, messageID).Scan(
 		&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
-		&email.IsEncrypted, &email.EncryptionNonce, &email.SenderNpub, &email.RecipientNpub,
+		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 		&email.Direction, &email.Status, &email.ReadAt, &email.StalwartMessageID,
 		&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 	)
@@ -577,7 +578,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *Ema
 
 	selectQuery := fmt.Sprintf(`
 		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
-		       subject, body, html_body, is_encrypted, encryption_nonce,
+		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
 		       stalwart_message_id, folder, labels, created_at, updated_at, deleted_at
 		%s
@@ -600,7 +601,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *Ema
 		err := rows.Scan(
 			&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
 			&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
-			&email.IsEncrypted, &email.EncryptionNonce, &email.SenderNpub, &email.RecipientNpub,
+			&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 			&email.Direction, &email.Status, &email.ReadAt, &email.StalwartMessageID,
 			&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 		)
