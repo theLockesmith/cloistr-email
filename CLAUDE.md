@@ -13,6 +13,7 @@
 | [docs/001-stalwart-removal-migration.md](docs/001-stalwart-removal-migration.md) | RFC-001 |
 | [docs/002-nostr-email-integration.md](docs/002-nostr-email-integration.md) | RFC-002 |
 | [docs/003-blossom-storage.md](docs/003-blossom-storage.md) | RFC-003 |
+| [docs/FEATURES-ROADMAP.md](docs/FEATURES-ROADMAP.md) | Forward-looking feature ideas (distribution groups, etc.) |
 
 ## Autonomous Work Mode
 
