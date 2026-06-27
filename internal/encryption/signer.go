@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/nbd-wtf/go-nostr"
 	"go.uber.org/zap"
 )
 
@@ -66,6 +67,11 @@ type Signer interface {
 	// CanDecrypt returns true if this signer can perform decryption
 	// NIP-07 signers return false - they indicate client handles decryption
 	CanDecrypt() bool
+
+	// SignEvent signs a prepared Nostr event in place (sets ID, pubkey, sig).
+	// Used for non-encryption signing such as Blossom kind-24242 authorization
+	// events. NIP-07 signers return ErrClientSideOnly - the client must sign.
+	SignEvent(ctx context.Context, event *nostr.Event) error
 }
 
 // ClientSideSigner is a marker signer for NIP-07 mode.
@@ -102,6 +108,10 @@ func (s *ClientSideSigner) CanEncrypt() bool {
 
 func (s *ClientSideSigner) CanDecrypt() bool {
 	return false
+}
+
+func (s *ClientSideSigner) SignEvent(ctx context.Context, event *nostr.Event) error {
+	return ErrClientSideOnly
 }
 
 // SignerStore manages signers for users

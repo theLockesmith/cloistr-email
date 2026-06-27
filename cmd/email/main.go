@@ -15,6 +15,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/config"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/metrics"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
@@ -86,6 +87,49 @@ func main() {
 		api.WithRelayClient(relayClient),
 	)
 
+	// --- v2 email pipeline ---
+	// Assemble the encrypted send/receive path: identity validation, NIP-44
+	// encryption (server-side via the user's NIP-46 bunker), and SMTP transport
+	// with optional DKIM signing.
+	nip05Resolver := encryption.NewNIP05Resolver(logger)
+	addressStore := storage.NewAddressStoreAdapter(db, identity.Domain, logger)
+	identitySvc := identity.NewService(addressStore, nip05Resolver, logger)
+
+	// EmailEncryptor performs server-side NIP-44 using the user's bunker
+	// (NIP46Handler satisfies encryption.Encryptor) and NIP-05 key resolution.
+	emailEncryptor := encryption.NewEmailEncryptor(authHandler, nip05Resolver, logger)
+
+	smtpOutConfig := &transport.SMTPConfig{
+		Host:         cfg.SMTPHost,
+		Port:         cfg.SMTPPort,
+		Username:     cfg.SMTPUsername,
+		Password:     cfg.SMTPPassword,
+		UseTLS:       true,
+		DeliveryMode: transport.DeliveryMode(cfg.SMTPDeliveryMode),
+		LocalDomains: cfg.SMTPLocalDomains,
+	}
+	if cfg.DKIMDomain != "" && cfg.DKIMPrivateKey != "" {
+		smtpOutConfig.DKIM = &transport.DKIMConfig{
+			Domain:     cfg.DKIMDomain,
+			Selector:   cfg.DKIMSelector,
+			PrivateKey: cfg.DKIMPrivateKey,
+		}
+	}
+	smtpTransport, err := transport.NewSMTPTransport(smtpOutConfig, emailEncryptor, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize SMTP transport", zap.Error(err))
+	}
+
+	transportMgr := transport.NewManager(logger)
+	transportMgr.RegisterTransport(smtpTransport)
+
+	// Server-side decryption on read uses a NIP-46-backed signer store.
+	signerStore := auth.NewNIP46SignerStore(authHandler)
+	encryptionSvc := encryption.NewEncryptionService(signerStore, logger)
+
+	emailSvc := email.NewService(identitySvc, transportMgr, encryptionSvc, db, logger)
+	emailHandler := api.NewEmailHandler(emailSvc, logger)
+
 	// Setup routes
 	router := mux.NewRouter()
 
@@ -144,6 +188,15 @@ func main() {
 	// Relay preferences endpoint (cloistr-common integration)
 	relayRoutes := v1.PathPrefix("/relays").Subrouter()
 	relayRoutes.HandleFunc("/prefs", apiHandler.GetRelayPrefs).Methods("GET")
+
+	// API v2 routes — encrypted email pipeline
+	v2 := router.PathPrefix("/api/v2").Subrouter()
+	emailV2Routes := v2.PathPrefix("/email").Subrouter()
+	emailV2Routes.Use(apiHandler.AuthMiddleware)
+	emailV2Routes.HandleFunc("/send", emailHandler.SendEmailV2).Methods("POST")
+	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
+	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
+	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
 
 	// Middleware
 	router.Use(loggingMiddleware(logger))
