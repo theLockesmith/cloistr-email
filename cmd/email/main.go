@@ -226,10 +226,7 @@ func main() {
 	// Initialize inbound SMTP server if enabled
 	var smtpServer *transport.SMTPServer
 	if cfg.SMTPInboundEnabled {
-		// Create NIP-05 resolver for signature verification
-		nip05Resolver := encryption.NewNIP05Resolver(logger)
-
-		// Create inbound processor
+		// Reuse the NIP-05 resolver constructed for the v2 pipeline.
 		inboundProcessor := email.NewInboundProcessor(db, nip05Resolver, logger)
 
 		// Create SMTP server config

@@ -105,7 +105,10 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		zap.String("npub", req.SenderNpub[:16]+"..."))
 
 	// 2. Resolve recipients for encryption capability
-	allRecipients := append(append(req.To, req.CC...), req.BCC...)
+	allRecipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
+	allRecipients = append(allRecipients, req.To...)
+	allRecipients = append(allRecipients, req.CC...)
+	allRecipients = append(allRecipients, req.BCC...)
 	resolvedRecipients, err := s.identitySvc.ResolveRecipients(ctx, allRecipients)
 	if err != nil {
 		return nil, fmt.Errorf("recipient resolution failed: %w", err)
