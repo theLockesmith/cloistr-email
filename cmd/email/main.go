@@ -124,6 +124,39 @@ func main() {
 	transportMgr := transport.NewManager(logger)
 	transportMgr.RegisterTransport(smtpTransport)
 
+	// Multi-domain / BYO: load served domains and their per-domain DKIM keys
+	// from the DB. Outbound is signed with the From: domain's key; inbound and
+	// internal-vs-external classification use the served-domains set.
+	if domains, derr := db.ListActiveDomains(context.Background()); derr != nil {
+		logger.Warn("Failed to load served domains; using config defaults", zap.Error(derr))
+	} else if len(domains) > 0 {
+		names := make([]string, 0, len(domains))
+		signers := make(map[string]*transport.DKIMSigner)
+		for _, d := range domains {
+			names = append(names, d.Domain)
+			if d.DKIMPrivateKey == nil || *d.DKIMPrivateKey == "" {
+				logger.Warn("Served domain has no DKIM key; outbound will be unsigned",
+					zap.String("domain", d.Domain))
+				continue
+			}
+			s, serr := transport.NewDKIMSigner(&transport.DKIMConfig{
+				Domain: d.Domain, Selector: d.DKIMSelector, PrivateKey: *d.DKIMPrivateKey,
+			})
+			if serr != nil {
+				logger.Error("Failed to build DKIM signer for domain",
+					zap.String("domain", d.Domain), zap.Error(serr))
+				continue
+			}
+			signers[d.Domain] = s
+		}
+		smtpTransport.WithDKIMProvider(transport.DKIMProviderFunc(func(domain string) *transport.DKIMSigner {
+			return signers[domain]
+		}))
+		identity.SetServedDomains(names)
+		logger.Info("Multi-domain serving enabled",
+			zap.Strings("domains", names), zap.Int("dkim_signers", len(signers)))
+	}
+
 	// Server-side decryption on read uses a NIP-46-backed signer store.
 	signerStore := auth.NewNIP46SignerStore(authHandler)
 	encryptionSvc := encryption.NewEncryptionService(signerStore, logger)

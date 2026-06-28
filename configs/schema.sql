@@ -253,3 +253,21 @@ CREATE INDEX idx_email_bounces_recipient ON email_bounces(original_recipient);
 CREATE INDEX idx_email_bounces_message_id ON email_bounces(original_message_id);
 CREATE INDEX idx_email_bounces_type ON email_bounces(bounce_type);
 CREATE INDEX idx_email_bounces_received_at ON email_bounces(received_at DESC);
+
+-- Served domains (multi-domain / bring-your-own-domain hosting).
+-- Each row is a domain this instance accepts/sends mail for, with its own
+-- DKIM keypair so outbound From: <user>@<domain> is signed with d=<domain>.
+-- SECURITY: dkim_private_key is a PEM RSA private key at rest. Encrypting it
+-- (or storing a secret reference) is a follow-up before exposing self-serve BYO.
+CREATE TABLE IF NOT EXISTS domains (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    domain VARCHAR(255) NOT NULL UNIQUE,
+    dkim_selector VARCHAR(63) NOT NULL DEFAULT 'mail',
+    dkim_private_key TEXT,                       -- PEM RSA private key (null until provisioned)
+    verified BOOLEAN NOT NULL DEFAULT FALSE,     -- DNS ownership verified (BYO onboarding)
+    active BOOLEAN NOT NULL DEFAULT TRUE,        -- accept/sign mail for this domain
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_domains_active ON domains(active);

@@ -57,9 +57,48 @@ type SMTPConfig struct {
 type SMTPTransport struct {
 	config     *SMTPConfig
 	encryptor  *encryption.EmailEncryptor
-	logger     *zap.Logger
-	dkimSigner *DKIMSigner
-	mxResolver *MXResolver
+	logger       *zap.Logger
+	dkimSigner   *DKIMSigner   // legacy single-domain signer (from config.DKIM)
+	dkimProvider DKIMProvider  // per-domain signer lookup (multi-domain / BYO)
+	mxResolver   *MXResolver
+}
+
+// DKIMProvider resolves the DKIM signer for a domain, or nil if none is
+// configured for it. Backed by the served-domains table for multi-domain hosting.
+type DKIMProvider interface {
+	DKIMSignerFor(domain string) *DKIMSigner
+}
+
+// DKIMProviderFunc adapts a plain func to DKIMProvider.
+type DKIMProviderFunc func(domain string) *DKIMSigner
+
+// DKIMSignerFor implements DKIMProvider.
+func (f DKIMProviderFunc) DKIMSignerFor(domain string) *DKIMSigner { return f(domain) }
+
+// WithDKIMProvider sets a per-domain DKIM signer provider and returns the
+// transport for chaining.
+func (t *SMTPTransport) WithDKIMProvider(p DKIMProvider) *SMTPTransport {
+	t.dkimProvider = p
+	return t
+}
+
+// dkimSignerFor picks the DKIM signer for the From address' domain: the
+// per-domain provider first, then the legacy single signer (used as-is when no
+// provider is set, or only when its domain matches once a provider exists).
+func (t *SMTPTransport) dkimSignerFor(fromAddress string) *DKIMSigner {
+	domain := fromAddress
+	if i := strings.LastIndex(fromAddress, "@"); i >= 0 {
+		domain = strings.ToLower(fromAddress[i+1:])
+	}
+	if t.dkimProvider != nil {
+		if s := t.dkimProvider.DKIMSignerFor(domain); s != nil {
+			return s
+		}
+	}
+	if t.dkimSigner != nil && (t.dkimProvider == nil || strings.EqualFold(t.dkimSigner.Domain(), domain)) {
+		return t.dkimSigner
+	}
+	return nil
 }
 
 // NewSMTPTransport creates a new SMTP transport
@@ -127,17 +166,18 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 		return result, err
 	}
 
-	// Apply DKIM signing if configured
-	if t.dkimSigner != nil {
-		signedEmail, err := t.dkimSigner.Sign(rawEmail)
+	// Apply DKIM signing, selecting the signer by the From: domain so each
+	// served domain is signed with its own key (d=<from-domain>).
+	if signer := t.dkimSignerFor(msg.FromAddress); signer != nil {
+		signedEmail, err := signer.Sign(rawEmail)
 		if err != nil {
 			t.logger.Warn("DKIM signing failed, sending unsigned",
-				zap.Error(err))
+				zap.String("domain", signer.Domain()), zap.Error(err))
 		} else {
 			rawEmail = signedEmail
 			t.logger.Debug("Email signed with DKIM",
-				zap.String("domain", t.dkimSigner.Domain()),
-				zap.String("selector", t.dkimSigner.Selector()))
+				zap.String("domain", signer.Domain()),
+				zap.String("selector", signer.Selector()))
 		}
 	}
 

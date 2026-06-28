@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 )
@@ -271,13 +272,45 @@ func (s *Service) RegisterAddress(ctx context.Context, npub, localPart, displayN
 	return addr, nil
 }
 
-// ClassifyAddress determines if an email is internal or external
+// ClassifyAddress determines if an email is internal (a served domain) or
+// external. Internal = the address' domain is in the served-domains set.
 func ClassifyAddress(email string) AddressType {
 	email = strings.ToLower(email)
-	if strings.HasSuffix(email, "@"+Domain) {
+	if at := strings.LastIndex(email, "@"); at >= 0 && isServedDomain(email[at+1:]) {
 		return AddressTypeInternal
 	}
 	return AddressTypeExternal
+}
+
+// servedDomains registry (multi-domain / BYO). Defaults to the built-in Domain
+// until SetServedDomains is called at startup from the served-domains table.
+var (
+	servedDomainsMu sync.RWMutex
+	servedDomains   = map[string]bool{Domain: true}
+)
+
+// SetServedDomains replaces the internal-domain set. Empty input keeps the
+// built-in default (Domain). Matched case-insensitively.
+func SetServedDomains(domains []string) {
+	m := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
+			m[d] = true
+		}
+	}
+	if len(m) == 0 {
+		m[Domain] = true
+	}
+	servedDomainsMu.Lock()
+	servedDomains = m
+	servedDomainsMu.Unlock()
+}
+
+// isServedDomain reports whether domain is one this instance serves.
+func isServedDomain(domain string) bool {
+	servedDomainsMu.RLock()
+	defer servedDomainsMu.RUnlock()
+	return servedDomains[domain]
 }
 
 // ValidateLocalPart validates the local part of an email address

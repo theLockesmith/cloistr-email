@@ -20,12 +20,16 @@ data:
   # SMTP Inbound
   SMTP_INBOUND_ENABLED: "true"
   SMTP_INBOUND_ADDR: ":25"
-  SMTP_INBOUND_DOMAIN: "coldforge.xyz"
-  SMTP_INBOUND_DOMAINS: "coldforge.xyz,mail.coldforge.xyz"
+  SMTP_INBOUND_DOMAIN: "cloistr.xyz"
+  SMTP_INBOUND_DOMAINS: "cloistr.xyz,mail.cloistr.xyz"
 
   # DKIM
-  DKIM_DOMAIN: "coldforge.xyz"
+  DKIM_DOMAIN: "cloistr.xyz"
   DKIM_SELECTOR: "mail"
+
+  # Blossom attachment offload (RFC-003). Confirm the prod server URL.
+  BLOSSOM_SERVERS: "https://blossom.cloistr.xyz"
+  BLOSSOM_REDUNDANCY: "2"
 
   # Rate limiting
   RATE_LIMIT_CONNECTIONS_PER_MINUTE: "30"
