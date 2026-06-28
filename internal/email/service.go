@@ -4,14 +4,17 @@ package email
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"time"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/metrics"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
+	"github.com/nbd-wtf/go-nostr"
 	"go.uber.org/zap"
 )
 
@@ -41,6 +44,19 @@ type SendRequest struct {
 
 	// Transport preference (optional)
 	PreferredTransport transport.TransportType
+
+	// Attachments to store on Blossom (optional)
+	Attachments []AttachmentInput
+}
+
+// AttachmentInput is a single outgoing attachment to be offloaded to Blossom.
+type AttachmentInput struct {
+	Filename    string
+	ContentType string
+	// Data is the raw attachment bytes. For server-side mode it is encrypted
+	// at rest before upload; for client-side mode it is treated as already
+	// ciphertext; for no-encryption mode it is uploaded as-is.
+	Data []byte
 }
 
 // SendResult contains the result of a send operation
@@ -65,11 +81,28 @@ type RecipientSendResult struct {
 
 // Service coordinates email operations
 type Service struct {
-	identitySvc      *identity.Service
-	transportMgr     *transport.Manager
-	encryptionSvc    *encryption.EncryptionService
-	db               *storage.PostgreSQL
-	logger           *zap.Logger
+	identitySvc   *identity.Service
+	transportMgr  *transport.Manager
+	encryptionSvc *encryption.EncryptionService
+	db            *storage.PostgreSQL
+	logger        *zap.Logger
+
+	// Blossom storage (optional; attachments are offloaded here when set)
+	blossomServers    []blossom.Server
+	blossomRedundancy int
+}
+
+// WithBlossom enables Blossom attachment offload using the given servers and
+// upload redundancy. Returns the service for chaining.
+func (s *Service) WithBlossom(servers []blossom.Server, redundancy int) *Service {
+	s.blossomServers = servers
+	s.blossomRedundancy = redundancy
+	return s
+}
+
+// blossomEnabled reports whether attachment offload is configured.
+func (s *Service) blossomEnabled() bool {
+	return len(s.blossomServers) > 0 && s.encryptionSvc != nil
 }
 
 // NewService creates a new email service
@@ -246,6 +279,10 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 			// Don't fail the send - email was delivered
 		} else {
 			result.EmailID = email.ID
+			// Offload attachments to Blossom (best-effort; email is already sent).
+			if s.blossomEnabled() && len(req.Attachments) > 0 {
+				s.uploadAttachments(ctx, req.SenderNpub, req.EncryptionMode, email.ID, req.Attachments)
+			}
 		}
 
 		// Store for recipient if internal
@@ -464,6 +501,73 @@ func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) err
 
 	// Soft delete
 	return s.db.DeleteEmail(ctx, emailID)
+}
+
+// uploadAttachments encrypts (per the email's mode) and offloads each
+// attachment to Blossom, persisting an Attachment row referencing the blob.
+// Best-effort: per-attachment failures are logged and skipped (the email is
+// already delivered). For NIP-07 (client-side) users the server has no signer,
+// so Blossom auth signing fails and uploads are skipped — those clients upload
+// their own attachments.
+func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, emailID string, atts []AttachmentInput) {
+	authSigner := blossom.NewEventAuthSigner(senderNpub, func(ctx context.Context, ev *nostr.Event) error {
+		return s.encryptionSvc.SignEventForUser(ctx, senderNpub, ev)
+	})
+	client := blossom.NewClient(authSigner, s.logger)
+
+	for _, att := range atts {
+		blob, err := s.attachmentBlob(ctx, senderNpub, mode, att)
+		if err != nil {
+			s.logger.Warn("Failed to prepare attachment for Blossom",
+				zap.String("filename", att.Filename), zap.Error(err))
+			continue
+		}
+		desc, err := client.Upload(ctx, blob, att.ContentType, s.blossomServers, s.blossomRedundancy)
+		if err != nil {
+			s.logger.Warn("Failed to upload attachment to Blossom",
+				zap.String("filename", att.Filename), zap.Error(err))
+			continue
+		}
+
+		size := int64(len(att.Data))
+		contentType := att.ContentType
+		url := ""
+		if len(desc.Servers) > 0 {
+			url = desc.Servers[0] + "/" + desc.SHA256
+		}
+		rec := &storage.Attachment{
+			EmailID:       emailID,
+			Filename:      att.Filename,
+			ContentType:   &contentType,
+			SizeBytes:     &size,
+			BlossomSHA256: &desc.SHA256,
+			BlossomURL:    &url,
+		}
+		if err := s.db.CreateAttachment(ctx, rec); err != nil {
+			s.logger.Warn("Failed to persist attachment record",
+				zap.String("filename", att.Filename), zap.Error(err))
+		}
+	}
+}
+
+// attachmentBlob returns the bytes to upload for an attachment given the
+// email's encryption mode. Server-side mode NIP-44 self-encrypts the
+// base64-encoded bytes (NIP-44 operates on text); client/none upload as-is.
+func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, att AttachmentInput) ([]byte, error) {
+	if mode != encryption.ModeServerSide {
+		// none: plaintext; client: already ciphertext from the client.
+		return att.Data, nil
+	}
+	res, err := s.encryptionSvc.EncryptForRecipient(ctx, &encryption.EncryptionRequest{
+		Plaintext:       base64.StdEncoding.EncodeToString(att.Data),
+		SenderPubkey:    senderNpub,
+		RecipientPubkey: senderNpub, // self-encrypt the sender's stored copy
+		Mode:            encryption.ModeServerSide,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []byte(res.Ciphertext), nil
 }
 
 // storedMode resolves the encryption mode an email's body was persisted under.

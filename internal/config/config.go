@@ -42,6 +42,10 @@ type Config struct {
 	DKIMSelector   string
 	DKIMPrivateKey string
 
+	// Blossom storage (attachment offload). Empty BlossomServers disables it.
+	BlossomServers    []string
+	BlossomRedundancy int
+
 	// Nostr
 	NSECBunkerRelayURL string
 	IdentityServiceURL string
@@ -93,6 +97,10 @@ func Load() (*Config, error) {
 		DKIMDomain:     getEnv("DKIM_DOMAIN", ""),
 		DKIMSelector:   getEnv("DKIM_SELECTOR", "mail"),
 		DKIMPrivateKey: getEnv("DKIM_PRIVATE_KEY", ""),
+
+		// Blossom (optional - for attachment offload)
+		BlossomServers:    getEnvList("BLOSSOM_SERVERS", []string{}),
+		BlossomRedundancy: getEnvInt("BLOSSOM_REDUNDANCY", 2),
 
 		// Nostr
 		NSECBunkerRelayURL: getEnvRequired("NSECBUNKER_RELAY_URL"),

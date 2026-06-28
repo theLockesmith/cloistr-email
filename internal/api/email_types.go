@@ -60,6 +60,18 @@ type SendEmailRequestV2 struct {
 
 	// References is a list of Message-IDs for threading (optional)
 	References []string `json:"references,omitempty"`
+
+	// Attachments to offload to Blossom (optional). Content is base64-encoded.
+	Attachments []AttachmentRequestV2 `json:"attachments,omitempty"`
+}
+
+// AttachmentRequestV2 is a single outgoing attachment in a v2 send request.
+type AttachmentRequestV2 struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type,omitempty"`
+	// DataBase64 is the standard-base64-encoded attachment bytes. For
+	// client-side mode this should already be NIP-44 ciphertext.
+	DataBase64 string `json:"data_base64"`
 }
 
 // SendEmailResponseV2 is the response for the enhanced send email endpoint

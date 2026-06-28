@@ -12,6 +12,7 @@ import (
 
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/api"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/config"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
@@ -128,6 +129,16 @@ func main() {
 	encryptionSvc := encryption.NewEncryptionService(signerStore, logger)
 
 	emailSvc := email.NewService(identitySvc, transportMgr, encryptionSvc, db, logger)
+	if len(cfg.BlossomServers) > 0 {
+		blossomServers := make([]blossom.Server, len(cfg.BlossomServers))
+		for i, url := range cfg.BlossomServers {
+			blossomServers[i] = blossom.Server{URL: url, Priority: i}
+		}
+		emailSvc.WithBlossom(blossomServers, cfg.BlossomRedundancy)
+		logger.Info("Blossom attachment offload enabled",
+			zap.Int("servers", len(blossomServers)),
+			zap.Int("redundancy", cfg.BlossomRedundancy))
+	}
 	emailHandler := api.NewEmailHandler(emailSvc, logger)
 
 	// Setup routes

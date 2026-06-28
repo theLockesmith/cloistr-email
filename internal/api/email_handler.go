@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -90,6 +91,21 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Decode any attachments (base64 -> bytes).
+	var attachments []email.AttachmentInput
+	for _, a := range req.Attachments {
+		data, err := base64.StdEncoding.DecodeString(a.DataBase64)
+		if err != nil {
+			errors.BadRequest("INVALID_INPUT", "attachment data_base64 is not valid base64: "+a.Filename).WriteResponse(w)
+			return
+		}
+		attachments = append(attachments, email.AttachmentInput{
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Data:        data,
+		})
+	}
+
 	// Build send request
 	sendReq := &email.SendRequest{
 		SenderNpub:       userNpub,
@@ -104,6 +120,7 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 		RecipientPubkeys: req.RecipientPubkeys,
 		InReplyTo:        req.InReplyTo,
 		References:       req.References,
+		Attachments:      attachments,
 	}
 
 	// Send the email
