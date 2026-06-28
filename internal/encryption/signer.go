@@ -168,6 +168,17 @@ func NewEncryptionService(signerStore SignerStore, logger *zap.Logger) *Encrypti
 	}
 }
 
+// SignEventForUser signs a prepared Nostr event as the given user, using their
+// signer. Used to authorize Blossom (kind-24242) requests as the user without
+// exposing the signer store. Returns ErrClientSideOnly for NIP-07 users.
+func (s *EncryptionService) SignEventForUser(ctx context.Context, pubkey string, event *nostr.Event) error {
+	signer, err := s.signerStore.GetSigner(ctx, pubkey)
+	if err != nil {
+		return fmt.Errorf("failed to get signer: %w", err)
+	}
+	return signer.SignEvent(ctx, event)
+}
+
 // EncryptForRecipient encrypts a message for a recipient
 func (s *EncryptionService) EncryptForRecipient(ctx context.Context, req *EncryptionRequest) (*EncryptionResult, error) {
 	// If pre-encrypted (NIP-07 mode), validate and pass through

@@ -71,6 +71,37 @@ func (s *LocalAuthSigner) String() string { return "LocalAuthSigner<redacted>" }
 // GoString redacts the private key under %#v formatting.
 func (s *LocalAuthSigner) GoString() string { return "LocalAuthSigner<redacted>" }
 
+// EventSignFunc signs a prepared Nostr event in place (sets ID, pubkey, sig).
+// It is satisfied by a NIP-46 bunker (encryption.Signer.SignEvent), a NIP-07
+// bridge, or a local key — keeping this package free of those dependencies.
+type EventSignFunc func(ctx context.Context, event *nostr.Event) error
+
+// eventAuthSigner builds the kind-24242 event and delegates signing to an
+// injected EventSignFunc, signing as the given public key.
+type eventAuthSigner struct {
+	pubkey string
+	sign   EventSignFunc
+}
+
+// NewEventAuthSigner returns an AuthSigner that authorizes Blossom requests as
+// pubkey, signing the authorization events via sign (e.g. a user's NIP-46
+// bunker). This is how the email service authorizes uploads as the user.
+func NewEventAuthSigner(pubkey string, sign EventSignFunc) AuthSigner {
+	return &eventAuthSigner{pubkey: pubkey, sign: sign}
+}
+
+// SignAuth implements AuthSigner.
+func (s *eventAuthSigner) SignAuth(ctx context.Context, verb string, hashes []string, expiration time.Time) (*nostr.Event, error) {
+	event := buildAuthEvent(s.pubkey, verb, hashes, expiration)
+	if err := s.sign(ctx, event); err != nil {
+		return nil, fmt.Errorf("signing auth event failed: %w", err)
+	}
+	return event, nil
+}
+
+// PublicKey implements AuthSigner.
+func (s *eventAuthSigner) PublicKey() string { return s.pubkey }
+
 // buildAuthEvent assembles the unsigned kind-24242 event for a verb + hashes.
 func buildAuthEvent(pubkey, verb string, hashes []string, expiration time.Time) *nostr.Event {
 	tags := nostr.Tags{
