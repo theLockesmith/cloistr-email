@@ -64,6 +64,16 @@ type Message struct {
 	// Signer for Nostr signature (optional)
 	// If provided, the email will be signed with X-Nostr-* headers
 	Signer signing.Signer
+
+	// Attachments are delivered as MIME parts (multipart/mixed) when present.
+	Attachments []Attachment
+}
+
+// Attachment is a file delivered as a MIME part in the outbound message.
+type Attachment struct {
+	Filename    string
+	ContentType string // defaults to application/octet-stream when empty
+	Data        []byte // raw bytes (delivered base64-encoded)
 }
 
 // DeliveryResult contains the result of a send operation

@@ -312,14 +312,36 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 		}
 	}
 
-	// Content type and encoding
+	// Body, optionally wrapped in multipart/mixed with attachment parts.
+	if len(msg.Attachments) == 0 {
+		t.writeBodyContent(&sb, msg, body, isEncrypted)
+	} else {
+		boundary := t.generateBoundary()
+		sb.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n", boundary))
+		sb.WriteString("\r\n")
+		sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+		t.writeBodyContent(&sb, msg, body, isEncrypted)
+		sb.WriteString("\r\n")
+		for _, att := range msg.Attachments {
+			sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+			writeAttachmentPart(&sb, att)
+		}
+		sb.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+	}
+
+	return []byte(sb.String()), nil
+}
+
+// writeBodyContent writes a self-contained MIME entity (Content-Type + encoding
+// + content) for the message body: multipart/alternative (text+HTML) or a
+// single base64 text/plain part. Valid both as the top-level content and as a
+// nested part inside multipart/mixed.
+func (t *SMTPTransport) writeBodyContent(sb *strings.Builder, msg *Message, body string, isEncrypted bool) {
 	if msg.HTMLBody != "" && !isEncrypted {
-		// Multipart for HTML + plain text (only if not encrypted)
 		boundary := t.generateBoundary()
 		sb.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary))
 		sb.WriteString("\r\n")
 
-		// Plain text part
 		sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
@@ -327,7 +349,6 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 		sb.WriteString(body)
 		sb.WriteString("\r\n")
 
-		// HTML part
 		sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 		sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
@@ -337,14 +358,33 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 
 		sb.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
 	} else {
-		// Simple single-part message
 		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: base64\r\n")
 		sb.WriteString("\r\n")
 		sb.WriteString(base64.StdEncoding.EncodeToString([]byte(body)))
 	}
+}
 
-	return []byte(sb.String()), nil
+// writeAttachmentPart writes one base64 MIME attachment part (headers + body,
+// wrapped at 76 columns per RFC 2045).
+func writeAttachmentPart(sb *strings.Builder, att Attachment) {
+	ct := att.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	sb.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", ct, att.Filename))
+	sb.WriteString("Content-Transfer-Encoding: base64\r\n")
+	sb.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n", att.Filename))
+	sb.WriteString("\r\n")
+	enc := base64.StdEncoding.EncodeToString(att.Data)
+	for i := 0; i < len(enc); i += 76 {
+		end := i + 76
+		if end > len(enc) {
+			end = len(enc)
+		}
+		sb.WriteString(enc[i:end])
+		sb.WriteString("\r\n")
+	}
 }
 
 // sendViaSMTP handles the SMTP connection and message submission

@@ -200,6 +200,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		InReplyTo:           req.InReplyTo,
 		References:          req.References,
 		PreferredTransport:  req.PreferredTransport,
+		Attachments:         toTransportAttachments(req.Attachments),
 	}
 
 	// 5. Send via transport manager
@@ -655,6 +656,22 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 				zap.String("filename", att.Filename), zap.Error(err))
 		}
 	}
+}
+
+// toTransportAttachments maps send-request attachments to transport MIME
+// attachments delivered to recipients. The bytes are the caller-provided
+// content (plaintext for server/none mode). Note: attachment MIME parts are
+// not yet per-recipient encrypted — that mirrors the body's current
+// first-recipient simplification and is a follow-up.
+func toTransportAttachments(atts []AttachmentInput) []transport.Attachment {
+	if len(atts) == 0 {
+		return nil
+	}
+	out := make([]transport.Attachment, len(atts))
+	for i, a := range atts {
+		out[i] = transport.Attachment{Filename: a.Filename, ContentType: a.ContentType, Data: a.Data}
+	}
+	return out
 }
 
 // attachmentBlob returns the bytes to upload for an attachment given the
