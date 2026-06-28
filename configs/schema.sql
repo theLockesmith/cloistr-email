@@ -4,7 +4,7 @@
 -- Stores Nostr identities and email accounts
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    npub VARCHAR(63) NOT NULL UNIQUE, -- Nostr public key (bech32 encoded)
+    npub VARCHAR(128) NOT NULL UNIQUE, -- Nostr public key (64-char hex in practice; bech32-capable width)
     email VARCHAR(255) NOT NULL UNIQUE,
     email_verified BOOLEAN DEFAULT FALSE,
     email_verified_at TIMESTAMP,
@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS emails (
     is_encrypted BOOLEAN DEFAULT FALSE,
     encryption_nonce VARCHAR(255),
     encryption_mode VARCHAR(16), -- 'none', 'server', 'client' (how body is encrypted at rest)
-    sender_npub VARCHAR(63),
-    recipient_npub VARCHAR(63),
+    sender_npub VARCHAR(128),
+    recipient_npub VARCHAR(128),
     -- Email direction and status
     direction VARCHAR(20) DEFAULT 'sent', -- sent, received, draft
     status VARCHAR(20) DEFAULT 'active', -- active, deleted, archived, spam
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
     name VARCHAR(255),
-    npub VARCHAR(63),
+    npub VARCHAR(128),
     notes TEXT,
     -- Organization info
     organization VARCHAR(255),
@@ -122,7 +122,7 @@ CREATE INDEX idx_contacts_name ON contacts(name);
 CREATE TABLE IF NOT EXISTS nip05_cache (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) NOT NULL UNIQUE,
-    npub VARCHAR(63),
+    npub VARCHAR(128),
     -- Cache validity
     cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP,
@@ -137,7 +137,7 @@ CREATE INDEX idx_nip05_cache_expires_at ON nip05_cache(expires_at);
 CREATE TABLE IF NOT EXISTS encryption_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    contact_npub VARCHAR(63),
+    contact_npub VARCHAR(128),
     public_key TEXT NOT NULL,
     -- Key metadata
     key_type VARCHAR(50) DEFAULT 'nip44',

@@ -124,7 +124,6 @@ type Email struct {
 	Direction         string // sent, received, draft
 	Status            string // active, deleted, archived, spam
 	ReadAt            *time.Time
-	StalwartMessageID *string
 	Folder            string
 	Labels            []string
 
@@ -447,7 +446,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       stalwart_message_id, folder, labels, created_at, updated_at, deleted_at
+		       folder, labels, created_at, updated_at, deleted_at
 		FROM emails
 		WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -458,7 +457,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 		&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
-		&email.Direction, &email.Status, &email.ReadAt, &email.StalwartMessageID,
+		&email.Direction, &email.Status, &email.ReadAt,
 		&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 	)
 
@@ -481,7 +480,7 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, userID, messageID
 		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       stalwart_message_id, folder, labels, created_at, updated_at, deleted_at
+		       folder, labels, created_at, updated_at, deleted_at
 		FROM emails
 		WHERE user_id = $1 AND message_id = $2 AND deleted_at IS NULL
 	`
@@ -492,7 +491,7 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, userID, messageID
 		&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
-		&email.Direction, &email.Status, &email.ReadAt, &email.StalwartMessageID,
+		&email.Direction, &email.Status, &email.ReadAt,
 		&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 	)
 
@@ -580,7 +579,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *Ema
 		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       stalwart_message_id, folder, labels, created_at, updated_at, deleted_at
+		       folder, labels, created_at, updated_at, deleted_at
 		%s
 		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
@@ -602,7 +601,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *Ema
 			&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
 			&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 			&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
-			&email.Direction, &email.Status, &email.ReadAt, &email.StalwartMessageID,
+			&email.Direction, &email.Status, &email.ReadAt,
 			&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 		)
 		if err != nil {
