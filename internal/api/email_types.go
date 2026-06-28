@@ -74,6 +74,17 @@ type AttachmentRequestV2 struct {
 	DataBase64 string `json:"data_base64"`
 }
 
+// AttachmentResponseV2 is a fetched attachment. For server-side/unencrypted
+// attachments DataBase64 holds the decrypted bytes; for client-side mode
+// RequiresClientDecryption is set and Ciphertext holds the NIP-44 payload.
+type AttachmentResponseV2 struct {
+	Filename                 string `json:"filename"`
+	ContentType              string `json:"content_type,omitempty"`
+	DataBase64               string `json:"data_base64,omitempty"`
+	Ciphertext               string `json:"ciphertext,omitempty"`
+	RequiresClientDecryption bool   `json:"requires_client_decryption"`
+}
+
 // SendEmailResponseV2 is the response for the enhanced send email endpoint
 type SendEmailResponseV2 struct {
 	// Status indicates the overall result

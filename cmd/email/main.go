@@ -208,6 +208,7 @@ func main() {
 	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
+	emailV2Routes.HandleFunc("/{id}/attachments/{attachmentId}", emailHandler.GetAttachmentV2).Methods("GET")
 
 	// Middleware
 	router.Use(loggingMiddleware(logger))

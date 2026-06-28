@@ -92,9 +92,10 @@ func TestE2EAttachmentBlossomRoundTrip(t *testing.T) {
 	if err := db.CreateUser(ctx, user); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	serverMode := "server"
 	em := &storage.Email{
 		UserID: user.ID, FromAddress: "alice@cloistr.xyz", ToAddress: "bob@example.com",
-		Subject: "with attachment", Body: "", IsEncrypted: true,
+		Subject: "with attachment", Body: "", IsEncrypted: true, EncryptionMode: &serverMode,
 		SenderNpub: &pub, Direction: "sent", Folder: "Sent", Status: "active",
 	}
 	if err := db.CreateEmail(ctx, em); err != nil {
@@ -154,5 +155,20 @@ func TestE2EAttachmentBlossomRoundTrip(t *testing.T) {
 		t.Fatalf("attachment round-trip mismatch:\n got:  %v\n want: %v", gotBytes, payload)
 	}
 
-	t.Logf("OK: %d-byte attachment encrypted (%d-byte ciphertext) -> Blossom -> decrypted back equal", len(payload), len(blob))
+	// 4. Full retrieval through the public Service API (download + decrypt).
+	ga, err := svc.GetAttachment(ctx, pub, em.ID, att.ID)
+	if err != nil {
+		t.Fatalf("GetAttachment: %v", err)
+	}
+	if ga.RequiresClientDecryption {
+		t.Fatal("server-mode attachment should be server-decrypted")
+	}
+	if ga.Filename != "logo.png" || ga.ContentType != "image/png" {
+		t.Errorf("metadata mismatch: %q / %q", ga.Filename, ga.ContentType)
+	}
+	if string(ga.Data) != string(payload) {
+		t.Fatalf("GetAttachment round-trip mismatch:\n got:  %v\n want: %v", ga.Data, payload)
+	}
+
+	t.Logf("OK: %d-byte attachment encrypted (%d-byte ciphertext) -> Blossom -> GetAttachment decrypted back equal", len(payload), len(blob))
 }

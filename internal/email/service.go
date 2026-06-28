@@ -503,6 +503,113 @@ func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) err
 	return s.db.DeleteEmail(ctx, emailID)
 }
 
+// GetAttachmentResult is the decrypted (or client-decryptable) attachment.
+type GetAttachmentResult struct {
+	Filename    string
+	ContentType string
+
+	// Data holds the decrypted bytes for server-side / unencrypted attachments.
+	Data []byte
+
+	// Ciphertext + RequiresClientDecryption are set for client-side mode, where
+	// only the recipient/sender can decrypt with their own key.
+	Ciphertext               string
+	RequiresClientDecryption bool
+}
+
+// GetAttachment fetches an attachment blob from Blossom and decrypts it
+// according to the parent email's encryption mode. Ownership is enforced via
+// the parent email.
+func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachmentID string) (*GetAttachmentResult, error) {
+	if !s.blossomEnabled() {
+		return nil, fmt.Errorf("blossom storage is not configured")
+	}
+
+	user, err := s.db.GetUserByNpub(ctx, userNpub)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return nil, fmt.Errorf("email not found")
+	}
+	if email.UserID != user.ID {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	atts, err := s.db.GetAttachmentsByEmail(ctx, emailID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attachments: %w", err)
+	}
+	var att *storage.Attachment
+	for _, a := range atts {
+		if a.ID == attachmentID {
+			att = a
+			break
+		}
+	}
+	if att == nil {
+		return nil, fmt.Errorf("attachment not found")
+	}
+	if att.BlossomSHA256 == nil || *att.BlossomSHA256 == "" {
+		return nil, fmt.Errorf("attachment has no Blossom reference")
+	}
+
+	authSigner := blossom.NewEventAuthSigner(userNpub, func(ctx context.Context, ev *nostr.Event) error {
+		return s.encryptionSvc.SignEventForUser(ctx, userNpub, ev)
+	})
+	client := blossom.NewClient(authSigner, s.logger)
+	blob, err := client.Download(ctx, *att.BlossomSHA256, s.blossomServers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch attachment from Blossom: %w", err)
+	}
+
+	res := &GetAttachmentResult{Filename: att.Filename}
+	if att.ContentType != nil {
+		res.ContentType = *att.ContentType
+	}
+
+	switch storedMode(email) {
+	case encryption.ModeClientSide:
+		res.RequiresClientDecryption = true
+		res.Ciphertext = string(blob)
+	case encryption.ModeServerSide:
+		senderPubkey := ""
+		if email.SenderNpub != nil {
+			senderPubkey = *email.SenderNpub
+		}
+		dec, err := s.encryptionSvc.DecryptForRecipient(ctx, &encryption.DecryptionRequest{
+			Ciphertext:      string(blob),
+			RecipientPubkey: userNpub,
+			SenderPubkey:    senderPubkey,
+			Mode:            encryption.ModeServerSide,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt attachment: %w", err)
+		}
+		if dec.RequiresClientDecryption {
+			res.RequiresClientDecryption = true
+			res.Ciphertext = dec.Ciphertext
+			break
+		}
+		data, err := base64.StdEncoding.DecodeString(dec.Plaintext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode attachment bytes: %w", err)
+		}
+		res.Data = data
+	default:
+		res.Data = blob
+	}
+	return res, nil
+}
+
 // uploadAttachments encrypts (per the email's mode) and offloads each
 // attachment to Blossom, persisting an Attachment row referencing the blob.
 // Best-effort: per-attachment failures are logged and skipped (the email is

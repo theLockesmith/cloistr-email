@@ -315,3 +315,42 @@ func (h *EmailHandler) DeleteEmailV2(w http.ResponseWriter, r *http.Request) {
 
 	h.respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
+// GetAttachmentV2 fetches and decrypts a single attachment from Blossom.
+func (h *EmailHandler) GetAttachmentV2(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("GetAttachmentV2: processing request")
+
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	emailID := vars["id"]
+	attachmentID := vars["attachmentId"]
+	if emailID == "" || attachmentID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id and attachment id are required").WriteResponse(w)
+		return
+	}
+
+	res, err := h.emailSvc.GetAttachment(r.Context(), userNpub, emailID, attachmentID)
+	if err != nil {
+		h.logger.Warn("Failed to get attachment", zap.Error(err),
+			zap.String("email_id", emailID), zap.String("attachment_id", attachmentID))
+		errors.NotFound("RESOURCE_NOT_FOUND", "attachment not found").WriteResponse(w)
+		return
+	}
+
+	resp := AttachmentResponseV2{
+		Filename:                 res.Filename,
+		ContentType:              res.ContentType,
+		RequiresClientDecryption: res.RequiresClientDecryption,
+	}
+	if res.RequiresClientDecryption {
+		resp.Ciphertext = res.Ciphertext
+	} else {
+		resp.DataBase64 = base64.StdEncoding.EncodeToString(res.Data)
+	}
+	h.respondJSON(w, http.StatusOK, resp)
+}
