@@ -25,6 +25,8 @@ test:lint:
 
 build:backend:
   stage: build
+  tags:
+    - local
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
@@ -35,6 +37,8 @@ build:backend:
 
 build:frontend:
   stage: build
+  tags:
+    - local
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
