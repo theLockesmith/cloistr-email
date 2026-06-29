@@ -3,7 +3,13 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+# Token for the private @cloistr GitLab npm scope (see .npmrc). Injected at
+# build time via --build-arg NPM_TOKEN=$CI_JOB_TOKEN; only lives in this
+# discarded builder stage, never in the runtime image.
+ARG NPM_TOKEN
+ENV NPM_TOKEN=${NPM_TOKEN}
+
+COPY package*.json .npmrc ./
 RUN npm ci
 
 COPY . .
