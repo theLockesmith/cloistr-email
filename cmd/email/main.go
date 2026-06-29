@@ -108,6 +108,10 @@ func main() {
 		UseTLS:       true,
 		DeliveryMode: transport.DeliveryMode(cfg.SMTPDeliveryMode),
 		LocalDomains: cfg.SMTPLocalDomains,
+		// Outbound HELO/EHLO hostname must be a real FQDN matching our PTR
+		// (mail.cloistr.xyz), not the default "localhost" which receivers
+		// penalize/reject. SMTPInboundDomain is that hostname.
+		LocalName: cfg.SMTPInboundDomain,
 	}
 	if cfg.DKIMDomain != "" && cfg.DKIMPrivateKey != "" {
 		smtpOutConfig.DKIM = &transport.DKIMConfig{

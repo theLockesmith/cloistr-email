@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX idx_users_npub ON users(npub);
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_npub ON users(npub);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Sessions table
 -- Stores authenticated sessions
@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX idx_sessions_token ON sessions(token);
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
 -- Emails table
 -- Stores email metadata and encrypted bodies
@@ -67,13 +67,13 @@ CREATE TABLE IF NOT EXISTS emails (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX idx_emails_user_id ON emails(user_id);
-CREATE INDEX idx_emails_from ON emails(from_address);
-CREATE INDEX idx_emails_to ON emails(to_address);
-CREATE INDEX idx_emails_status ON emails(status);
-CREATE INDEX idx_emails_created_at ON emails(created_at DESC);
-CREATE INDEX idx_emails_sender_npub ON emails(sender_npub);
-CREATE INDEX idx_emails_recipient_npub ON emails(recipient_npub);
+CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+CREATE INDEX IF NOT EXISTS idx_emails_from ON emails(from_address);
+CREATE INDEX IF NOT EXISTS idx_emails_to ON emails(to_address);
+CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
+CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_emails_sender_npub ON emails(sender_npub);
+CREATE INDEX IF NOT EXISTS idx_emails_recipient_npub ON emails(recipient_npub);
 
 -- Attachments table
 -- References to Blossom file storage
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_attachments_email_id ON attachments(email_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id);
 
 -- Contacts table
 -- Address book for users
@@ -112,10 +112,10 @@ CREATE TABLE IF NOT EXISTS contacts (
     UNIQUE(user_id, email)
 );
 
-CREATE INDEX idx_contacts_user_id ON contacts(user_id);
-CREATE INDEX idx_contacts_email ON contacts(email);
-CREATE INDEX idx_contacts_npub ON contacts(npub);
-CREATE INDEX idx_contacts_name ON contacts(name);
+CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+CREATE INDEX IF NOT EXISTS idx_contacts_npub ON contacts(npub);
+CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 
 -- NIP-05 Cache
 -- Caches NIP-05 key discovery lookups
@@ -129,8 +129,8 @@ CREATE TABLE IF NOT EXISTS nip05_cache (
     valid BOOLEAN DEFAULT TRUE
 );
 
-CREATE INDEX idx_nip05_cache_email ON nip05_cache(email);
-CREATE INDEX idx_nip05_cache_expires_at ON nip05_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_nip05_cache_email ON nip05_cache(email);
+CREATE INDEX IF NOT EXISTS idx_nip05_cache_expires_at ON nip05_cache(expires_at);
 
 -- Encryption Keys table
 -- Stores imported and generated encryption keys
@@ -147,8 +147,8 @@ CREATE TABLE IF NOT EXISTS encryption_keys (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_encryption_keys_user_id ON encryption_keys(user_id);
-CREATE INDEX idx_encryption_keys_contact_npub ON encryption_keys(contact_npub);
+CREATE INDEX IF NOT EXISTS idx_encryption_keys_user_id ON encryption_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_encryption_keys_contact_npub ON encryption_keys(contact_npub);
 
 -- Email Templates table
 -- For signature templates and canned responses
@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS email_templates (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX idx_email_templates_user_id ON email_templates(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_templates_user_id ON email_templates(user_id);
 
 -- Audit Log
 -- Tracks important actions for security
@@ -180,9 +180,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_audit_log_user_id ON audit_log(user_id);
-CREATE INDEX idx_audit_log_action ON audit_log(action);
-CREATE INDEX idx_audit_log_created_at ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
 
 -- Update trigger for updated_at timestamps
 CREATE OR REPLACE FUNCTION update_timestamp()
@@ -193,19 +193,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_users_timestamp BEFORE UPDATE ON users
+CREATE OR REPLACE TRIGGER update_users_timestamp BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
-CREATE TRIGGER update_emails_timestamp BEFORE UPDATE ON emails
+CREATE OR REPLACE TRIGGER update_emails_timestamp BEFORE UPDATE ON emails
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
-CREATE TRIGGER update_contacts_timestamp BEFORE UPDATE ON contacts
+CREATE OR REPLACE TRIGGER update_contacts_timestamp BEFORE UPDATE ON contacts
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
-CREATE TRIGGER update_encryption_keys_timestamp BEFORE UPDATE ON encryption_keys
+CREATE OR REPLACE TRIGGER update_encryption_keys_timestamp BEFORE UPDATE ON encryption_keys
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
-CREATE TRIGGER update_email_templates_timestamp BEFORE UPDATE ON email_templates
+CREATE OR REPLACE TRIGGER update_email_templates_timestamp BEFORE UPDATE ON email_templates
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- Outbound Queue table
@@ -226,10 +226,10 @@ CREATE TABLE IF NOT EXISTS outbound_queue (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
-CREATE INDEX idx_outbound_queue_status ON outbound_queue(status);
-CREATE INDEX idx_outbound_queue_next_attempt ON outbound_queue(next_attempt) WHERE status IN ('pending', 'retry');
-CREATE INDEX idx_outbound_queue_message_id ON outbound_queue(message_id);
-CREATE INDEX idx_outbound_queue_created_at ON outbound_queue(created_at);
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_status ON outbound_queue(status);
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_next_attempt ON outbound_queue(next_attempt) WHERE status IN ('pending', 'retry');
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_message_id ON outbound_queue(message_id);
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_created_at ON outbound_queue(created_at);
 
 -- NOTE: Address mappings (npub <-> email) are managed by cloistr-me's 'addresses' table.
 -- cloistr-email queries that table directly. Both services share the same database.
@@ -249,10 +249,10 @@ CREATE TABLE IF NOT EXISTS email_bounces (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_email_bounces_recipient ON email_bounces(original_recipient);
-CREATE INDEX idx_email_bounces_message_id ON email_bounces(original_message_id);
-CREATE INDEX idx_email_bounces_type ON email_bounces(bounce_type);
-CREATE INDEX idx_email_bounces_received_at ON email_bounces(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_bounces_recipient ON email_bounces(original_recipient);
+CREATE INDEX IF NOT EXISTS idx_email_bounces_message_id ON email_bounces(original_message_id);
+CREATE INDEX IF NOT EXISTS idx_email_bounces_type ON email_bounces(bounce_type);
+CREATE INDEX IF NOT EXISTS idx_email_bounces_received_at ON email_bounces(received_at DESC);
 
 -- Served domains (multi-domain / bring-your-own-domain hosting).
 -- Each row is a domain this instance accepts/sends mail for, with its own
@@ -270,4 +270,4 @@ CREATE TABLE IF NOT EXISTS domains (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_domains_active ON domains(active);
+CREATE INDEX IF NOT EXISTS idx_domains_active ON domains(active);

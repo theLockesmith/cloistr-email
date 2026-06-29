@@ -17,11 +17,12 @@ data:
   SMTP_PORT: "587"
   SMTP_DELIVERY_MODE: "direct"  # direct, relay, or hybrid
 
-  # SMTP Inbound
+  # SMTP Inbound — served domains (coldforge.xyz intentionally excluded; it
+  # stays on ProtonMail). DKIM is per-domain from the `domains` table.
   SMTP_INBOUND_ENABLED: "true"
   SMTP_INBOUND_ADDR: ":25"
-  SMTP_INBOUND_DOMAIN: "cloistr.xyz"
-  SMTP_INBOUND_DOMAINS: "cloistr.xyz,mail.cloistr.xyz"
+  SMTP_INBOUND_DOMAIN: "mail.cloistr.xyz"
+  SMTP_INBOUND_DOMAINS: "cloistr.xyz,aegis-hq.xyz,aegisitservices.com"
 
   # DKIM
   DKIM_DOMAIN: "cloistr.xyz"
