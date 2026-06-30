@@ -77,6 +77,16 @@ func (m *MockSessionStore) DeleteNIP46Challenge(ctx context.Context, challengeID
 	return nil
 }
 
+// ConsumeNIP46Challenge mirrors the real GETDEL: fetch and delete in one step.
+func (m *MockSessionStore) ConsumeNIP46Challenge(ctx context.Context, challengeID string) (*auth.ChallengeData, error) {
+	challenge, ok := m.challenges[challengeID]
+	if !ok {
+		return nil, nil
+	}
+	delete(m.challenges, challengeID)
+	return challenge, nil
+}
+
 // TestParseBunkerURL tests parsing of bunker:// URLs
 func TestParseBunkerURL(t *testing.T) {
 	tests := []struct {
