@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './lib/useAuth'
+import { useBackendAuth } from '@cloistr/ui/components'
 import LoginPage from './routes/LoginPage'
 import InboxPage from './routes/InboxPage'
 import ComposePage from './routes/ComposePage'
@@ -9,9 +9,10 @@ import SettingsPage from './routes/SettingsPage'
 import Layout from './components/Layout'
 
 function App() {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, loading } = useBackendAuth()
+  const authed = isAuthenticated()
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-lg">Loading...</div>
@@ -23,10 +24,10 @@ function App() {
     <Routes>
       <Route
         path="/login"
-        element={!isAuthenticated ? <LoginPage /> : <Navigate to="/inbox" />}
+        element={!authed ? <LoginPage /> : <Navigate to="/inbox" />}
       />
 
-      {isAuthenticated ? (
+      {authed ? (
         <Route element={<Layout />}>
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/compose" element={<ComposePage />} />

@@ -1,13 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authAPI } from '../lib/api'
-import {
-  waitForNostrExtension,
-  getPublicKey,
-  signEvent,
-  hasNip44Support,
-  type NostrEvent,
-} from '../lib/nostr'
+import { useBackendAuth } from '@cloistr/ui/components'
+import { waitForNostrExtension, hasNip44Support } from '../lib/nostr'
 
 type AuthMethod = 'nip07' | 'nip46' | null
 
@@ -19,6 +13,7 @@ export default function LoginPage() {
   const [hasExtension, setHasExtension] = useState(false)
   const [extensionHasNip44, setExtensionHasNip44] = useState(false)
   const navigate = useNavigate()
+  const { loginWithExtension, loginWithBunker } = useBackendAuth()
 
   // Check for NIP-07 extension on mount
   useEffect(() => {
@@ -32,39 +27,12 @@ export default function LoginPage() {
     checkExtension()
   }, [])
 
-  // Handle NIP-07 login (browser extension)
+  // NIP-07 login (browser extension) via the shared backend-auth provider.
   const handleNip07Login = async () => {
     setIsLoading(true)
     setError(null)
-
     try {
-      // Get public key from extension
-      const pubkey = await getPublicKey()
-      console.log('Got pubkey from extension:', pubkey)
-
-      // Create auth event for the server to verify
-      const authEvent: NostrEvent = {
-        kind: 27235, // NIP-98 HTTP Auth
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [
-          ['u', window.location.origin + '/api/v1/auth/nip07/verify'],
-          ['method', 'POST'],
-        ],
-        content: '',
-      }
-
-      // Sign the event using the extension
-      const signedEvent = await signEvent(authEvent)
-      console.log('Signed event:', signedEvent)
-
-      // Send to server for verification
-      const response = await authAPI.verifyNIP07(JSON.stringify(signedEvent))
-
-      // Store session
-      localStorage.setItem('session_token', response.data.token)
-      localStorage.setItem('user_pubkey', pubkey)
-
-      // Navigate to inbox
+      await loginWithExtension()
       navigate('/inbox')
     } catch (err) {
       console.error('NIP-07 login error:', err)
@@ -74,31 +42,16 @@ export default function LoginPage() {
     }
   }
 
-  // Handle NIP-46 login (nsecbunker)
+  // NIP-46 login (nsecbunker) via the shared backend-auth provider.
   const handleNip46Login = async () => {
     if (!bunkerUrl) {
       setError('Please enter your bunker URL')
       return
     }
-
     setIsLoading(true)
     setError(null)
-
     try {
-      // Start NIP-46 authentication
-      const challengeResponse = await authAPI.startNIP46(bunkerUrl)
-      const { challenge_id } = challengeResponse.data
-
-      console.log('Challenge created:', challenge_id)
-
-      // Connect to bunker and get session
-      const sessionResponse = await authAPI.connectBunker(challenge_id)
-
-      // Store session
-      localStorage.setItem('session_token', sessionResponse.data.token)
-      localStorage.setItem('user_pubkey', sessionResponse.data.user_id)
-
-      // Navigate to inbox
+      await loginWithBunker(bunkerUrl)
       navigate('/inbox')
     } catch (err) {
       console.error('NIP-46 login error:', err)

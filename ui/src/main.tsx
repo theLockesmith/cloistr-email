@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
-import { SharedAuthProvider, ToastProvider } from '@cloistr/ui/components'
+import { BackendAuthProvider, ToastProvider } from '@cloistr/ui/components'
 import '@cloistr/ui/styles'
 import App from './App'
 import './index.css'
@@ -13,11 +13,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <SharedAuthProvider>
+        <BackendAuthProvider config={{ apiBase: '/api/v1' }}>
           <BrowserRouter>
             <App />
           </BrowserRouter>
-        </SharedAuthProvider>
+        </BackendAuthProvider>
       </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>,
