@@ -198,6 +198,29 @@ func (s *RedisSessionStore) GetNIP46Challenge(ctx context.Context, challengeID s
 	return &challengeData, nil
 }
 
+// ConsumeNIP46Challenge atomically fetches and deletes a challenge in one
+// round-trip (Redis GETDEL). Exactly one concurrent caller receives the data;
+// the rest receive (nil, nil). This is the one-time-use gate for client-side
+// auth — it makes challenge consumption TOCTOU-free so a replayed signed
+// challenge cannot mint multiple sessions.
+func (s *RedisSessionStore) ConsumeNIP46Challenge(ctx context.Context, challengeID string) (*auth.ChallengeData, error) {
+	key := nip46ChallengePrefix + challengeID
+	data, err := s.client.GetDel(ctx, key).Bytes()
+	if err == redis.Nil {
+		return nil, nil // already consumed, expired, or never existed
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to consume challenge: %w", err)
+	}
+
+	var challengeData auth.ChallengeData
+	if err := json.Unmarshal(data, &challengeData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal challenge data: %w", err)
+	}
+
+	return &challengeData, nil
+}
+
 // DeleteNIP46Challenge removes a NIP-46 challenge from Redis
 func (s *RedisSessionStore) DeleteNIP46Challenge(ctx context.Context, challengeID string) error {
 	s.logger.Debug("Deleting NIP-46 challenge", zap.String("challenge_id", challengeID))

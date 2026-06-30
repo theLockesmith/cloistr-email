@@ -209,6 +209,12 @@ func main() {
 	authRoutes.HandleFunc("/nip46/verify", apiHandler.VerifyNIP46Auth).Methods("POST")
 	authRoutes.HandleFunc("/logout", apiHandler.Logout).Methods("POST")
 
+	// RFC-004: client-side signing endpoints (backend verifies only; no server-side key).
+	authRoutes.HandleFunc("/challenge", apiHandler.StartChallenge).Methods("GET")
+	authRoutes.HandleFunc("/verify", apiHandler.VerifyChallenge).Methods("POST")
+	authRoutes.HandleFunc("/refresh", apiHandler.RefreshToken).Methods("POST")
+	authRoutes.HandleFunc("/token-info", apiHandler.TokenInfo).Methods("GET")
+
 	// Email endpoints
 	emailRoutes := v1.PathPrefix("/emails").Subrouter()
 	emailRoutes.Use(apiHandler.AuthMiddleware)

@@ -43,6 +43,11 @@ type SessionStore interface {
 	SetNIP46Challenge(ctx context.Context, challengeID string, data *ChallengeData, ttl time.Duration) error
 	GetNIP46Challenge(ctx context.Context, challengeID string) (*ChallengeData, error)
 	DeleteNIP46Challenge(ctx context.Context, challengeID string) error
+	// ConsumeNIP46Challenge atomically fetches AND deletes a challenge (Redis
+	// GETDEL): the data is returned to exactly one caller, concurrent callers
+	// get nil. Use as the one-time-use gate so a captured/replayed signed
+	// challenge cannot mint more than one session (TOCTOU-free).
+	ConsumeNIP46Challenge(ctx context.Context, challengeID string) (*ChallengeData, error)
 }
 
 // Session represents an authenticated session
