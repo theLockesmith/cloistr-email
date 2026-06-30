@@ -10,12 +10,10 @@
  * - Encrypting/decrypting messages (NIP-04 and NIP-44)
  */
 
-// Type declarations for window.nostr (NIP-07)
-declare global {
-  interface Window {
-    nostr?: Nostr
-  }
-}
+// NOTE: @cloistr/collab-common already declares the global `Window.nostr` as
+// its own NostrExtension type (no nip44). Re-declaring it here collides
+// (TS2717), so we don't — email reads window.nostr through getNostrExt(),
+// which casts to the local `Nostr` interface that adds nip44.
 
 export interface NostrEvent {
   kind: number
@@ -46,10 +44,19 @@ export interface Nostr {
 }
 
 /**
+ * Read window.nostr as the email-local `Nostr` type (adds nip44 over
+ * collab-common's NostrExtension). Safe cast: NIP-07 extensions expose these
+ * at runtime and we feature-check nip44/nip04 before calling them.
+ */
+function getNostrExt(): Nostr | undefined {
+  return typeof window !== 'undefined' ? (window.nostr as Nostr | undefined) : undefined
+}
+
+/**
  * Check if NIP-07 extension is available
  */
 export function hasNostrExtension(): boolean {
-  return typeof window !== 'undefined' && !!window.nostr
+  return !!getNostrExt()
 }
 
 /**
@@ -77,12 +84,13 @@ export async function waitForNostrExtension(timeoutMs = 3000): Promise<boolean> 
  * Get the user's public key from the extension
  */
 export async function getPublicKey(): Promise<string> {
-  if (!window.nostr) {
+  const ext = getNostrExt()
+  if (!ext) {
     throw new Error('No Nostr extension found. Please install nos2x, Alby, or another NIP-07 extension.')
   }
 
   try {
-    return await window.nostr.getPublicKey()
+    return await ext.getPublicKey()
   } catch (err) {
     throw new Error(`Failed to get public key: ${err instanceof Error ? err.message : 'Unknown error'}`)
   }
@@ -92,12 +100,13 @@ export async function getPublicKey(): Promise<string> {
  * Sign a Nostr event using the extension
  */
 export async function signEvent(event: NostrEvent): Promise<NostrEvent> {
-  if (!window.nostr) {
+  const ext = getNostrExt()
+  if (!ext) {
     throw new Error('No Nostr extension found')
   }
 
   try {
-    return await window.nostr.signEvent(event)
+    return await ext.signEvent(event)
   } catch (err) {
     throw new Error(`Failed to sign event: ${err instanceof Error ? err.message : 'Unknown error'}`)
   }
@@ -107,37 +116,38 @@ export async function signEvent(event: NostrEvent): Promise<NostrEvent> {
  * Check if NIP-44 encryption is supported
  */
 export function hasNip44Support(): boolean {
-  return hasNostrExtension() && !!window.nostr?.nip44
+  return hasNostrExtension() && !!getNostrExt()?.nip44
 }
 
 /**
  * Check if NIP-04 encryption is supported (legacy)
  */
 export function hasNip04Support(): boolean {
-  return hasNostrExtension() && !!window.nostr?.nip04
+  return hasNostrExtension() && !!getNostrExt()?.nip04
 }
 
 /**
  * Encrypt a message using NIP-44 (preferred) or NIP-04 (fallback)
  */
 export async function encrypt(recipientPubkey: string, plaintext: string): Promise<string> {
-  if (!window.nostr) {
+  const ext = getNostrExt()
+  if (!ext) {
     throw new Error('No Nostr extension found')
   }
 
   // Prefer NIP-44
-  if (window.nostr.nip44) {
+  if (ext.nip44) {
     try {
-      return await window.nostr.nip44.encrypt(recipientPubkey, plaintext)
+      return await ext.nip44.encrypt(recipientPubkey, plaintext)
     } catch (err) {
       throw new Error(`NIP-44 encryption failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
   // Fallback to NIP-04
-  if (window.nostr.nip04) {
+  if (ext.nip04) {
     try {
-      return await window.nostr.nip04.encrypt(recipientPubkey, plaintext)
+      return await ext.nip04.encrypt(recipientPubkey, plaintext)
     } catch (err) {
       throw new Error(`NIP-04 encryption failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
@@ -150,19 +160,20 @@ export async function encrypt(recipientPubkey: string, plaintext: string): Promi
  * Decrypt a message using NIP-44 (preferred) or NIP-04 (fallback)
  */
 export async function decrypt(senderPubkey: string, ciphertext: string): Promise<string> {
-  if (!window.nostr) {
+  const ext = getNostrExt()
+  if (!ext) {
     throw new Error('No Nostr extension found')
   }
 
   // Prefer NIP-44
-  if (window.nostr.nip44) {
+  if (ext.nip44) {
     try {
-      return await window.nostr.nip44.decrypt(senderPubkey, ciphertext)
+      return await ext.nip44.decrypt(senderPubkey, ciphertext)
     } catch (err) {
       // If NIP-44 fails, try NIP-04 (message might be encrypted with older method)
-      if (window.nostr.nip04) {
+      if (ext.nip04) {
         try {
-          return await window.nostr.nip04.decrypt(senderPubkey, ciphertext)
+          return await ext.nip04.decrypt(senderPubkey, ciphertext)
         } catch {
           // NIP-04 also failed, throw original NIP-44 error
         }
@@ -172,9 +183,9 @@ export async function decrypt(senderPubkey: string, ciphertext: string): Promise
   }
 
   // Fallback to NIP-04
-  if (window.nostr.nip04) {
+  if (ext.nip04) {
     try {
-      return await window.nostr.nip04.decrypt(senderPubkey, ciphertext)
+      return await ext.nip04.decrypt(senderPubkey, ciphertext)
     } catch (err) {
       throw new Error(`NIP-04 decryption failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
