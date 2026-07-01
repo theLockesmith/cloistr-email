@@ -65,7 +65,7 @@ export default function LoginPage() {
   if (!authMethod) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-100">
-        <Header activeServiceId="email" auth={{ authenticated: false, onSignIn: () => setAuthMethod(null) }} />
+        <Header activeServiceId="email" auth={{ authenticated: false }} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
           <div className="flex justify-center mb-4">
@@ -134,7 +134,7 @@ export default function LoginPage() {
   if (authMethod === 'nip07') {
     return (
       <div className="min-h-screen flex flex-col bg-gray-100">
-        <Header activeServiceId="email" auth={{ authenticated: false, onSignIn: () => setAuthMethod(null) }} />
+        <Header activeServiceId="email" auth={{ authenticated: false }} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
           <button
@@ -180,7 +180,7 @@ export default function LoginPage() {
   // NIP-46 login screen
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
-        <Header activeServiceId="email" auth={{ authenticated: false, onSignIn: () => setAuthMethod(null) }} />
+        <Header activeServiceId="email" auth={{ authenticated: false }} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
         <button
