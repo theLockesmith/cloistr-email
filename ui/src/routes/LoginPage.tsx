@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useBackendAuth } from '@cloistr/ui/components'
+import { Header, useBackendAuth } from '@cloistr/ui/components'
 import { waitForNostrExtension, hasNip44Support } from '../lib/nostr'
 
 type AuthMethod = 'nip07' | 'nip46' | null
@@ -64,7 +64,9 @@ export default function LoginPage() {
   // Method selection screen
   if (!authMethod) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex flex-col bg-gray-100">
+        <Header activeServiceId="email" auth={{ authenticated: false, onSignIn: () => setAuthMethod(null) }} />
+        <div className="flex flex-1 flex-col items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
           <div className="flex justify-center mb-4">
             <img src="/cloistr-logo.svg" alt="Cloistr" className="h-12" />
@@ -124,13 +126,16 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+      </div>
     )
   }
 
   // NIP-07 login screen
   if (authMethod === 'nip07') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex flex-col bg-gray-100">
+        <Header activeServiceId="email" auth={{ authenticated: false, onSignIn: () => setAuthMethod(null) }} />
+        <div className="flex flex-1 flex-col items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
           <button
             onClick={() => setAuthMethod(null)}
@@ -168,12 +173,15 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+      </div>
     )
   }
 
   // NIP-46 login screen
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="min-h-screen flex flex-col bg-gray-100">
+        <Header activeServiceId="email" auth={{ authenticated: false, onSignIn: () => setAuthMethod(null) }} />
+        <div className="flex flex-1 flex-col items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
         <button
           onClick={() => setAuthMethod(null)}
@@ -226,6 +234,7 @@ export default function LoginPage() {
           </ul>
         </div>
       </div>
+    </div>
     </div>
   )
 }
