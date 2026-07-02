@@ -36,7 +36,9 @@ RUN echo 'server { \
         try_files $uri $uri/ /index.html; \
     } \
     location /api { \
-        proxy_pass http://cloistr-email-backend; \
+        resolver 127.0.0.11 valid=30s; \
+        set $backend http://cloistr-email-backend; \
+        proxy_pass $backend; \
         proxy_set_header Host $host; \
         proxy_set_header X-Real-IP $remote_addr; \
     } \
