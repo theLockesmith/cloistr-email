@@ -56,7 +56,7 @@ build:frontend:
     - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
     - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --build-arg NPM_TOKEN=${CI_JOB_TOKEN} --destination ${CI_REGISTRY_IMAGE}/frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}/frontend:latest
 
-# Smoke-test: load frontend image in real Chromium, fail on console errors / blank page
+# Smoke-test gate: load frontend image in real Chromium (with crypto.randomUUID polyfill)
 smoke-test:
   extends: .smoke-test
   needs: ["build:frontend"]
