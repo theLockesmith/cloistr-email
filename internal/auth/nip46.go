@@ -237,7 +237,7 @@ func (h *NIP46Handler) ConnectToBunker(ctx context.Context, challengeID string) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to relay: %w", err)
 	}
-	defer relay.Close()
+	defer func() { _ = relay.Close() }()
 
 	// Get client public key from the stored private key
 	clientPubkey, err := nostr.GetPublicKey(challengeData.ClientPrivateKey)
@@ -425,7 +425,7 @@ func (h *NIP46Handler) getUserPubkeyFromBunker(ctx context.Context, challengeDat
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to relay: %w", err)
 	}
-	defer relay.Close()
+	defer func() { _ = relay.Close() }()
 
 	clientPubkey, _ := nostr.GetPublicKey(challengeData.ClientPrivateKey)
 
@@ -450,7 +450,9 @@ func (h *NIP46Handler) getUserPubkeyFromBunker(ctx context.Context, challengeDat
 		Tags:      nostr.Tags{{"p", challengeData.BunkerPubkey}},
 		Content:   encryptedContent,
 	}
-	event.Sign(challengeData.ClientPrivateKey)
+	if err := event.Sign(challengeData.ClientPrivateKey); err != nil {
+		return "", fmt.Errorf("failed to sign event: %w", err)
+	}
 
 	// Subscribe for response
 	sub, _ := relay.Subscribe(ctx, nostr.Filters{{
