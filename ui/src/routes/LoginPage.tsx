@@ -64,15 +64,15 @@ export default function LoginPage() {
   // Method selection screen
   if (!authMethod) {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-100">
+      <div className="min-h-screen flex flex-col bg-cloistr-bg-elevated">
         <Header activeServiceId="email" auth={{ authenticated: false }} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
+        <div className="bg-cloistr-bg rounded-lg shadow-lg p-8 w-[420px]">
           <div className="flex justify-center mb-4">
             <img src="/cloistr-logo.svg" alt="Cloistr" className="h-12" />
           </div>
           <h1 className="text-3xl font-bold text-center mb-2">Cloistr Mail</h1>
-          <p className="text-gray-600 text-center mb-8">
+          <p className="text-cloistr-text-muted text-center mb-8">
             Secure email with Nostr identity
           </p>
 
@@ -83,14 +83,14 @@ export default function LoginPage() {
               disabled={!hasExtension}
               className={`w-full p-4 border-2 rounded-lg text-left transition ${
                 hasExtension
-                  ? 'border-blue-500 hover:bg-blue-50 cursor-pointer'
-                  : 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
+                  ? 'border-cloistr-primary hover:bg-cloistr-bg-hover cursor-pointer'
+                  : 'border-cloistr-border bg-cloistr-bg-elevated cursor-not-allowed opacity-60'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold text-lg">Browser Extension</h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-cloistr-text-muted">
                     {hasExtension
                       ? 'Use nos2x, Alby, or another NIP-07 extension'
                       : 'No extension detected'}
@@ -98,9 +98,9 @@ export default function LoginPage() {
                 </div>
                 {hasExtension && (
                   <div className="flex flex-col items-end">
-                    <span className="text-green-600 text-sm font-medium">Available</span>
+                    <span className="text-cloistr-success text-sm font-medium">Available</span>
                     {extensionHasNip44 && (
-                      <span className="text-xs text-gray-500">NIP-44 supported</span>
+                      <span className="text-xs text-cloistr-text-muted">NIP-44 supported</span>
                     )}
                   </div>
                 )}
@@ -110,18 +110,18 @@ export default function LoginPage() {
             {/* NIP-46 Bunker */}
             <button
               onClick={() => setAuthMethod('nip46')}
-              className="w-full p-4 border-2 border-gray-300 rounded-lg text-left hover:bg-gray-50 transition"
+              className="w-full p-4 border-2 border-cloistr-border rounded-lg text-left hover:bg-cloistr-bg-hover transition"
             >
               <div>
                 <h3 className="font-semibold text-lg">nsecBunker</h3>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-cloistr-text-muted">
                   Connect to a remote signer for enhanced security
                 </p>
               </div>
             </button>
           </div>
 
-          <p className="text-xs text-gray-500 text-center mt-6">
+          <p className="text-xs text-cloistr-text-muted text-center mt-6">
             Your private key never leaves your device or bunker
           </p>
         </div>
@@ -133,24 +133,24 @@ export default function LoginPage() {
   // NIP-07 login screen
   if (authMethod === 'nip07') {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-100">
+      <div className="min-h-screen flex flex-col bg-cloistr-bg-elevated">
         <Header activeServiceId="email" auth={{ authenticated: false }} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
+        <div className="bg-cloistr-bg rounded-lg shadow-lg p-8 w-[420px]">
           <button
             onClick={() => setAuthMethod(null)}
-            className="text-gray-600 hover:text-gray-900 mb-4"
+            className="text-cloistr-text-muted hover:text-cloistr-text mb-4"
           >
             ← Back
           </button>
 
           <h1 className="text-2xl font-bold mb-2">Browser Extension Login</h1>
-          <p className="text-gray-600 mb-6">
+          <p className="text-cloistr-text-muted mb-6">
             Click the button below to sign in. Your extension will prompt you to approve.
           </p>
 
           {error && (
-            <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+            <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded">
               {error}
             </div>
           )}
@@ -158,14 +158,14 @@ export default function LoginPage() {
           <button
             onClick={handleNip07Login}
             disabled={isLoading}
-            className="w-full px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+            className="w-full px-4 py-3 bg-cloistr-primary text-white font-medium rounded-lg hover:bg-cloistr-primary-hover disabled:opacity-50 transition"
           >
             {isLoading ? 'Connecting...' : 'Sign in with Extension'}
           </button>
 
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+          <div className="mt-6 p-4 bg-cloistr-bg-elevated rounded-lg">
             <h4 className="font-medium text-sm mb-2">What happens:</h4>
-            <ul className="text-sm text-gray-600 space-y-1">
+            <ul className="text-sm text-cloistr-text-muted space-y-1">
               <li>1. Your extension will request access to your public key</li>
               <li>2. You'll be asked to sign a login message</li>
               <li>3. The server verifies your signature</li>
@@ -179,30 +179,30 @@ export default function LoginPage() {
 
   // NIP-46 login screen
   return (
-    <div className="min-h-screen flex flex-col bg-gray-100">
+    <div className="min-h-screen flex flex-col bg-cloistr-bg-elevated">
         <Header activeServiceId="email" auth={{ authenticated: false }} />
         <div className="flex flex-1 flex-col items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 w-[420px]">
+      <div className="bg-cloistr-bg rounded-lg shadow-lg p-8 w-[420px]">
         <button
           onClick={() => setAuthMethod(null)}
-          className="text-gray-600 hover:text-gray-900 mb-4"
+          className="text-cloistr-text-muted hover:text-cloistr-text mb-4"
         >
           ← Back
         </button>
 
         <h1 className="text-2xl font-bold mb-2">nsecBunker Login</h1>
-        <p className="text-gray-600 mb-6">
+        <p className="text-cloistr-text-muted mb-6">
           Enter your bunker connection URL to sign in securely.
         </p>
 
         {error && (
-          <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+          <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded">
             {error}
           </div>
         )}
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-cloistr-text mb-1">
             Bunker URL
           </label>
           <input
@@ -210,9 +210,9 @@ export default function LoginPage() {
             value={bunkerUrl}
             onChange={(e) => setBunkerUrl(e.target.value)}
             placeholder="bunker://..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-cloistr-text-muted mt-1">
             Format: bunker://pubkey?relay=wss://relay.example.com
           </p>
         </div>
@@ -220,14 +220,14 @@ export default function LoginPage() {
         <button
           onClick={handleNip46Login}
           disabled={isLoading || !bunkerUrl}
-          className="w-full px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+          className="w-full px-4 py-3 bg-cloistr-primary text-white font-medium rounded-lg hover:bg-cloistr-primary-hover disabled:opacity-50 transition"
         >
           {isLoading ? 'Connecting to Bunker...' : 'Connect'}
         </button>
 
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+        <div className="mt-6 p-4 bg-cloistr-bg-elevated rounded-lg">
           <h4 className="font-medium text-sm mb-2">Benefits of nsecBunker:</h4>
-          <ul className="text-sm text-gray-600 space-y-1">
+          <ul className="text-sm text-cloistr-text-muted space-y-1">
             <li>• Your private key stays on the bunker device</li>
             <li>• Server can encrypt/decrypt emails on your behalf</li>
             <li>• Works across all your devices</li>

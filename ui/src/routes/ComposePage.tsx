@@ -128,16 +128,16 @@ export default function ComposePage() {
     <div className="p-6">
       <h1 className="text-3xl font-bold mb-6">Compose Email</h1>
 
-      <div className="bg-white rounded-lg shadow p-6 max-w-3xl">
+      <div className="bg-cloistr-bg rounded-lg shadow p-6 max-w-3xl">
         {/* To Field */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium text-gray-700">To</label>
+            <label className="block text-sm font-medium text-cloistr-text">To</label>
             {!showCc && (
               <button
                 type="button"
                 onClick={() => setShowCc(true)}
-                className="text-sm text-blue-600 hover:text-blue-800"
+                className="text-sm text-cloistr-primary hover:text-cloistr-primary-hover"
               >
                 Add CC
               </button>
@@ -148,26 +148,26 @@ export default function ComposePage() {
             value={to}
             onChange={(e) => setTo(e.target.value)}
             placeholder="recipient@example.com"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary"
           />
           {/* Recipient key discovery status */}
           {to && (
             <div className="mt-1 text-sm">
               {isDiscovering && (
-                <span className="text-gray-500">Discovering recipient identity...</span>
+                <span className="text-cloistr-text-muted">Discovering recipient identity...</span>
               )}
               {!isDiscovering && recipientPubkey && (
-                <span className="text-green-600">
+                <span className="text-cloistr-success">
                   ✓ Nostr identity found - encryption available
                 </span>
               )}
               {!isDiscovering && !recipientPubkey && to.includes('@') && (
-                <span className="text-gray-500">
+                <span className="text-cloistr-text-muted">
                   No Nostr identity found - encryption unavailable
                 </span>
               )}
               {discoveryError && (
-                <span className="text-amber-600">{discoveryError}</span>
+                <span className="text-cloistr-warning">{discoveryError}</span>
               )}
             </div>
           )}
@@ -176,20 +176,20 @@ export default function ComposePage() {
         {/* CC Field (optional) */}
         {showCc && (
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">CC</label>
+            <label className="block text-sm font-medium text-cloistr-text mb-1">CC</label>
             <input
               type="text"
               value={cc}
               onChange={(e) => setCc(e.target.value)}
               placeholder="email1@example.com, email2@example.com"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary"
             />
           </div>
         )}
 
         {/* Subject Field */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-cloistr-text mb-1">
             Subject
           </label>
           <input
@@ -197,13 +197,13 @@ export default function ComposePage() {
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Email subject"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary"
           />
         </div>
 
         {/* Body Field */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-cloistr-text mb-1">
             Message
           </label>
           <textarea
@@ -211,13 +211,13 @@ export default function ComposePage() {
             onChange={(e) => setBody(e.target.value)}
             placeholder="Write your message..."
             rows={12}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+            className="w-full px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary font-mono text-sm"
           />
         </div>
 
         {/* Encryption Options */}
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <label className="block text-sm font-medium text-gray-700 mb-3">
+        <div className="mb-6 p-4 bg-cloistr-bg-elevated rounded-lg">
+          <label className="block text-sm font-medium text-cloistr-text mb-3">
             Encryption
           </label>
           <div className="space-y-3">
@@ -229,11 +229,11 @@ export default function ComposePage() {
                 value="none"
                 checked={encryptionMode === 'none'}
                 onChange={() => setEncryptionMode('none')}
-                className="mt-1 w-4 h-4 text-blue-600"
+                className="mt-1 w-4 h-4 text-cloistr-primary"
               />
               <div className="ml-3">
                 <span className="font-medium">No encryption</span>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-cloistr-text-muted">
                   Message sent in plaintext (standard email)
                 </p>
               </div>
@@ -250,11 +250,11 @@ export default function ComposePage() {
                 checked={encryptionMode === 'server'}
                 onChange={() => canEncrypt && setEncryptionMode('server')}
                 disabled={!canEncrypt}
-                className="mt-1 w-4 h-4 text-blue-600"
+                className="mt-1 w-4 h-4 text-cloistr-primary"
               />
               <div className="ml-3">
                 <span className="font-medium">Server-side encryption (NIP-46)</span>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-cloistr-text-muted">
                   Encrypted using your bunker connection
                   {!canEncrypt && ' - requires recipient Nostr identity'}
                 </p>
@@ -272,18 +272,18 @@ export default function ComposePage() {
                 checked={encryptionMode === 'client'}
                 onChange={() => canEncrypt && hasNip44 && setEncryptionMode('client')}
                 disabled={!canEncrypt || !hasNip44}
-                className="mt-1 w-4 h-4 text-blue-600"
+                className="mt-1 w-4 h-4 text-cloistr-primary"
               />
               <div className="ml-3">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">Client-side encryption (NIP-07)</span>
                   {hasNip44 && (
-                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">
+                    <span className="px-2 py-0.5 bg-cloistr-success/10 text-cloistr-success text-xs rounded">
                       Zero-knowledge
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-cloistr-text-muted">
                   {hasExtension
                     ? hasNip44
                       ? 'Encrypted locally - server never sees plaintext'
@@ -298,7 +298,7 @@ export default function ComposePage() {
 
         {/* Error Display */}
         {sendMutation.error && (
-          <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+          <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg">
             {sendMutation.error instanceof Error
               ? sendMutation.error.message
               : 'Error sending email'}
@@ -310,20 +310,20 @@ export default function ComposePage() {
           <button
             onClick={handleSend}
             disabled={sendMutation.isPending || !to || !subject || !body}
-            className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="px-6 py-2 bg-cloistr-primary text-white font-medium rounded-lg hover:bg-cloistr-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             {sendMutation.isPending ? 'Sending...' : 'Send'}
           </button>
           <button
             onClick={() => navigate('/inbox')}
-            className="px-6 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            className="px-6 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover transition"
           >
             Cancel
           </button>
 
           {/* Encryption indicator */}
           {encryptionMode !== 'none' && (
-            <span className="ml-auto text-sm text-gray-600">
+            <span className="ml-auto text-sm text-cloistr-text-muted">
               {encryptionMode === 'client' ? '🔐 Client-encrypted' : '🔒 Server-encrypted'}
             </span>
           )}

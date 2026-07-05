@@ -49,7 +49,7 @@ export default function InboxPage() {
         <h1 className="text-3xl font-bold capitalize">{folder}</h1>
         <Link
           to="/compose"
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          className="px-4 py-2 bg-cloistr-primary text-white rounded-lg hover:bg-cloistr-primary-hover transition"
         >
           Compose
         </Link>
@@ -63,8 +63,8 @@ export default function InboxPage() {
             onClick={() => setFolder(f)}
             className={`px-4 py-2 capitalize rounded-t-lg transition ${
               folder === f
-                ? 'bg-white border-t border-l border-r -mb-px font-medium'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                ? 'bg-cloistr-bg border-t border-l border-r -mb-px font-medium'
+                : 'text-cloistr-text-muted hover:text-cloistr-text hover:bg-cloistr-bg-hover'
             }`}
           >
             {f}
@@ -80,11 +80,11 @@ export default function InboxPage() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search emails..."
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="flex-1 px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary"
           />
           <button
             type="submit"
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+            className="px-4 py-2 bg-cloistr-bg-elevated text-cloistr-text rounded-lg hover:bg-cloistr-bg-hover transition"
           >
             Search
           </button>
@@ -95,7 +95,7 @@ export default function InboxPage() {
                 setSearchInput('')
                 setSearchParams({ folder, page: '1' })
               }}
-              className="px-4 py-2 text-gray-500 hover:text-gray-700"
+              className="px-4 py-2 text-cloistr-text-muted hover:text-cloistr-text"
             >
               Clear
             </button>
@@ -105,11 +105,11 @@ export default function InboxPage() {
 
       {/* Loading state */}
       {isLoading && (
-        <div className="bg-white rounded-lg shadow">
+        <div className="bg-cloistr-bg rounded-lg shadow">
           {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="px-6 py-4 border-b animate-pulse">
-              <div className="h-5 bg-gray-200 rounded w-1/3 mb-2"></div>
-              <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+              <div className="h-5 bg-cloistr-bg-hover rounded w-1/3 mb-2"></div>
+              <div className="h-4 bg-cloistr-bg-hover rounded w-1/4"></div>
             </div>
           ))}
         </div>
@@ -117,14 +117,14 @@ export default function InboxPage() {
 
       {/* Error state */}
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 rounded-lg p-4">
+        <div className="bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg p-4">
           Error loading emails. Please try again.
         </div>
       )}
 
       {/* Empty state */}
       {!isLoading && !error && emails.length === 0 && (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-cloistr-text-muted">
           <div className="text-5xl mb-4">📭</div>
           <p className="text-lg">
             {search ? 'No emails match your search' : `No emails in ${folder}`}
@@ -134,13 +134,13 @@ export default function InboxPage() {
 
       {/* Email list */}
       {!isLoading && emails.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
+        <div className="bg-cloistr-bg rounded-lg shadow">
           {emails.map((email: Email) => (
             <Link
               key={email.id}
               to={`/emails/${email.id}`}
-              className={`block px-6 py-4 border-b hover:bg-gray-50 transition ${
-                !email.read_at ? 'bg-blue-50' : ''
+              className={`block px-6 py-4 border-b hover:bg-cloistr-bg-hover transition ${
+                !email.read_at ? 'bg-cloistr-info/10' : ''
               }`}
             >
               <div className="flex justify-between items-start gap-4">
@@ -149,27 +149,27 @@ export default function InboxPage() {
                     <h3
                       className={`truncate ${
                         !email.read_at ? 'font-semibold' : 'font-medium'
-                      } text-gray-900`}
+                      } text-cloistr-text`}
                     >
                       {email.subject || '(No subject)'}
                     </h3>
                     {email.is_encrypted && (
-                      <span className="flex-shrink-0 text-green-600" title="Encrypted">
+                      <span className="flex-shrink-0 text-cloistr-success" title="Encrypted">
                         🔒
                       </span>
                     )}
                     {email.nostr_verified && (
-                      <span className="flex-shrink-0 text-blue-600" title="Verified sender (Nostr signature)">
+                      <span className="flex-shrink-0 text-cloistr-info" title="Verified sender (Nostr signature)">
                         ✓
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-600 truncate">
+                  <p className="text-sm text-cloistr-text-muted truncate">
                     {folder === 'sent' ? `To: ${email.to}` : email.from}
                   </p>
                 </div>
                 <div className="flex-shrink-0 text-right">
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-cloistr-text-muted">
                     {formatDate(email.created_at)}
                   </span>
                 </div>
@@ -185,17 +185,17 @@ export default function InboxPage() {
           <button
             onClick={() => setPage(page - 1)}
             disabled={page === 1}
-            className="px-3 py-1 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1 rounded border border-cloistr-border hover:bg-cloistr-bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Previous
           </button>
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-cloistr-text-muted">
             Page {page} of {totalPages}
           </span>
           <button
             onClick={() => setPage(page + 1)}
             disabled={page === totalPages}
-            className="px-3 py-1 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1 rounded border border-cloistr-border hover:bg-cloistr-bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next
           </button>
@@ -204,7 +204,7 @@ export default function InboxPage() {
 
       {/* Total count */}
       {total > 0 && (
-        <div className="mt-2 text-center text-sm text-gray-500">
+        <div className="mt-2 text-center text-sm text-cloistr-text-muted">
           {total} email{total !== 1 ? 's' : ''}
         </div>
       )}

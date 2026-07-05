@@ -74,10 +74,10 @@ export default function EmailPage() {
     return (
       <div className="p-6">
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="h-32 bg-gray-200 rounded"></div>
+          <div className="h-8 bg-cloistr-bg-hover rounded w-1/3 mb-4"></div>
+          <div className="h-4 bg-cloistr-bg-hover rounded w-1/4 mb-2"></div>
+          <div className="h-4 bg-cloistr-bg-hover rounded w-1/4 mb-4"></div>
+          <div className="h-32 bg-cloistr-bg-hover rounded"></div>
         </div>
       </div>
     )
@@ -86,12 +86,12 @@ export default function EmailPage() {
   if (error || !email) {
     return (
       <div className="p-6">
-        <div className="bg-red-100 border border-red-400 text-red-700 rounded-lg p-4">
+        <div className="bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg p-4">
           Email not found
         </div>
         <button
           onClick={() => navigate('/inbox')}
-          className="mt-4 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+          className="mt-4 px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover"
         >
           Back to Inbox
         </button>
@@ -108,12 +108,12 @@ export default function EmailPage() {
     <div className="p-6">
       <button
         onClick={() => navigate('/inbox')}
-        className="mb-6 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+        className="mb-6 px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover transition"
       >
         ← Back to Inbox
       </button>
 
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-cloistr-bg rounded-lg shadow p-6">
         {/* Subject */}
         <h1 className="text-2xl font-bold mb-4">{email.subject}</h1>
 
@@ -121,24 +121,24 @@ export default function EmailPage() {
         <div className="border-b pb-4 mb-4">
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
-              <span className="text-gray-500">From:</span>{' '}
+              <span className="text-cloistr-text-muted">From:</span>{' '}
               <span className="font-medium">{email.from}</span>
             </div>
             <div>
-              <span className="text-gray-500">Date:</span>{' '}
+              <span className="text-cloistr-text-muted">Date:</span>{' '}
               <span className="font-medium">
                 {new Date(email.created_at).toLocaleString()}
               </span>
             </div>
             <div>
-              <span className="text-gray-500">To:</span>{' '}
+              <span className="text-cloistr-text-muted">To:</span>{' '}
               <span className="font-medium">
                 {Array.isArray(email.to) ? email.to.join(', ') : email.to}
               </span>
             </div>
             {email.read_at && (
               <div>
-                <span className="text-gray-500">Read:</span>{' '}
+                <span className="text-cloistr-text-muted">Read:</span>{' '}
                 <span className="font-medium">
                   {new Date(email.read_at).toLocaleString()}
                 </span>
@@ -152,10 +152,10 @@ export default function EmailPage() {
               <span
                 className={`inline-flex items-center px-3 py-1 rounded-full text-sm ${
                   decryptedBody
-                    ? 'bg-green-100 text-green-800'
+                    ? 'bg-cloistr-success/10 text-cloistr-success'
                     : needsDecryption
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-green-100 text-green-800'
+                    ? 'bg-cloistr-warning/10 text-cloistr-warning'
+                    : 'bg-cloistr-success/10 text-cloistr-success'
                 }`}
               >
                 {decryptedBody
@@ -166,12 +166,12 @@ export default function EmailPage() {
               </span>
             )}
             {email.nostr_verified && (
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-cloistr-info/10 text-cloistr-info">
                 ✓ Verified sender
               </span>
             )}
             {email.encryption_mode && (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-cloistr-text-muted">
                 {email.encryption_mode === 'client'
                   ? 'Client-side (NIP-07)'
                   : email.encryption_mode === 'server'
@@ -183,7 +183,7 @@ export default function EmailPage() {
 
           {/* Sender pubkey info */}
           {email.sender_pubkey && (
-            <div className="mt-2 text-xs text-gray-500">
+            <div className="mt-2 text-xs text-cloistr-text-muted">
               Sender pubkey: {truncatePubkey(email.sender_pubkey)}
             </div>
           )}
@@ -191,17 +191,17 @@ export default function EmailPage() {
 
         {/* Decryption prompt for client-encrypted emails */}
         {needsDecryption && (
-          <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <h3 className="font-medium text-amber-800 mb-2">
+          <div className="mb-4 p-4 bg-cloistr-warning/5 border border-cloistr-warning/20 rounded-lg">
+            <h3 className="font-medium text-cloistr-warning mb-2">
               This message is encrypted
             </h3>
-            <p className="text-sm text-amber-700 mb-3">
+            <p className="text-sm text-cloistr-warning mb-3">
               This email was encrypted using client-side encryption. Click the button
               below to decrypt it using your browser extension.
             </p>
 
             {decryptError && (
-              <div className="mb-3 p-3 bg-red-100 border border-red-300 text-red-700 rounded text-sm">
+              <div className="mb-3 p-3 bg-cloistr-error/10 border border-cloistr-error/30 text-cloistr-error rounded text-sm">
                 {decryptError}
               </div>
             )}
@@ -209,7 +209,7 @@ export default function EmailPage() {
             <button
               onClick={handleDecrypt}
               disabled={!canDecrypt || isDecrypting}
-              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              className="px-4 py-2 bg-cloistr-warning text-white rounded-lg hover:bg-cloistr-warning-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
               {isDecrypting
                 ? 'Decrypting...'
@@ -221,7 +221,7 @@ export default function EmailPage() {
             </button>
 
             {!hasExtension && (
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-cloistr-text-muted">
                 Install a NIP-07 browser extension (nos2x, Alby, etc.) to decrypt
               </p>
             )}
@@ -231,15 +231,15 @@ export default function EmailPage() {
         {/* Email body */}
         <div className="mb-6">
           {displayBody ? (
-            <div className="prose max-w-none whitespace-pre-wrap font-mono text-sm bg-gray-50 p-4 rounded-lg">
+            <div className="prose max-w-none whitespace-pre-wrap font-mono text-sm bg-cloistr-bg-elevated p-4 rounded-lg">
               {displayBody}
             </div>
           ) : needsDecryption ? (
-            <div className="text-gray-400 italic p-4 bg-gray-50 rounded-lg">
+            <div className="text-cloistr-text-dim italic p-4 bg-cloistr-bg-elevated rounded-lg">
               [Encrypted content - click decrypt to view]
             </div>
           ) : (
-            <div className="text-gray-400 italic p-4 bg-gray-50 rounded-lg">
+            <div className="text-cloistr-text-dim italic p-4 bg-cloistr-bg-elevated rounded-lg">
               [No message body]
             </div>
           )}
@@ -248,7 +248,7 @@ export default function EmailPage() {
         {/* HTML body toggle (if available) */}
         {email.html_body && !email.is_encrypted && (
           <details className="mb-6">
-            <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+            <summary className="cursor-pointer text-sm text-cloistr-primary hover:text-cloistr-primary-hover">
               View HTML version
             </summary>
             <div
@@ -262,20 +262,20 @@ export default function EmailPage() {
         <div className="flex items-center gap-3 pt-4 border-t">
           <button
             onClick={() => navigate(`/compose?reply=${id}`)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="px-4 py-2 bg-cloistr-primary text-white rounded-lg hover:bg-cloistr-primary-hover transition"
           >
             Reply
           </button>
           <button
             onClick={() => navigate(`/compose?forward=${id}`)}
-            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            className="px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover transition"
           >
             Forward
           </button>
           <button
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
-            className="px-4 py-2 text-red-600 border border-red-300 rounded-lg hover:bg-red-50 disabled:opacity-50 transition"
+            className="px-4 py-2 text-cloistr-error border border-cloistr-error/30 rounded-lg hover:bg-cloistr-error/5 disabled:opacity-50 transition"
           >
             {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
           </button>

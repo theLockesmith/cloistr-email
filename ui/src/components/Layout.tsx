@@ -6,7 +6,7 @@ export default function Layout() {
   const { isAuthenticated, user, logout } = useBackendAuth()
   const navigate = useNavigate()
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-cloistr-bg-elevated">
       <Sidebar />
       <div className="flex-1 flex flex-col">
         <Header
