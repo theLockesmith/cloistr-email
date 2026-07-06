@@ -162,9 +162,9 @@ func TestRateLimiterStats(t *testing.T) {
 	defer rl.Stop()
 
 	// Make some connections
-	rl.AllowConnection("192.168.1.1")
-	rl.AllowConnection("192.168.1.2")
-	rl.AllowMessage("192.168.1.1", 1)
+	_ = rl.AllowConnection("192.168.1.1")
+	_ = rl.AllowConnection("192.168.1.2")
+	_ = rl.AllowMessage("192.168.1.1", 1)
 
 	stats := rl.Stats()
 	assert.GreaterOrEqual(t, stats.TrackedIPs, 2)
