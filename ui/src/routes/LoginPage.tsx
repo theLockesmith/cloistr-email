@@ -71,7 +71,7 @@ export default function LoginPage() {
           <div className="flex justify-center mb-4">
             <img src="/cloistr-logo.svg" alt="Cloistr" className="h-12" />
           </div>
-          <h1 className="text-3xl font-bold text-center mb-2">Cloistr Mail</h1>
+          <h1 className="text-3xl font-bold text-center mb-2 text-cloistr-text">Cloistr Mail</h1>
           <p className="text-cloistr-text-muted text-center mb-8">
             Secure email with Nostr identity
           </p>
@@ -89,7 +89,7 @@ export default function LoginPage() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-lg">Browser Extension</h3>
+                  <h3 className="font-semibold text-lg text-cloistr-text">Browser Extension</h3>
                   <p className="text-sm text-cloistr-text-muted">
                     {hasExtension
                       ? 'Use nos2x, Alby, or another NIP-07 extension'
@@ -113,7 +113,7 @@ export default function LoginPage() {
               className="w-full p-4 border-2 border-cloistr-border rounded-lg text-left hover:bg-cloistr-bg-hover transition"
             >
               <div>
-                <h3 className="font-semibold text-lg">nsecBunker</h3>
+                <h3 className="font-semibold text-lg text-cloistr-text">nsecBunker</h3>
                 <p className="text-sm text-cloistr-text-muted">
                   Connect to a remote signer for enhanced security
                 </p>
@@ -144,7 +144,7 @@ export default function LoginPage() {
             ← Back
           </button>
 
-          <h1 className="text-2xl font-bold mb-2">Browser Extension Login</h1>
+          <h1 className="text-2xl font-bold mb-2 text-cloistr-text">Browser Extension Login</h1>
           <p className="text-cloistr-text-muted mb-6">
             Click the button below to sign in. Your extension will prompt you to approve.
           </p>
@@ -164,7 +164,7 @@ export default function LoginPage() {
           </button>
 
           <div className="mt-6 p-4 bg-cloistr-bg-elevated rounded-lg">
-            <h4 className="font-medium text-sm mb-2">What happens:</h4>
+            <h4 className="font-medium text-sm mb-2 text-cloistr-text">What happens:</h4>
             <ul className="text-sm text-cloistr-text-muted space-y-1">
               <li>1. Your extension will request access to your public key</li>
               <li>2. You'll be asked to sign a login message</li>
@@ -190,7 +190,7 @@ export default function LoginPage() {
           ← Back
         </button>
 
-        <h1 className="text-2xl font-bold mb-2">nsecBunker Login</h1>
+        <h1 className="text-2xl font-bold mb-2 text-cloistr-text">nsecBunker Login</h1>
         <p className="text-cloistr-text-muted mb-6">
           Enter your bunker connection URL to sign in securely.
         </p>
@@ -226,7 +226,7 @@ export default function LoginPage() {
         </button>
 
         <div className="mt-6 p-4 bg-cloistr-bg-elevated rounded-lg">
-          <h4 className="font-medium text-sm mb-2">Benefits of nsecBunker:</h4>
+          <h4 className="font-medium text-sm mb-2 text-cloistr-text">Benefits of nsecBunker:</h4>
           <ul className="text-sm text-cloistr-text-muted space-y-1">
             <li>• Your private key stays on the bunker device</li>
             <li>• Server can encrypt/decrypt emails on your behalf</li>
