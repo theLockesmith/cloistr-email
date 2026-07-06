@@ -14,6 +14,10 @@ export default function Layout() {
           auth={{
             authenticated: isAuthenticated(),
             pubkey: user?.pubkey,
+            // Provide onSignIn so the Header renders a Sign In button (navigates to
+            // the login route) when signed out — without it the Header suppresses
+            // the button for backend-auth apps.
+            onSignIn: () => navigate('/login'),
             onLogout: () => {
               logout()
               navigate('/login')
