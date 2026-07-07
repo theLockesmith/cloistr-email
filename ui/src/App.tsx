@@ -7,10 +7,15 @@ import EmailPage from './routes/EmailPage'
 import ContactsPage from './routes/ContactsPage'
 import SettingsPage from './routes/SettingsPage'
 import Layout from './components/Layout'
+import { useSignerBunkerBootstrap } from './hooks/useSignerBunkerBootstrap'
 
 function App() {
   const { isAuthenticated, loading } = useBackendAuth()
   const authed = isAuthenticated()
+
+  // Bootstrap signer↔mail NIP-46 connection for signer-session users.
+  // Runs once after auth is confirmed; no-ops for bunker/NIP-07 users.
+  useSignerBunkerBootstrap(authed)
 
   if (loading) {
     return (

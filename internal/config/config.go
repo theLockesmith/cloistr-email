@@ -58,6 +58,12 @@ type Config struct {
 	// Empty = disabled (skip signer fallback in ValidateSession).
 	SignerURL string
 
+	// NostrConnectRelay is the relay used for the signer-as-bunker bootstrap
+	// (Option D).  The server posts a nostrconnect:// URI to the signer, the
+	// signer publishes a kind-24133 ACK, and the server upgrades the session
+	// to a live bunker connection.  Defaults to wss://relay.cloistr.xyz.
+	NostrConnectRelay string
+
 	// Logging
 	LogLevel string
 
@@ -116,6 +122,9 @@ func Load() (*Config, error) {
 
 		// Unified-auth signer URL (empty = disabled)
 		SignerURL: getEnv("MAIL_SIGNER_URL", "http://cloistr-signer.cloistr.svc.cluster.local:7777"),
+
+		// NostrConnect relay for signer-as-bunker bootstrap (Option D)
+		NostrConnectRelay: getEnv("MAIL_NOSTRCONNECT_RELAY", "wss://relay.cloistr.xyz"),
 
 		// Logging
 		LogLevel: getEnv("LOG_LEVEL", "info"),

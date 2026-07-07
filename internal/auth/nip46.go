@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/metrics"
 	"github.com/google/uuid"
 	"github.com/nbd-wtf/go-nostr"
@@ -46,6 +47,11 @@ type NIP46Handler struct {
 	httpClient   *http.Client
 	sessionMu    sync.RWMutex
 	sessionCache map[string]signerSessionEntry
+
+	// nostrConnectRelay is used for the signer-as-bunker bootstrap (Option D).
+	// InitiateNostrConnect posts a nostrconnect:// URI to this relay and waits
+	// for the signer to publish a kind-24133 ACK.
+	nostrConnectRelay string
 }
 
 // SessionStore interface for managing sessions
@@ -148,6 +154,13 @@ func NewNIP46Handler(
 // Setting an empty string disables the fallback (default behaviour).
 func (h *NIP46Handler) WithSignerURL(signerURL string) {
 	h.signerURL = signerURL
+}
+
+// WithNostrConnectRelay sets the relay used for the Option D signer-as-bunker
+// bootstrap.  Must be called before InitiateNostrConnect is used; safe to call
+// from main after construction.
+func (h *NIP46Handler) WithNostrConnectRelay(relayURL string) {
+	h.nostrConnectRelay = relayURL
 }
 
 // ParseBunkerURL parses a bunker:// URL
@@ -709,7 +722,7 @@ func (h *NIP46Handler) SignEvent(ctx context.Context, userPubkey string, event *
 	h.mu.RUnlock()
 
 	if !ok || !conn.Connected {
-		return fmt.Errorf("no active bunker connection for user")
+		return encryption.ErrNoSignerConnection
 	}
 
 	// Connect to relay
@@ -821,7 +834,7 @@ func (h *NIP46Handler) EncryptContent(ctx context.Context, userPubkey string, re
 	h.mu.RUnlock()
 
 	if !ok || !conn.Connected {
-		return "", fmt.Errorf("no active bunker connection for user")
+		return "", encryption.ErrNoSignerConnection
 	}
 
 	relay, err := nostr.RelayConnect(ctx, conn.RelayURL)
@@ -904,7 +917,7 @@ func (h *NIP46Handler) DecryptContent(ctx context.Context, userPubkey string, se
 	h.mu.RUnlock()
 
 	if !ok || !conn.Connected {
-		return "", fmt.Errorf("no active bunker connection for user")
+		return "", encryption.ErrNoSignerConnection
 	}
 
 	relay, err := nostr.RelayConnect(ctx, conn.RelayURL)
@@ -994,6 +1007,209 @@ func (h *NIP46Handler) Logout(ctx context.Context, sessionID string) error {
 	}
 
 	return h.sessionStore.DeleteSession(ctx, sessionID)
+}
+
+// HasBunkerConnection reports whether the user has a live, connected bunker
+// session.  Thread-safe; safe to call from any goroutine.
+func (h *NIP46Handler) HasBunkerConnection(userPubkey string) bool {
+	h.mu.RLock()
+	conn := h.connections[userPubkey]
+	h.mu.RUnlock()
+	return conn != nil && conn.Connected
+}
+
+// InitiateNostrConnect creates an ephemeral keypair, builds a nostrconnect://
+// URI, persists the bootstrap state in Redis (TTL 90s), and starts a
+// background goroutine that listens on the relay for the signer's ACK.
+//
+// Crypto flow:
+//   - clientPrivKey is a fresh random secp256k1 scalar (nostr.GeneratePrivateKey)
+//   - The signer ACK is a kind-24133 event signed by userPubkey and p-tagged to
+//     clientPubkey.  Its content is NIP-44 encrypted using the conversation key
+//     derived as: nip44.GenerateConversationKey(userPubkey, clientPrivKey)
+//     i.e. ECDH(clientPrivKey * G_userPubkey) — our private key against the
+//     user's public key.
+//   - NIP-04 is tried as a fallback if NIP-44 decryption fails (same pattern as
+//     handleConnectResponse).
+//   - The JSON-RPC result field is accepted when it equals the secret or is
+//     "ack"/"pong" (mirrors the acceptance logic in handleConnectResponse).
+//
+// Returns (uri, nonce, nil) immediately; the goroutine completes asynchronously.
+func (h *NIP46Handler) InitiateNostrConnect(ctx context.Context, userPubkey, relayURL, appName string) (uri string, nonce string, err error) {
+	h.logger.Debug("InitiateNostrConnect",
+		zap.String("user_pubkey", userPubkey[:min(16, len(userPubkey))]+"..."),
+		zap.String("relay_url", relayURL))
+
+	// Generate ephemeral keypair for this bootstrap attempt.
+	clientPrivKey := generatePrivateKey()
+	clientPubkey, err := nostr.GetPublicKey(clientPrivKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to derive client public key: %w", err)
+	}
+
+	// Generate random secret (carried in the URI, echoed back in the ACK).
+	secret := generateRandomHex(16)
+
+	// Generate single-use nonce that keys the Redis bootstrap state.
+	nonce = generateRandomHex(16)
+
+	// Build the nostrconnect:// URI.
+	uri = "nostrconnect://" + clientPubkey +
+		"?relay=" + url.QueryEscape(relayURL) +
+		"&secret=" + secret +
+		"&name=" + url.QueryEscape(appName)
+
+	// Persist bootstrap state under key "nc:<nonce>" with a 90s TTL.
+	// We reuse ChallengeData: BunkerPubkey carries userPubkey (the signer
+	// signs as the user's key), Challenge carries the secret.
+	bootstrapData := &ChallengeData{
+		Challenge:        secret,
+		BunkerPubkey:     userPubkey,
+		RelayURL:         relayURL,
+		ClientPrivateKey: clientPrivKey,
+		CreatedAt:        time.Now().Unix(),
+	}
+	if err := h.sessionStore.SetNIP46Challenge(ctx, "nc:"+nonce, bootstrapData, 90*time.Second); err != nil {
+		return "", "", fmt.Errorf("failed to persist nostrconnect bootstrap state: %w", err)
+	}
+
+	// Launch background goroutine — NOT tied to the request context.
+	bgCtx, bgCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	go func() {
+		defer bgCancel()
+		h.awaitNostrConnectACK(bgCtx, nonce, userPubkey, relayURL, clientPrivKey, clientPubkey, secret)
+	}()
+
+	return uri, nonce, nil
+}
+
+// awaitNostrConnectACK is the background goroutine body for InitiateNostrConnect.
+// It connects to the relay, subscribes for the signer's ACK event, validates it,
+// and on success writes the connection into h.connections.
+func (h *NIP46Handler) awaitNostrConnectACK(
+	ctx context.Context,
+	nonce, userPubkey, relayURL, clientPrivKey, clientPubkey, secret string,
+) {
+	logger := h.logger.With(
+		zap.String("user_pubkey", userPubkey[:min(16, len(userPubkey))]+"..."),
+		zap.String("nonce", nonce),
+	)
+
+	relay, err := nostr.RelayConnect(ctx, relayURL)
+	if err != nil {
+		logger.Warn("nostrconnect: failed to connect to relay", zap.Error(err))
+		h.cleanupBootstrapState(nonce)
+		return
+	}
+	defer func() { _ = relay.Close() }()
+
+	now := nostr.Timestamp(time.Now().Unix())
+	sub, err := relay.Subscribe(ctx, nostr.Filters{
+		{
+			Kinds:   []int{24133},
+			Authors: []string{userPubkey},
+			Tags:    nostr.TagMap{"p": []string{clientPubkey}},
+			Since:   &now,
+		},
+	})
+	if err != nil {
+		logger.Warn("nostrconnect: failed to subscribe", zap.Error(err))
+		h.cleanupBootstrapState(nonce)
+		return
+	}
+	defer sub.Unsub()
+
+	// NIP-44 conversation key: our clientPrivKey against the user's public key.
+	// nip44.GenerateConversationKey(pub, sk) — pubkey first, privkey second.
+	conversationKey, err := nip44.GenerateConversationKey(userPubkey, clientPrivKey)
+	if err != nil {
+		logger.Warn("nostrconnect: failed to generate conversation key", zap.Error(err))
+		h.cleanupBootstrapState(nonce)
+		return
+	}
+
+	for {
+		select {
+		case ev, ok := <-sub.Events:
+			if !ok {
+				logger.Warn("nostrconnect: subscription closed before ACK")
+				h.cleanupBootstrapState(nonce)
+				return
+			}
+
+			// Verify the event signature.
+			sigOK, sigErr := ev.CheckSignature()
+			if sigErr != nil || !sigOK {
+				logger.Warn("nostrconnect: event has invalid signature, skipping")
+				continue
+			}
+
+			// Decrypt with NIP-44, fall back to NIP-04 (mirrors handleConnectResponse).
+			decrypted, decErr := nip44.Decrypt(ev.Content, conversationKey)
+			if decErr != nil {
+				sharedSecret, ssErr := nip04.ComputeSharedSecret(clientPrivKey, userPubkey)
+				if ssErr != nil {
+					logger.Warn("nostrconnect: failed to compute NIP-04 shared secret, skipping event")
+					continue
+				}
+				decrypted, decErr = nip04.Decrypt(ev.Content, sharedSecret)
+				if decErr != nil {
+					logger.Warn("nostrconnect: failed to decrypt event content, skipping")
+					continue
+				}
+			}
+
+			var response NIP46Response
+			if jsonErr := json.Unmarshal([]byte(decrypted), &response); jsonErr != nil {
+				logger.Warn("nostrconnect: failed to parse JSON-RPC response, skipping")
+				continue
+			}
+
+			// Accept as ACK when: result equals our secret, or "ack", or "pong".
+			// (Mirrors handleConnectResponse acceptance logic.)
+			result := response.Result
+			if result != secret && result != "ack" && result != "pong" {
+				if response.Error != "" {
+					logger.Warn("nostrconnect: signer returned error", zap.String("error", response.Error))
+				} else {
+					logger.Warn("nostrconnect: unexpected result, not an ACK", zap.String("result", result))
+				}
+				continue
+			}
+
+			// Success — register the connection.
+			h.mu.Lock()
+			h.connections[userPubkey] = &BunkerConnection{
+				// BunkerPubkey == userPubkey: the signer signs as the user's key.
+				BunkerPubkey:     userPubkey,
+				UserPubkey:       userPubkey,
+				RelayURL:         relayURL,
+				ClientPrivateKey: clientPrivKey,
+				Connected:        true,
+				LastActivity:     time.Now(),
+			}
+			h.mu.Unlock()
+
+			h.cleanupBootstrapState(nonce)
+			logger.Info("nostrconnect: bunker connection established via signer ACK")
+			return
+
+		case <-ctx.Done():
+			logger.Warn("nostrconnect: timed out waiting for signer ACK")
+			h.cleanupBootstrapState(nonce)
+			return
+		}
+	}
+}
+
+// cleanupBootstrapState removes the Redis nostrconnect bootstrap key.
+// Errors are logged and swallowed — the key has a TTL so it will expire anyway.
+func (h *NIP46Handler) cleanupBootstrapState(nonce string) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := h.sessionStore.DeleteNIP46Challenge(cleanupCtx, "nc:"+nonce); err != nil {
+		h.logger.Debug("nostrconnect: failed to clean up bootstrap state", zap.Error(err))
+	}
 }
 
 // Helper functions

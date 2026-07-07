@@ -80,6 +80,11 @@ func main() {
 		authHandler.WithSignerURL(cfg.SignerURL)
 		logger.Info("Signer session fallback enabled", zap.String("signer_url", cfg.SignerURL))
 	}
+	// Option D: signer-as-bunker bootstrap relay.
+	if cfg.NostrConnectRelay != "" {
+		authHandler.WithNostrConnectRelay(cfg.NostrConnectRelay)
+		logger.Info("NostrConnect relay configured", zap.String("relay", cfg.NostrConnectRelay))
+	}
 
 	// Initialize relay preferences client (cloistr-common integration)
 	relayClient := relays.NewClient(logger)
@@ -258,6 +263,12 @@ func main() {
 	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
 	emailV2Routes.HandleFunc("/{id}/attachments/{attachmentId}", emailHandler.GetAttachmentV2).Methods("GET")
+
+	// API v2 auth routes — Option D signer-as-bunker bootstrap + NIP-46 status
+	authV2Routes := v2.PathPrefix("/auth").Subrouter()
+	authV2Routes.Use(apiHandler.AuthMiddleware)
+	authV2Routes.HandleFunc("/nostrconnect/init", apiHandler.InitNostrConnect).Methods("POST")
+	authV2Routes.HandleFunc("/nip46/status", apiHandler.NIP46Status).Methods("GET")
 
 	// Middleware
 	router.Use(loggingMiddleware(logger))

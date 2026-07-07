@@ -5,6 +5,7 @@ package email
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -407,9 +408,17 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 			Mode:            encryption.ModeServerSide,
 		})
 		if err != nil {
-			s.logger.Warn("Server-side decryption failed",
-				zap.String("email_id", emailID),
-				zap.Error(err))
+			// When there's no live bunker session (expected for users whose
+			// signer-as-bunker handshake hasn't completed yet), fall back to
+			// client-side decryption gracefully rather than logging a warning.
+			if errors.Is(err, encryption.ErrNoSignerConnection) {
+				s.logger.Debug("No bunker connection — returning ciphertext for client decryption",
+					zap.String("email_id", emailID))
+			} else {
+				s.logger.Warn("Server-side decryption failed",
+					zap.String("email_id", emailID),
+					zap.Error(err))
+			}
 			result.RequiresClientDecryption = true
 			result.EncryptedBody = email.Body
 		} else if decryptResult.RequiresClientDecryption {

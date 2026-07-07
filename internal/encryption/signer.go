@@ -313,4 +313,10 @@ var (
 
 	// ErrSignerCannotDecrypt is returned when the signer can't decrypt
 	ErrSignerCannotDecrypt = errors.New("signer cannot perform decryption - message may require original encryption method")
+
+	// ErrNoSignerConnection is returned when the user has no live NIP-46 bunker
+	// session.  Callers (e.g. email.Service.GetEmail) can check for this
+	// specifically with errors.Is to fall back to client-side decryption instead
+	// of propagating a hard error.
+	ErrNoSignerConnection = errors.New("no active bunker connection for user")
 )

@@ -206,23 +206,27 @@ export default function EmailPage() {
               </div>
             )}
 
-            <button
-              onClick={handleDecrypt}
-              disabled={!canDecrypt || isDecrypting}
-              className="px-4 py-2 bg-cloistr-warning text-white rounded-lg hover:bg-cloistr-warning-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              {isDecrypting
-                ? 'Decrypting...'
-                : !hasExtension
-                ? 'Extension required'
-                : !hasNip44
-                ? 'NIP-44 not supported'
-                : 'Decrypt Message'}
-            </button>
+            {hasExtension ? (
+              <button
+                onClick={handleDecrypt}
+                disabled={!canDecrypt || isDecrypting}
+                className="px-4 py-2 bg-cloistr-warning text-white rounded-lg hover:bg-cloistr-warning-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {isDecrypting
+                  ? 'Decrypting...'
+                  : !hasNip44
+                  ? 'NIP-44 not supported'
+                  : 'Decrypt Message'}
+              </button>
+            ) : (
+              <p className="text-sm text-cloistr-text-muted italic">
+                Connecting your signer to decrypt&hellip;
+              </p>
+            )}
 
-            {!hasExtension && (
+            {hasExtension && !hasNip44 && (
               <p className="mt-2 text-xs text-cloistr-text-muted">
-                Install a NIP-07 browser extension (nos2x, Alby, etc.) to decrypt
+                Your extension does not support NIP-44 decryption
               </p>
             )}
           </div>
