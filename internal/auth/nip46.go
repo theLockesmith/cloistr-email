@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -18,6 +19,12 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip44"
 	"go.uber.org/zap"
 )
+
+// signerSessionEntry caches a signer-session token → pubkey resolution.
+type signerSessionEntry struct {
+	pubkey  string
+	expires time.Time
+}
 
 // NIP46Handler manages NIP-46 authentication with nsecbunker
 type NIP46Handler struct {
@@ -32,6 +39,13 @@ type NIP46Handler struct {
 	// Active connections to bunkers
 	mu          sync.RWMutex
 	connections map[string]*BunkerConnection
+
+	// Unified-auth: validate tokens against the Cloistr signer service.
+	// Empty signerURL disables the fallback branch entirely.
+	signerURL    string
+	httpClient   *http.Client
+	sessionMu    sync.RWMutex
+	sessionCache map[string]signerSessionEntry
 }
 
 // SessionStore interface for managing sessions
@@ -123,7 +137,17 @@ func NewNIP46Handler(
 		clientPrivateKey: clientPrivateKey,
 		clientPublicKey:  clientPubkey,
 		connections:      make(map[string]*BunkerConnection),
+		httpClient:       &http.Client{Timeout: 5 * time.Second},
+		sessionCache:     make(map[string]signerSessionEntry),
 	}, nil
+}
+
+// WithSignerURL configures the handler to fall back to the Cloistr signer
+// service when a Redis session lookup misses.  Must be called before the
+// handler is used; it is safe to call from main after construction.
+// Setting an empty string disables the fallback (default behaviour).
+func (h *NIP46Handler) WithSignerURL(signerURL string) {
+	h.signerURL = signerURL
 }
 
 // ParseBunkerURL parses a bunker:// URL
@@ -562,7 +586,13 @@ func (h *NIP46Handler) VerifyAuthSignature(ctx context.Context, challengeID stri
 	return session, nil
 }
 
-// ValidateSession validates an existing session token
+// ValidateSession validates an existing session token.
+//
+// Primary path: Redis lookup (NIP-46 bunker and NIP-07 client-side sessions).
+// Fallback path: when the Redis lookup misses AND signerURL is configured,
+// the token is validated against the Cloistr signer /api/v1/users/me endpoint.
+// A transient in-memory-cached Session is returned; it is never persisted to
+// Redis so the existing write paths are untouched.
 func (h *NIP46Handler) ValidateSession(ctx context.Context, token string) (*Session, error) {
 	h.logger.Debug("Validating session token")
 
@@ -571,6 +601,10 @@ func (h *NIP46Handler) ValidateSession(ctx context.Context, token string) (*Sess
 		return nil, fmt.Errorf("session lookup failed: %w", err)
 	}
 	if session == nil {
+		// Redis miss — try the signer fallback if configured.
+		if s := h.validateSignerSession(ctx, token); s != nil {
+			return s, nil
+		}
 		return nil, fmt.Errorf("invalid session token")
 	}
 
@@ -582,6 +616,87 @@ func (h *NIP46Handler) ValidateSession(ctx context.Context, token string) (*Sess
 	}
 
 	return session, nil
+}
+
+// validateSignerSession forwards the token to the Cloistr signer service and,
+// on success, returns a transient Session (not stored in Redis).  Results are
+// cached in-memory for 2 minutes to avoid hammering the signer on every request.
+// Returns nil when signerURL is empty or the signer rejects the token.
+func (h *NIP46Handler) validateSignerSession(ctx context.Context, token string) *Session {
+	if h.signerURL == "" || token == "" {
+		return nil
+	}
+
+	cacheKey := token
+
+	// Fast path: in-memory cache hit.
+	h.sessionMu.RLock()
+	if e, ok := h.sessionCache[cacheKey]; ok && time.Now().Before(e.expires) {
+		h.sessionMu.RUnlock()
+		now := time.Now()
+		return &Session{
+			UserID:    e.pubkey,
+			Token:     token,
+			ExpiresAt: e.expires,
+			CreatedAt: now,
+		}
+	}
+	h.sessionMu.RUnlock()
+
+	// Call GET <signerURL>/api/v1/users/me with the token forwarded as both
+	// an auth_token cookie and an Authorization: Bearer header.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.signerURL+"/api/v1/users/me", nil)
+	if err != nil {
+		h.logger.Warn("signer session: failed to build request", zap.Error(err))
+		return nil
+	}
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		h.logger.Warn("signer session: request failed", zap.Error(err))
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var body struct {
+		Pubkey string `json:"pubkey"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body.Pubkey == "" {
+		h.logger.Warn("signer session: invalid response body", zap.Error(err))
+		return nil
+	}
+
+	now := time.Now()
+	expiry := now.Add(15 * time.Minute)
+
+	// Populate in-memory cache.
+	h.sessionMu.Lock()
+	h.sessionCache[cacheKey] = signerSessionEntry{pubkey: body.Pubkey, expires: now.Add(2 * time.Minute)}
+	h.sessionMu.Unlock()
+
+	h.logger.Debug("signer session validated", zap.String("pubkey", body.Pubkey[:min(16, len(body.Pubkey))]+"..."))
+
+	return &Session{
+		UserID:    body.Pubkey,
+		Token:     token,
+		ExpiresAt: expiry,
+		CreatedAt: now,
+	}
+}
+
+// min returns the smaller of a and b (Go 1.21+ has this built-in; kept local
+// for compatibility with Go 1.20 and earlier toolchains that may be in CI).
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // SignEvent signs a Nostr event using NIP-46 remote signing

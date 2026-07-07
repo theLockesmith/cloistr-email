@@ -74,6 +74,12 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to initialize auth handler", zap.Error(err))
 	}
+	// Unified-auth slice 3: fall back to signer session validation when Redis
+	// misses (empty SignerURL disables the branch).
+	if cfg.SignerURL != "" {
+		authHandler.WithSignerURL(cfg.SignerURL)
+		logger.Info("Signer session fallback enabled", zap.String("signer_url", cfg.SignerURL))
+	}
 
 	// Initialize relay preferences client (cloistr-common integration)
 	relayClient := relays.NewClient(logger)

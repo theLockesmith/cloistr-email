@@ -82,21 +82,23 @@ func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{
 // AuthMiddleware validates session tokens and injects user context
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract token from Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			errors.Unauthorized("AUTH_REQUIRED", "missing authorization header").WriteResponse(w)
+		// Extract token from the Authorization header, or fall back to the
+		// unified .cloistr.xyz signer session cookie (auto-sent to mail.cloistr.xyz).
+		var token string
+		if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+			// Expect "Bearer <token>" format
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+				errors.Unauthorized("AUTH_INVALID", "invalid authorization header format").WriteResponse(w)
+				return
+			}
+			token = parts[1]
+		} else if c, err := r.Cookie("auth_token"); err == nil && c.Value != "" {
+			token = c.Value
+		} else {
+			errors.Unauthorized("AUTH_REQUIRED", "missing authorization").WriteResponse(w)
 			return
 		}
-
-		// Expect "Bearer <token>" format
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			errors.Unauthorized("AUTH_INVALID", "invalid authorization header format").WriteResponse(w)
-			return
-		}
-
-		token := parts[1]
 
 		// Validate session
 		session, err := h.auth.ValidateSession(r.Context(), token)

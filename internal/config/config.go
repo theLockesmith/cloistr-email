@@ -54,6 +54,10 @@ type Config struct {
 	CloistrMeURL    string // Base URL for cloistr-me internal API
 	CloistrMeSecret string // Shared secret for internal API auth
 
+	// Unified-auth: Cloistr signer session validation (slice 3 — auth only).
+	// Empty = disabled (skip signer fallback in ValidateSession).
+	SignerURL string
+
 	// Logging
 	LogLevel string
 
@@ -109,6 +113,9 @@ func Load() (*Config, error) {
 		// cloistr-me integration (address verification)
 		CloistrMeURL:    getEnv("CLOISTR_ME_URL", "http://cloistr-me.cloistr.svc.cluster.local:8080"),
 		CloistrMeSecret: getEnv("CLOISTR_ME_SECRET", ""),
+
+		// Unified-auth signer URL (empty = disabled)
+		SignerURL: getEnv("MAIL_SIGNER_URL", "http://cloistr-signer.cloistr.svc.cluster.local:7777"),
 
 		// Logging
 		LogLevel: getEnv("LOG_LEVEL", "info"),
