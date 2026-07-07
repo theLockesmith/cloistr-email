@@ -44,21 +44,43 @@ type csEventContent struct {
 	Nonce     string `json:"nonce"`
 }
 
+// csUserInfo is the user sub-object expected by @cloistr/ui BackendAuthProvider.
+type csUserInfo struct {
+	Pubkey string `json:"pubkey"`
+}
+
 type csAuthResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt int64  `json:"expires_at"`
-	Pubkey    string `json:"pubkey"`
+	// token and pubkey kept as-is for non-BackendAuthProvider callers.
+	Token  string `json:"token"`
+	Pubkey string `json:"pubkey"`
+
+	// expires_at_unix is the raw unix timestamp; kept for any legacy callers.
+	ExpiresAt int64 `json:"expires_at_unix"`
+
+	// BackendAuthProvider-compatible fields (performBackendAuth / validateToken):
+	// access_token mirrors token; expires_at is ISO-8601; user wraps pubkey.
+	AccessToken string     `json:"access_token"`
+	ExpiresAtISO string    `json:"expires_at"`
+	User        csUserInfo `json:"user"`
 }
 
 type csRefreshResponse struct {
 	Token     string `json:"token"`
-	ExpiresAt int64  `json:"expires_at"`
+	ExpiresAt int64  `json:"expires_at_unix"`
+
+	// BackendAuthProvider-compatible aliases.
+	AccessToken  string `json:"access_token"`
+	ExpiresAtISO string `json:"expires_at"`
 }
 
 type csTokenInfoResponse struct {
+	// Original fields.
 	Pubkey    string `json:"pubkey,omitempty"`
 	ExpiresAt int64  `json:"expires_at,omitempty"`
 	Valid     bool   `json:"valid"`
+
+	// BackendAuthProvider-compatible user sub-object (validateToken reads data.user).
+	User *csUserInfo `json:"user,omitempty"`
 }
 
 // ── handlers ──────────────────────────────────────────────────────────────────
@@ -231,6 +253,10 @@ func (h *Handler) VerifyChallenge(w http.ResponseWriter, r *http.Request) {
 		Token:     token,
 		ExpiresAt: session.ExpiresAt.Unix(),
 		Pubkey:    event.PubKey,
+		// BackendAuthProvider-compatible aliases:
+		AccessToken:  token,
+		ExpiresAtISO: session.ExpiresAt.UTC().Format(time.RFC3339),
+		User:         csUserInfo{Pubkey: event.PubKey},
 	})
 }
 
@@ -295,6 +321,9 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	h.respondJSON(w, http.StatusOK, csRefreshResponse{
 		Token:     newToken,
 		ExpiresAt: session.ExpiresAt.Unix(),
+		// BackendAuthProvider-compatible aliases:
+		AccessToken:  newToken,
+		ExpiresAtISO: session.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }
 
@@ -329,5 +358,6 @@ func (h *Handler) TokenInfo(w http.ResponseWriter, r *http.Request) {
 		Pubkey:    session.UserID,
 		ExpiresAt: session.ExpiresAt.Unix(),
 		Valid:     true,
+		User:      &csUserInfo{Pubkey: session.UserID},
 	})
 }

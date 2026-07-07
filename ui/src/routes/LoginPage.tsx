@@ -1,240 +1,62 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Header, useBackendAuth } from '@cloistr/ui/components'
-import { waitForNostrExtension, hasNip44Support } from '../lib/nostr'
+/**
+ * LoginPage
+ *
+ * Renders the shared @cloistr/ui LoginModal (connect mode) in place of the
+ * previous bespoke NIP-07 / NIP-46 UI. Username/password ("Sign in with
+ * Cloistr") is the primary method; NIP-07 extension, NIP-46 bunker, passkey,
+ * and Lightning are available under "Other login methods".
+ *
+ * Auth bridge
+ * -----------
+ * BackendAuthProvider (wrapping AuthProvider internally) already provides the
+ * @cloistr/auth context that LoginModal needs — no extra AuthProvider wrapper
+ * in main.tsx is required.
+ *
+ * When LoginModal completes (any method), @cloistr/auth's authState.signer is
+ * set. handleClose reads it and calls loginWithSigner (useLoginWithSigner),
+ * which runs email's backend challenge/verify with the signer to obtain a JWT,
+ * stores it in localStorage, then navigates to /inbox so BackendAuthProvider
+ * re-mounts, calls validateToken with a real Bearer token, and
+ * isAuthenticated() flips to true.
+ *
+ * For the signer-session cookie path (password login sets .cloistr.xyz
+ * auth_token cookie): email's AuthMiddleware also accepts that cookie, so API
+ * calls will succeed even before the nostrconnect signer resolves. The
+ * nostrconnect signer resolved by LoginModal is needed for the JWT path and
+ * for the useSignerBunkerBootstrap encryption hook.
+ */
 
-type AuthMethod = 'nip07' | 'nip46' | null
+import { useNostrAuth } from '@cloistr/auth'
+import { LoginModal } from '@cloistr/ui/components'
+import { useLoginWithSigner } from '../hooks/useLoginWithSigner'
+
+const SIGNER_URL = 'https://signer.cloistr.xyz'
 
 export default function LoginPage() {
-  const [authMethod, setAuthMethod] = useState<AuthMethod>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [bunkerUrl, setBunkerUrl] = useState('')
-  const [hasExtension, setHasExtension] = useState(false)
-  const [extensionHasNip44, setExtensionHasNip44] = useState(false)
-  const navigate = useNavigate()
-  const { loginWithExtension, loginWithBunker } = useBackendAuth()
+  const { signer } = useNostrAuth()
+  const { loginWithSigner } = useLoginWithSigner()
 
-  // Check for NIP-07 extension on mount
-  useEffect(() => {
-    const checkExtension = async () => {
-      const available = await waitForNostrExtension(2000)
-      setHasExtension(available)
-      if (available) {
-        setExtensionHasNip44(hasNip44Support())
+  // Called when LoginModal closes (success or cancel).
+  // On success, signer (from useNostrAuth) is the fully connected SignerInterface;
+  // hand it to loginWithSigner to bridge to email's JWT session.
+  const handleClose = async () => {
+    if (signer) {
+      try {
+        await loginWithSigner(signer)
+        // loginWithSigner does window.location.href = '/inbox' on success
+      } catch (err) {
+        // Error surfaced; modal stays open (LoginModal is always-open here)
+        console.error('LoginPage: loginWithSigner failed', err)
       }
     }
-    checkExtension()
-  }, [])
-
-  // NIP-07 login (browser extension) via the shared backend-auth provider.
-  const handleNip07Login = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      await loginWithExtension()
-      navigate('/inbox')
-    } catch (err) {
-      console.error('NIP-07 login error:', err)
-      setError(err instanceof Error ? err.message : 'Login failed')
-    } finally {
-      setIsLoading(false)
-    }
+    // If signer is null (user clicked Cancel), do nothing — modal stays open
   }
 
-  // NIP-46 login (nsecbunker) via the shared backend-auth provider.
-  const handleNip46Login = async () => {
-    if (!bunkerUrl) {
-      setError('Please enter your bunker URL')
-      return
-    }
-    setIsLoading(true)
-    setError(null)
-    try {
-      await loginWithBunker(bunkerUrl)
-      navigate('/inbox')
-    } catch (err) {
-      console.error('NIP-46 login error:', err)
-      setError(err instanceof Error ? err.message : 'Login failed')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Method selection screen
-  if (!authMethod) {
-    return (
-      <div className="min-h-screen flex flex-col bg-cloistr-bg-elevated">
-        <Header activeServiceId="email" auth={{ authenticated: false }} />
-        <div className="flex flex-1 flex-col items-center justify-center p-4">
-        <div className="bg-cloistr-bg rounded-lg shadow-lg p-8 w-[420px]">
-          <div className="flex justify-center mb-4">
-            <img src="/cloistr-logo.svg" alt="Cloistr" className="h-12" />
-          </div>
-          <h1 className="text-3xl font-bold text-center mb-2 text-cloistr-text">Cloistr Mail</h1>
-          <p className="text-cloistr-text-muted text-center mb-8">
-            Secure email with Nostr identity
-          </p>
-
-          <div className="space-y-4">
-            {/* NIP-07 Browser Extension */}
-            <button
-              onClick={() => hasExtension ? setAuthMethod('nip07') : undefined}
-              disabled={!hasExtension}
-              className={`w-full p-4 border-2 rounded-lg text-left transition ${
-                hasExtension
-                  ? 'border-cloistr-primary hover:bg-cloistr-bg-hover cursor-pointer'
-                  : 'border-cloistr-border bg-cloistr-bg-elevated cursor-not-allowed opacity-60'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-lg text-cloistr-text">Browser Extension</h3>
-                  <p className="text-sm text-cloistr-text-muted">
-                    {hasExtension
-                      ? 'Use nos2x, Alby, or another NIP-07 extension'
-                      : 'No extension detected'}
-                  </p>
-                </div>
-                {hasExtension && (
-                  <div className="flex flex-col items-end">
-                    <span className="text-cloistr-success text-sm font-medium">Available</span>
-                    {extensionHasNip44 && (
-                      <span className="text-xs text-cloistr-text-muted">NIP-44 supported</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </button>
-
-            {/* NIP-46 Bunker */}
-            <button
-              onClick={() => setAuthMethod('nip46')}
-              className="w-full p-4 border-2 border-cloistr-border rounded-lg text-left hover:bg-cloistr-bg-hover transition"
-            >
-              <div>
-                <h3 className="font-semibold text-lg text-cloistr-text">nsecBunker</h3>
-                <p className="text-sm text-cloistr-text-muted">
-                  Connect to a remote signer for enhanced security
-                </p>
-              </div>
-            </button>
-          </div>
-
-          <p className="text-xs text-cloistr-text-muted text-center mt-6">
-            Your private key never leaves your device or bunker
-          </p>
-        </div>
-      </div>
-      </div>
-    )
-  }
-
-  // NIP-07 login screen
-  if (authMethod === 'nip07') {
-    return (
-      <div className="min-h-screen flex flex-col bg-cloistr-bg-elevated">
-        <Header activeServiceId="email" auth={{ authenticated: false }} />
-        <div className="flex flex-1 flex-col items-center justify-center p-4">
-        <div className="bg-cloistr-bg rounded-lg shadow-lg p-8 w-[420px]">
-          <button
-            onClick={() => setAuthMethod(null)}
-            className="text-cloistr-text-muted hover:text-cloistr-text mb-4"
-          >
-            ← Back
-          </button>
-
-          <h1 className="text-2xl font-bold mb-2 text-cloistr-text">Browser Extension Login</h1>
-          <p className="text-cloistr-text-muted mb-6">
-            Click the button below to sign in. Your extension will prompt you to approve.
-          </p>
-
-          {error && (
-            <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded">
-              {error}
-            </div>
-          )}
-
-          <button
-            onClick={handleNip07Login}
-            disabled={isLoading}
-            className="w-full px-4 py-3 bg-cloistr-primary text-white font-medium rounded-lg hover:bg-cloistr-primary-hover disabled:opacity-50 transition"
-          >
-            {isLoading ? 'Connecting...' : 'Sign in with Extension'}
-          </button>
-
-          <div className="mt-6 p-4 bg-cloistr-bg-elevated rounded-lg">
-            <h4 className="font-medium text-sm mb-2 text-cloistr-text">What happens:</h4>
-            <ul className="text-sm text-cloistr-text-muted space-y-1">
-              <li>1. Your extension will request access to your public key</li>
-              <li>2. You'll be asked to sign a login message</li>
-              <li>3. The server verifies your signature</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-      </div>
-    )
-  }
-
-  // NIP-46 login screen
   return (
-    <div className="min-h-screen flex flex-col bg-cloistr-bg-elevated">
-        <Header activeServiceId="email" auth={{ authenticated: false }} />
-        <div className="flex flex-1 flex-col items-center justify-center p-4">
-      <div className="bg-cloistr-bg rounded-lg shadow-lg p-8 w-[420px]">
-        <button
-          onClick={() => setAuthMethod(null)}
-          className="text-cloistr-text-muted hover:text-cloistr-text mb-4"
-        >
-          ← Back
-        </button>
-
-        <h1 className="text-2xl font-bold mb-2 text-cloistr-text">nsecBunker Login</h1>
-        <p className="text-cloistr-text-muted mb-6">
-          Enter your bunker connection URL to sign in securely.
-        </p>
-
-        {error && (
-          <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded">
-            {error}
-          </div>
-        )}
-
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-cloistr-text mb-1">
-            Bunker URL
-          </label>
-          <input
-            type="text"
-            value={bunkerUrl}
-            onChange={(e) => setBunkerUrl(e.target.value)}
-            placeholder="bunker://..."
-            className="w-full px-3 py-2 border border-cloistr-border rounded-lg focus:ring-2 focus:ring-cloistr-primary focus:border-cloistr-primary"
-          />
-          <p className="text-xs text-cloistr-text-muted mt-1">
-            Format: bunker://pubkey?relay=wss://relay.example.com
-          </p>
-        </div>
-
-        <button
-          onClick={handleNip46Login}
-          disabled={isLoading || !bunkerUrl}
-          className="w-full px-4 py-3 bg-cloistr-primary text-white font-medium rounded-lg hover:bg-cloistr-primary-hover disabled:opacity-50 transition"
-        >
-          {isLoading ? 'Connecting to Bunker...' : 'Connect'}
-        </button>
-
-        <div className="mt-6 p-4 bg-cloistr-bg-elevated rounded-lg">
-          <h4 className="font-medium text-sm mb-2 text-cloistr-text">Benefits of nsecBunker:</h4>
-          <ul className="text-sm text-cloistr-text-muted space-y-1">
-            <li>• Your private key stays on the bunker device</li>
-            <li>• Server can encrypt/decrypt emails on your behalf</li>
-            <li>• Works across all your devices</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-    </div>
+    <LoginModal
+      isOpen={true}
+      onClose={handleClose}
+      signerUrl={SIGNER_URL}
+    />
   )
 }
