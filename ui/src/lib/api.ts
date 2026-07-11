@@ -1,7 +1,12 @@
 import axios, { AxiosError } from 'axios'
 import type { EncryptionMode } from './nostr'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+// Origin prefix for the API. In production this is empty (same-origin: nginx
+// proxies /api → backend), so baseURL becomes /api/v1. Use ?? not || so an
+// intentionally-empty value is honored (|| would fall through to localhost and,
+// combined with a VITE_API_URL of "/api", produced the /api/api/... double
+// prefix that 404'd every call). Dev can set VITE_API_URL=http://localhost:8080.
+const API_URL = import.meta.env.VITE_API_URL ?? ''
 
 // Create axios instance with base URL
 export const api = axios.create({

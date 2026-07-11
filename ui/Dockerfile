@@ -14,8 +14,10 @@ RUN npm ci
 
 COPY . .
 
-# Build with production API URL (can be overridden at runtime via nginx)
-ARG VITE_API_URL=/api
+# Same-origin API in production: nginx proxies /api → backend, and the client
+# appends /api/v1 or /api/v2 itself, so this must be EMPTY (a value of "/api"
+# yielded the /api/api/... double prefix that 404'd every request).
+ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 
 RUN npm run build
