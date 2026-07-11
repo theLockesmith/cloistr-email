@@ -25,3 +25,19 @@ code {
 html {
   scroll-behavior: smooth;
 }
+
+/* Form controls default to browser white-on-black, which is unreadable on the
+   dark theme (white boxes, invisible placeholder). Theme them via tokens.
+   @cloistr/ui's own .cloistr-input styling has higher specificity and is
+   unaffected. */
+input,
+textarea,
+select {
+  background-color: var(--cloistr-bg-elevated);
+  color: var(--cloistr-text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--cloistr-text-muted);
+}

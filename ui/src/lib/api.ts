@@ -164,13 +164,15 @@ export const emailAPI = {
     status?: string
     folder?: string
     search?: string
-  }) => apiV2.get<EmailListResponse>('/emails', { params }),
+  }) => apiV2.get<EmailListResponse>('/email', { params }),
 
-  get: (id: string) => apiV2.get<Email>(`/emails/${id}`),
+  get: (id: string) => apiV2.get<Email>(`/email/${id}`),
 
-  send: (data: SendEmailRequest) => apiV2.post<SendEmailResponse>('/emails', data),
+  // Backend v2 send route is POST /api/v2/email/send (prefix is /email,
+  // singular). Posting to /emails hit no route → 404.
+  send: (data: SendEmailRequest) => apiV2.post<SendEmailResponse>('/email/send', data),
 
-  delete: (id: string) => apiV2.delete(`/emails/${id}`),
+  delete: (id: string) => apiV2.delete(`/email/${id}`),
 
   // Legacy v1 endpoints for backward compatibility
   reply: (id: string, data: any) => api.post(`/emails/${id}/reply`, data),
