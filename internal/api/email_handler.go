@@ -3,12 +3,14 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	stderrors "errors"
 	"net/http"
 	"strconv"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
@@ -127,7 +129,19 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	result, err := h.emailSvc.Send(r.Context(), sendReq)
 	if err != nil {
 		h.logger.Error("Failed to send email", zap.Error(err))
-		errors.InternalError("INTERNAL_ERROR", err.Error()).WriteResponse(w)
+		// Sender-eligibility failures are CLIENT errors (the user needs to
+		// register/verify their @cloistr.xyz address or is sending from an
+		// address they don't own) — return 4xx, not 500.
+		switch {
+		case stderrors.Is(err, identity.ErrNoUnifiedAddress),
+			stderrors.Is(err, identity.ErrAddressNotVerified):
+			errors.Forbidden("SENDER_ADDRESS_REQUIRED", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, identity.ErrFromAddressMismatch),
+			stderrors.Is(err, identity.ErrAddressOwnershipMismatch):
+			errors.Forbidden("SENDER_ADDRESS_MISMATCH", err.Error()).WriteResponse(w)
+		default:
+			errors.InternalError("INTERNAL_ERROR", err.Error()).WriteResponse(w)
+		}
 		return
 	}
 
