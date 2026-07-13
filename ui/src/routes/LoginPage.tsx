@@ -14,7 +14,7 @@
 
 import { useState } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
-import { LoginModal } from '@cloistr/ui/components'
+import { Header, LoginModal } from '@cloistr/ui/components'
 import { useLoginWithSigner } from '../hooks/useLoginWithSigner'
 
 const SIGNER_URL = 'https://signer.cloistr.xyz'
@@ -43,6 +43,8 @@ export default function LoginPage() {
   }
 
   return (
+    <>
+      <Header activeServiceId="email" auth={{ authenticated: false }} signerUrl="https://signer.cloistr.xyz" />
     <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 text-center">
       <div className="max-w-2xl">
         <h1 className="text-4xl font-bold mb-3">Cloistr Mail</h1>
@@ -76,5 +78,6 @@ export default function LoginPage() {
 
       <LoginModal isOpen={modalOpen} onClose={handleClose} signerUrl={SIGNER_URL} />
     </div>
+    </>
   )
 }
