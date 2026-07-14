@@ -474,7 +474,10 @@ func (s *Service) ListEmails(ctx context.Context, userNpub string, filter *stora
 		return nil, 0, fmt.Errorf("failed to get user: %w", err)
 	}
 	if user == nil {
-		return nil, 0, fmt.Errorf("user not found")
+		// Authenticated but not yet provisioned in this service (no users
+		// row). This is a normal new-user state, not an error — they simply
+		// have no mail. Return an empty inbox rather than a 500.
+		return []*storage.Email{}, 0, nil
 	}
 
 	// List emails

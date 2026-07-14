@@ -204,3 +204,43 @@ func TestE2EServerSideEncryptionRoundTrip(t *testing.T) {
 
 	t.Logf("OK: plaintext=%q stored as ciphertext (%d bytes), mode=%q, decrypted back equal", plaintext, len(dbBody), dbMode)
 }
+
+// TestE2EListEmailsUnprovisionedUser guards the graceful-degradation fix:
+// an authenticated npub with no users row (not yet provisioned by cloistr-me /
+// the onboarding flow) must get an empty inbox, NOT a 500. Regression test for
+// ListEmails returning `user not found` as an error.
+func TestE2EListEmailsUnprovisionedUser(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("set DATABASE_URL to run the e2e list test")
+	}
+	logger := zap.NewNop()
+	ctx := context.Background()
+
+	db, err := storage.NewPostgres(dbURL, logger)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	defer db.Close()
+
+	// ListEmails only touches s.db; the other deps are irrelevant here.
+	svc := NewService(nil, nil, nil, db, logger)
+
+	// A fresh, never-provisioned pubkey: no users row exists for it.
+	sk := nostr.GeneratePrivateKey()
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		t.Fatalf("derive pubkey: %v", err)
+	}
+
+	emails, total, err := svc.ListEmails(ctx, pub, &storage.EmailFilter{Direction: "received"}, storage.ListOptions{Limit: 25})
+	if err != nil {
+		t.Fatalf("ListEmails for unprovisioned user should not error, got: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+	if len(emails) != 0 {
+		t.Fatalf("len(emails) = %d, want 0", len(emails))
+	}
+}
