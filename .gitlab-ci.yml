@@ -10,6 +10,9 @@ stages:
 include:
   - project: 'coldforge/ci-templates'
     ref: main
+    file: '/templates/kaniko-build.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
     file: '/templates/frontend-smoke.yml'
 
 test:unit:
@@ -35,28 +38,21 @@ test:lint:
   allow_failure: true
 
 build:backend:
+  extends: .kaniko-build
   stage: build
-  tags:
-    - local
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --destination ${CI_REGISTRY_IMAGE}/backend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}/backend:latest
+  variables:
+    KANIKO_CONTEXT_SUBDIR: ""
+    KANIKO_DOCKERFILE_SUBPATH: "/Dockerfile"
+    KANIKO_IMAGE: "$CI_REGISTRY_IMAGE/backend"
 
 build:frontend:
+  extends: .kaniko-build
   stage: build
-  tags:
-    - local
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${AEGIS_REGISTRY_USER}\",\"password\":\"${AEGIS_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
-    - /kaniko/executor --context ${CI_PROJECT_DIR}/ui --dockerfile ${CI_PROJECT_DIR}/ui/Dockerfile --build-arg NPM_TOKEN=${CI_JOB_TOKEN} --destination ${CI_REGISTRY_IMAGE}/frontend:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}/frontend:latest
+  variables:
+    KANIKO_CONTEXT_SUBDIR: "/ui"
+    KANIKO_DOCKERFILE_SUBPATH: "/ui/Dockerfile"
+    KANIKO_IMAGE: "$CI_REGISTRY_IMAGE/frontend"
+    KANIKO_EXTRA_FLAGS: "--build-arg=NPM_TOKEN=${CI_JOB_TOKEN}"
 
 # Smoke-test gate: load frontend image in real Chromium (with crypto.randomUUID polyfill)
 smoke-test:
