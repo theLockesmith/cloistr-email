@@ -1,3 +1,7 @@
+default:
+  tags:
+    - local
+
 stages:
   - test
   - build
@@ -13,6 +17,8 @@ include:
 
 test:unit:
   stage: test
+  tags:
+    - local
   retry: 1
   image: golang:1.25
   variables:
@@ -24,6 +30,8 @@ test:unit:
 
 test:lint:
   stage: test
+  tags:
+    - local
   retry: 1
   image: golangci/golangci-lint:latest
   script:
