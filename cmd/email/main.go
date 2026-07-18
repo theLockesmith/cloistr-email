@@ -107,6 +107,20 @@ func main() {
 	addressStore := storage.NewAddressStoreAdapter(db, identity.Domain, logger)
 	identitySvc := identity.NewService(addressStore, nip05Resolver, logger)
 
+	// Enable cloistr-me as the authoritative cross-check for sender address
+	// ownership. Opt-in via CLOISTR_ME_SECRET: when unset, verification is
+	// skipped (the client fails open) and ValidateSender trusts the local
+	// addresses table only. When set, sends are verified against cloistr-me.
+	if cfg.CloistrMeSecret != "" {
+		identitySvc = identitySvc.WithVerifier(
+			identity.NewCloistrMeClient(cfg.CloistrMeURL, cfg.CloistrMeSecret, logger),
+		)
+		logger.Info("cloistr-me sender address verification enabled",
+			zap.String("cloistr_me_url", cfg.CloistrMeURL))
+	} else {
+		logger.Warn("CLOISTR_ME_SECRET not set — sender address ownership verification disabled (local addresses table only)")
+	}
+
 	// EmailEncryptor performs server-side NIP-44 using the user's bunker
 	// (NIP46Handler satisfies encryption.Encryptor) and NIP-05 key resolution.
 	emailEncryptor := encryption.NewEmailEncryptor(authHandler, nip05Resolver, logger)

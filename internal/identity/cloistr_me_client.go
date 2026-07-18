@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -51,12 +52,14 @@ type CloistrMeClient struct {
 	logger     *zap.Logger
 }
 
-// VerifyAddressResponse is the response from the address verification endpoint.
+// VerifyAddressResponse is the response from cloistr-me's address verification
+// endpoint (GET /internal/v1/addresses/verify). Field names must match
+// cloistr-me's contract: it returns `valid`, not `owned`.
 type VerifyAddressResponse struct {
-	Owned   bool   `json:"owned"`
-	Address string `json:"address"` // Full email address (e.g., "alice@cloistr.xyz")
-	Pubkey  string `json:"pubkey"`  // Hex pubkey
-	Error   string `json:"error,omitempty"`
+	Valid    bool   `json:"valid"`
+	Username string `json:"username,omitempty"`
+	Pubkey   string `json:"pubkey,omitempty"`
+	Active   bool   `json:"active,omitempty"`
 }
 
 // NewCloistrMeClient creates a new client for cloistr-me internal API.
@@ -92,10 +95,14 @@ func (c *CloistrMeClient) VerifyAddressOwnership(ctx context.Context, pubkey, ad
 		return false, fmt.Errorf("invalid cloistr-me URL: %w", err)
 	}
 
-	// Add query parameters
+	// Add query parameters. cloistr-me's verify endpoint keys on the bare
+	// username (local part), not the full email address — it looks up
+	// GetAddressByUsername(username, domain). Passing the full address here
+	// (the previous behavior) sent an empty/invalid username and always 400'd,
+	// silently disabling the ownership check.
 	q := reqURL.Query()
 	q.Set("pubkey", pubkey)
-	q.Set("address", address)
+	q.Set("username", usernameFromAddress(address))
 	reqURL.RawQuery = q.Encode()
 
 	// Create request
@@ -144,15 +151,21 @@ func (c *CloistrMeClient) VerifyAddressOwnership(ctx context.Context, pubkey, ad
 		return false, fmt.Errorf("failed to parse cloistr-me response: %w", err)
 	}
 
-	if verifyResp.Error != "" {
-		return false, fmt.Errorf("cloistr-me error: %s", verifyResp.Error)
-	}
-
 	c.logger.Debug("address verification result",
 		zap.String("address", address),
-		zap.Bool("owned", verifyResp.Owned))
+		zap.Bool("valid", verifyResp.Valid))
 
-	return verifyResp.Owned, nil
+	return verifyResp.Valid, nil
+}
+
+// usernameFromAddress returns the local part of an email address (the substring
+// before "@"). cloistr-me's verify endpoint keys on the bare username. If the
+// input has no "@" it is returned unchanged (already a local part).
+func usernameFromAddress(address string) string {
+	if i := strings.IndexByte(address, '@'); i >= 0 {
+		return address[:i]
+	}
+	return address
 }
 
 // truncateKey truncates a hex key for logging

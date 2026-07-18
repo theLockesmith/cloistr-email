@@ -13,6 +13,8 @@ import (
 func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
+	const pubkey = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+
 	tests := []struct {
 		name           string
 		serverResponse func(w http.ResponseWriter, r *http.Request)
@@ -30,20 +32,21 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 					return
 				}
 
-				// Verify query params
-				if r.URL.Query().Get("pubkey") == "" || r.URL.Query().Get("address") == "" {
+				// cloistr-me keys on the bare username, not the full address.
+				if r.URL.Query().Get("pubkey") == "" || r.URL.Query().Get("username") == "" {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
 
 				w.WriteHeader(http.StatusOK)
 				json.NewEncoder(w).Encode(VerifyAddressResponse{
-					Owned:   true,
-					Address: "alice@cloistr.xyz",
-					Pubkey:  "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+					Valid:    true,
+					Username: "alice",
+					Pubkey:   pubkey,
+					Active:   true,
 				})
 			},
-			pubkey:    "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			pubkey:    pubkey,
 			address:   "alice@cloistr.xyz",
 			wantOwned: true,
 			wantErr:   false,
@@ -52,13 +55,9 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 			name: "address not owned by pubkey",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(VerifyAddressResponse{
-					Owned:   false,
-					Address: "alice@cloistr.xyz",
-					Pubkey:  "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
-				})
+				json.NewEncoder(w).Encode(VerifyAddressResponse{Valid: false})
 			},
-			pubkey:    "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			pubkey:    pubkey,
 			address:   "alice@cloistr.xyz",
 			wantOwned: false,
 			wantErr:   false,
@@ -68,7 +67,7 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 			},
-			pubkey:    "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			pubkey:    pubkey,
 			address:   "unknown@cloistr.xyz",
 			wantOwned: false,
 			wantErr:   false,
@@ -78,7 +77,7 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
 			},
-			pubkey:    "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			pubkey:    pubkey,
 			address:   "alice@cloistr.xyz",
 			wantOwned: false,
 			wantErr:   true,
@@ -88,20 +87,7 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
-			pubkey:    "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
-			address:   "alice@cloistr.xyz",
-			wantOwned: false,
-			wantErr:   true,
-		},
-		{
-			name: "error in response",
-			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(VerifyAddressResponse{
-					Error: "internal error",
-				})
-			},
-			pubkey:    "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234",
+			pubkey:    pubkey,
 			address:   "alice@cloistr.xyz",
 			wantOwned: false,
 			wantErr:   true,
@@ -169,7 +155,7 @@ func TestCloistrMeClient_RequestFormat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedRequest = r
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(VerifyAddressResponse{Owned: true})
+		json.NewEncoder(w).Encode(VerifyAddressResponse{Valid: true})
 	}))
 	defer server.Close()
 
@@ -200,7 +186,12 @@ func TestCloistrMeClient_RequestFormat(t *testing.T) {
 		t.Errorf("Expected pubkey in query, got %s", capturedRequest.URL.Query().Get("pubkey"))
 	}
 
-	if capturedRequest.URL.Query().Get("address") != "test@cloistr.xyz" {
-		t.Errorf("Expected address in query, got %s", capturedRequest.URL.Query().Get("address"))
+	// cloistr-me keys on the bare username (local part), so the client must
+	// send username=test derived from test@cloistr.xyz — NOT the full address.
+	if got := capturedRequest.URL.Query().Get("username"); got != "test" {
+		t.Errorf("Expected username=test (local part), got %q", got)
+	}
+	if got := capturedRequest.URL.Query().Get("address"); got != "" {
+		t.Errorf("Expected no 'address' query param (was the bug), got %q", got)
 	}
 }
