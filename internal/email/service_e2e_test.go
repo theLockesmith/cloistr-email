@@ -127,11 +127,9 @@ func TestE2EServerSideEncryptionRoundTrip(t *testing.T) {
 
 	svc := NewService(idSvc, nil, encSvc, db, logger)
 
-	// Seed the sender's user row (emails.user_id has an FK to users).
-	// Email is unique per run so repeated runs don't collide on users_email_key.
-	user := &storage.User{Npub: pub, Email: pub[:16] + "@cloistr.xyz", PublicKey: pub, EncryptionMethod: "nip44"}
-	if err := db.CreateUser(ctx, user); err != nil {
-		t.Fatalf("create user: %v", err)
+	// Ensure a mailbox exists for the sender's pubkey (emails.mailbox_pubkey FK).
+	if _, err := db.EnsureMailbox(ctx, pub); err != nil {
+		t.Fatalf("ensure mailbox: %v", err)
 	}
 
 	const plaintext = "the eagle lands at midnight \U0001F985"
@@ -151,7 +149,7 @@ func TestE2EServerSideEncryptionRoundTrip(t *testing.T) {
 
 	// 2. Persist via the real storage layer.
 	em := &storage.Email{
-		UserID:         user.ID,
+		MailboxPubkey:  pub,
 		FromAddress:    "alice@cloistr.xyz",
 		ToAddress:      "bob@example.com",
 		Subject:        "ops",

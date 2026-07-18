@@ -90,24 +90,27 @@ func NewPostgresForTesting(db *sql.DB, logger *zap.Logger) *PostgreSQL {
 // Models
 // ============================================================================
 
-// User represents a user account with Nostr identity
-type User struct {
-	ID               string
-	Npub             string
-	Email            string
-	EmailVerified    bool
-	EmailVerifiedAt  *time.Time
-	PublicKey        string
-	EncryptionMethod string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	DeletedAt        *time.Time
+// Mailbox is the per-pubkey mailbox. There is exactly ONE mailbox per user
+// (identified by their Nostr pubkey); every address they own — primary and
+// aliases alike — is a delivery route into this single mailbox.
+//
+// Identity itself lives in the shared platform tables (public.users /
+// public.addresses, owned by cloistr-me). cloistr-email deliberately keeps no
+// private identity table; Pubkey here is resolved from public.addresses and is
+// not FK-enforced (the cloistr_email role has SELECT but not REFERENCES on the
+// shared schema), so ownership is validated in the application layer.
+type Mailbox struct {
+	Pubkey      string
+	DisplayName *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 }
 
 // Email represents an email message
 type Email struct {
 	ID                string
-	UserID            string
+	MailboxPubkey     string
 	MessageID         *string
 	FromAddress       string
 	ToAddress         string
@@ -140,7 +143,7 @@ type Email struct {
 // Contact represents an address book entry
 type Contact struct {
 	ID            string
-	UserID        string
+	MailboxPubkey string
 	Email         string
 	Name          *string
 	Npub          *string
@@ -179,7 +182,7 @@ type NIP05CacheEntry struct {
 // AuditLogEntry represents an audit log record
 type AuditLogEntry struct {
 	ID           string
-	UserID       *string
+	MailboxPubkey *string
 	Action       string
 	ResourceType *string
 	ResourceID   *string
@@ -218,169 +221,62 @@ type EmailFilter struct {
 }
 
 // ============================================================================
-// User Operations
+// Mailbox Operations
 // ============================================================================
+//
+// Mailboxes are keyed by Nostr pubkey and are the ONLY per-user record
+// cloistr-email owns. Identity (who owns which @cloistr.xyz address) lives in
+// the shared platform tables and is resolved via the Address helpers below.
 
-// CreateUser creates a new user
-func (db *PostgreSQL) CreateUser(ctx context.Context, user *User) error {
-	db.logger.Debug("Creating user", zap.String("npub", user.Npub), zap.String("email", user.Email))
-
-	if user.ID == "" {
-		user.ID = uuid.New().String()
-	}
-
-	query := `
-		INSERT INTO users (id, npub, email, email_verified, public_key, encryption_method)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING created_at, updated_at
-	`
-
-	encMethod := user.EncryptionMethod
-	if encMethod == "" {
-		encMethod = "nip44"
-	}
-
-	err := db.db.QueryRowContext(ctx, query,
-		user.ID, user.Npub, user.Email, user.EmailVerified, user.PublicKey, encMethod,
-	).Scan(&user.CreatedAt, &user.UpdatedAt)
-
-	if err != nil {
-		if isUniqueViolation(err) {
-			return fmt.Errorf("user already exists with npub or email: %w", err)
-		}
-		return fmt.Errorf("failed to create user: %w", err)
-	}
-
-	db.logger.Info("User created", zap.String("id", user.ID), zap.String("email", user.Email))
-	return nil
-}
-
-// GetUser retrieves a user by ID
-func (db *PostgreSQL) GetUser(ctx context.Context, id string) (*User, error) {
-	db.logger.Debug("Getting user by ID", zap.String("id", id))
+// GetMailboxByPubkey retrieves a mailbox by its owner pubkey.
+// Returns (nil, nil) when the mailbox does not exist yet.
+func (db *PostgreSQL) GetMailboxByPubkey(ctx context.Context, pubkey string) (*Mailbox, error) {
+	db.logger.Debug("Getting mailbox by pubkey", zap.String("pubkey", pubkey))
 
 	query := `
-		SELECT id, npub, email, email_verified, email_verified_at, public_key,
-		       encryption_method, created_at, updated_at, deleted_at
-		FROM users
-		WHERE id = $1 AND deleted_at IS NULL
+		SELECT pubkey, display_name, created_at, updated_at, deleted_at
+		FROM mailboxes
+		WHERE pubkey = $1 AND deleted_at IS NULL
 	`
 
-	user := &User{}
-	err := db.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID, &user.Npub, &user.Email, &user.EmailVerified, &user.EmailVerifiedAt,
-		&user.PublicKey, &user.EncryptionMethod, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
+	mb := &Mailbox{}
+	err := db.db.QueryRowContext(ctx, query, pubkey).Scan(
+		&mb.Pubkey, &mb.DisplayName, &mb.CreatedAt, &mb.UpdatedAt, &mb.DeletedAt,
 	)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("failed to get mailbox by pubkey: %w", err)
 	}
 
-	return user, nil
+	return mb, nil
 }
 
-// GetUserByNpub retrieves a user by Nostr public key
-func (db *PostgreSQL) GetUserByNpub(ctx context.Context, npub string) (*User, error) {
-	db.logger.Debug("Getting user by npub", zap.String("npub", npub))
-
+// EnsureMailbox returns the mailbox for pubkey, creating it if absent.
+//
+// Mailbox creation is deliberately implicit: the authority on whether someone
+// may receive mail is the shared addresses table, so once an address resolves
+// to a pubkey the mailbox is just local storage for it. Callers MUST resolve
+// and validate the address first.
+func (db *PostgreSQL) EnsureMailbox(ctx context.Context, pubkey string) (*Mailbox, error) {
 	query := `
-		SELECT id, npub, email, email_verified, email_verified_at, public_key,
-		       encryption_method, created_at, updated_at, deleted_at
-		FROM users
-		WHERE npub = $1 AND deleted_at IS NULL
+		INSERT INTO mailboxes (pubkey)
+		VALUES ($1)
+		ON CONFLICT (pubkey) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+		RETURNING pubkey, display_name, created_at, updated_at, deleted_at
 	`
 
-	user := &User{}
-	err := db.db.QueryRowContext(ctx, query, npub).Scan(
-		&user.ID, &user.Npub, &user.Email, &user.EmailVerified, &user.EmailVerifiedAt,
-		&user.PublicKey, &user.EncryptionMethod, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
+	mb := &Mailbox{}
+	err := db.db.QueryRowContext(ctx, query, pubkey).Scan(
+		&mb.Pubkey, &mb.DisplayName, &mb.CreatedAt, &mb.UpdatedAt, &mb.DeletedAt,
 	)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user by npub: %w", err)
+		return nil, fmt.Errorf("failed to ensure mailbox: %w", err)
 	}
 
-	return user, nil
-}
-
-// GetUserByEmail retrieves a user by email address
-func (db *PostgreSQL) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	db.logger.Debug("Getting user by email", zap.String("email", email))
-
-	query := `
-		SELECT id, npub, email, email_verified, email_verified_at, public_key,
-		       encryption_method, created_at, updated_at, deleted_at
-		FROM users
-		WHERE email = $1 AND deleted_at IS NULL
-	`
-
-	user := &User{}
-	err := db.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID, &user.Npub, &user.Email, &user.EmailVerified, &user.EmailVerifiedAt,
-		&user.PublicKey, &user.EncryptionMethod, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
-	}
-
-	return user, nil
-}
-
-// UpdateUser updates a user's information
-func (db *PostgreSQL) UpdateUser(ctx context.Context, user *User) error {
-	db.logger.Debug("Updating user", zap.String("id", user.ID))
-
-	query := `
-		UPDATE users
-		SET email = $2, email_verified = $3, email_verified_at = $4,
-		    public_key = $5, encryption_method = $6
-		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING updated_at
-	`
-
-	err := db.db.QueryRowContext(ctx, query,
-		user.ID, user.Email, user.EmailVerified, user.EmailVerifiedAt,
-		user.PublicKey, user.EncryptionMethod,
-	).Scan(&user.UpdatedAt)
-
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("user not found: %s", user.ID)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
-	}
-
-	return nil
-}
-
-// DeleteUser soft-deletes a user
-func (db *PostgreSQL) DeleteUser(ctx context.Context, id string) error {
-	db.logger.Debug("Deleting user", zap.String("id", id))
-
-	query := `UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL`
-
-	result, err := db.db.ExecContext(ctx, query, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete user: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("user not found: %s", id)
-	}
-
-	db.logger.Info("User deleted", zap.String("id", id))
-	return nil
+	return mb, nil
 }
 
 // ============================================================================
@@ -415,7 +311,7 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 
 	query := `
 		INSERT INTO emails (
-			id, user_id, message_id, from_address, to_address, cc, bcc,
+			id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 			subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 			sender_npub, recipient_npub, direction, status, folder, labels
 		)
@@ -424,7 +320,7 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 	`
 
 	err := db.db.QueryRowContext(ctx, query,
-		email.ID, email.UserID, email.MessageID, email.FromAddress, email.ToAddress,
+		email.ID, email.MailboxPubkey, email.MessageID, email.FromAddress, email.ToAddress,
 		email.CC, email.BCC, email.Subject, email.Body, email.HTMLBody,
 		email.IsEncrypted, email.EncryptionNonce, email.EncryptionMode, email.SenderNpub, email.RecipientNpub,
 		email.Direction, email.Status, email.Folder, pq.Array(email.Labels),
@@ -443,7 +339,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 	db.logger.Debug("Getting email", zap.String("id", id))
 
 	query := `
-		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
+		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
 		       folder, labels, created_at, updated_at, deleted_at
@@ -454,7 +350,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 	email := &Email{}
 	var labels pq.StringArray
 	err := db.db.QueryRowContext(ctx, query, id).Scan(
-		&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
+		&email.ID, &email.MailboxPubkey, &email.MessageID, &email.FromAddress, &email.ToAddress,
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 		&email.Direction, &email.Status, &email.ReadAt,
@@ -473,22 +369,22 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 }
 
 // GetEmailByMessageID retrieves an email by its Message-ID header
-func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, userID, messageID string) (*Email, error) {
+func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, mailboxPubkey, messageID string) (*Email, error) {
 	db.logger.Debug("Getting email by message ID", zap.String("message_id", messageID))
 
 	query := `
-		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
+		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
 		       folder, labels, created_at, updated_at, deleted_at
 		FROM emails
-		WHERE user_id = $1 AND message_id = $2 AND deleted_at IS NULL
+		WHERE mailbox_pubkey = $1 AND message_id = $2 AND deleted_at IS NULL
 	`
 
 	email := &Email{}
 	var labels pq.StringArray
-	err := db.db.QueryRowContext(ctx, query, userID, messageID).Scan(
-		&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
+	err := db.db.QueryRowContext(ctx, query, mailboxPubkey, messageID).Scan(
+		&email.ID, &email.MailboxPubkey, &email.MessageID, &email.FromAddress, &email.ToAddress,
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 		&email.Direction, &email.Status, &email.ReadAt,
@@ -507,18 +403,18 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, userID, messageID
 }
 
 // ListEmails lists emails for a user with filtering and pagination
-func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *EmailFilter, opts ListOptions) ([]*Email, int, error) {
+func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filter *EmailFilter, opts ListOptions) ([]*Email, int, error) {
 	db.logger.Debug("Listing emails",
-		zap.String("user_id", userID),
+		zap.String("mailbox_pubkey", mailboxPubkey),
 		zap.Int("limit", opts.Limit),
 		zap.Int("offset", opts.Offset))
 
 	// Build the query
 	baseQuery := `
 		FROM emails
-		WHERE user_id = $1 AND deleted_at IS NULL
+		WHERE mailbox_pubkey = $1 AND deleted_at IS NULL
 	`
-	args := []interface{}{userID}
+	args := []interface{}{mailboxPubkey}
 	argCount := 1
 
 	// Apply filters
@@ -576,7 +472,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *Ema
 	}
 
 	selectQuery := fmt.Sprintf(`
-		SELECT id, user_id, message_id, from_address, to_address, cc, bcc,
+		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
 		       folder, labels, created_at, updated_at, deleted_at
@@ -598,7 +494,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, userID string, filter *Ema
 		email := &Email{}
 		var labels pq.StringArray
 		err := rows.Scan(
-			&email.ID, &email.UserID, &email.MessageID, &email.FromAddress, &email.ToAddress,
+			&email.ID, &email.MailboxPubkey, &email.MessageID, &email.FromAddress, &email.ToAddress,
 			&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 			&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 			&email.Direction, &email.Status, &email.ReadAt,
@@ -726,8 +622,8 @@ func (db *PostgreSQL) PermanentlyDeleteEmail(ctx context.Context, id string) err
 }
 
 // GetEmailStats returns email statistics for a user
-func (db *PostgreSQL) GetEmailStats(ctx context.Context, userID string) (map[string]int, error) {
-	db.logger.Debug("Getting email stats", zap.String("user_id", userID))
+func (db *PostgreSQL) GetEmailStats(ctx context.Context, mailboxPubkey string) (map[string]int, error) {
+	db.logger.Debug("Getting email stats", zap.String("mailbox_pubkey", mailboxPubkey))
 
 	query := `
 		SELECT
@@ -739,11 +635,11 @@ func (db *PostgreSQL) GetEmailStats(ctx context.Context, userID string) (map[str
 			COUNT(*) FILTER (WHERE status = 'spam') as spam,
 			COUNT(*) FILTER (WHERE status = 'deleted') as trash
 		FROM emails
-		WHERE user_id = $1
+		WHERE mailbox_pubkey = $1
 	`
 
 	var total, unread, sent, received, drafts, spam, trash int
-	err := db.db.QueryRowContext(ctx, query, userID).Scan(
+	err := db.db.QueryRowContext(ctx, query, mailboxPubkey).Scan(
 		&total, &unread, &sent, &received, &drafts, &spam, &trash,
 	)
 	if err != nil {
@@ -768,7 +664,7 @@ func (db *PostgreSQL) GetEmailStats(ctx context.Context, userID string) (map[str
 // CreateContact creates a new contact
 func (db *PostgreSQL) CreateContact(ctx context.Context, contact *Contact) error {
 	db.logger.Debug("Creating contact",
-		zap.String("user_id", contact.UserID),
+		zap.String("mailbox_pubkey", contact.MailboxPubkey),
 		zap.String("email", contact.Email))
 
 	if contact.ID == "" {
@@ -776,13 +672,13 @@ func (db *PostgreSQL) CreateContact(ctx context.Context, contact *Contact) error
 	}
 
 	query := `
-		INSERT INTO contacts (id, user_id, email, name, npub, notes, organization, phone, always_encrypt, blocked)
+		INSERT INTO contacts (id, mailbox_pubkey, email, name, npub, notes, organization, phone, always_encrypt, blocked)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING created_at, updated_at
 	`
 
 	err := db.db.QueryRowContext(ctx, query,
-		contact.ID, contact.UserID, contact.Email, contact.Name, contact.Npub,
+		contact.ID, contact.MailboxPubkey, contact.Email, contact.Name, contact.Npub,
 		contact.Notes, contact.Organization, contact.Phone, contact.AlwaysEncrypt, contact.Blocked,
 	).Scan(&contact.CreatedAt, &contact.UpdatedAt)
 
@@ -802,7 +698,7 @@ func (db *PostgreSQL) GetContact(ctx context.Context, id string) (*Contact, erro
 	db.logger.Debug("Getting contact", zap.String("id", id))
 
 	query := `
-		SELECT id, user_id, email, name, npub, notes, organization, phone,
+		SELECT id, mailbox_pubkey, email, name, npub, notes, organization, phone,
 		       always_encrypt, blocked, created_at, updated_at, deleted_at
 		FROM contacts
 		WHERE id = $1 AND deleted_at IS NULL
@@ -810,7 +706,7 @@ func (db *PostgreSQL) GetContact(ctx context.Context, id string) (*Contact, erro
 
 	contact := &Contact{}
 	err := db.db.QueryRowContext(ctx, query, id).Scan(
-		&contact.ID, &contact.UserID, &contact.Email, &contact.Name, &contact.Npub,
+		&contact.ID, &contact.MailboxPubkey, &contact.Email, &contact.Name, &contact.Npub,
 		&contact.Notes, &contact.Organization, &contact.Phone,
 		&contact.AlwaysEncrypt, &contact.Blocked, &contact.CreatedAt, &contact.UpdatedAt, &contact.DeletedAt,
 	)
@@ -826,19 +722,19 @@ func (db *PostgreSQL) GetContact(ctx context.Context, id string) (*Contact, erro
 }
 
 // GetContactByEmail retrieves a contact by email for a user
-func (db *PostgreSQL) GetContactByEmail(ctx context.Context, userID, email string) (*Contact, error) {
-	db.logger.Debug("Getting contact by email", zap.String("user_id", userID), zap.String("email", email))
+func (db *PostgreSQL) GetContactByEmail(ctx context.Context, mailboxPubkey, email string) (*Contact, error) {
+	db.logger.Debug("Getting contact by email", zap.String("mailbox_pubkey", mailboxPubkey), zap.String("email", email))
 
 	query := `
-		SELECT id, user_id, email, name, npub, notes, organization, phone,
+		SELECT id, mailbox_pubkey, email, name, npub, notes, organization, phone,
 		       always_encrypt, blocked, created_at, updated_at, deleted_at
 		FROM contacts
-		WHERE user_id = $1 AND email = $2 AND deleted_at IS NULL
+		WHERE mailbox_pubkey = $1 AND email = $2 AND deleted_at IS NULL
 	`
 
 	contact := &Contact{}
-	err := db.db.QueryRowContext(ctx, query, userID, email).Scan(
-		&contact.ID, &contact.UserID, &contact.Email, &contact.Name, &contact.Npub,
+	err := db.db.QueryRowContext(ctx, query, mailboxPubkey, email).Scan(
+		&contact.ID, &contact.MailboxPubkey, &contact.Email, &contact.Name, &contact.Npub,
 		&contact.Notes, &contact.Organization, &contact.Phone,
 		&contact.AlwaysEncrypt, &contact.Blocked, &contact.CreatedAt, &contact.UpdatedAt, &contact.DeletedAt,
 	)
@@ -854,16 +750,16 @@ func (db *PostgreSQL) GetContactByEmail(ctx context.Context, userID, email strin
 }
 
 // ListContacts lists contacts for a user
-func (db *PostgreSQL) ListContacts(ctx context.Context, userID string, opts ListOptions) ([]*Contact, int, error) {
+func (db *PostgreSQL) ListContacts(ctx context.Context, mailboxPubkey string, opts ListOptions) ([]*Contact, int, error) {
 	db.logger.Debug("Listing contacts",
-		zap.String("user_id", userID),
+		zap.String("mailbox_pubkey", mailboxPubkey),
 		zap.Int("limit", opts.Limit),
 		zap.Int("offset", opts.Offset))
 
 	// Count total
 	var total int
-	countQuery := `SELECT COUNT(*) FROM contacts WHERE user_id = $1 AND deleted_at IS NULL`
-	if err := db.db.QueryRowContext(ctx, countQuery, userID).Scan(&total); err != nil {
+	countQuery := `SELECT COUNT(*) FROM contacts WHERE mailbox_pubkey = $1 AND deleted_at IS NULL`
+	if err := db.db.QueryRowContext(ctx, countQuery, mailboxPubkey).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count contacts: %w", err)
 	}
 
@@ -878,15 +774,15 @@ func (db *PostgreSQL) ListContacts(ctx context.Context, userID string, opts List
 	}
 
 	selectQuery := fmt.Sprintf(`
-		SELECT id, user_id, email, name, npub, notes, organization, phone,
+		SELECT id, mailbox_pubkey, email, name, npub, notes, organization, phone,
 		       always_encrypt, blocked, created_at, updated_at, deleted_at
 		FROM contacts
-		WHERE user_id = $1 AND deleted_at IS NULL
+		WHERE mailbox_pubkey = $1 AND deleted_at IS NULL
 		ORDER BY %s %s NULLS LAST
 		LIMIT $2 OFFSET $3
 	`, orderBy, orderDir)
 
-	rows, err := db.db.QueryContext(ctx, selectQuery, userID, opts.Limit, opts.Offset)
+	rows, err := db.db.QueryContext(ctx, selectQuery, mailboxPubkey, opts.Limit, opts.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list contacts: %w", err)
 	}
@@ -896,7 +792,7 @@ func (db *PostgreSQL) ListContacts(ctx context.Context, userID string, opts List
 	for rows.Next() {
 		contact := &Contact{}
 		err := rows.Scan(
-			&contact.ID, &contact.UserID, &contact.Email, &contact.Name, &contact.Npub,
+			&contact.ID, &contact.MailboxPubkey, &contact.Email, &contact.Name, &contact.Npub,
 			&contact.Notes, &contact.Organization, &contact.Phone,
 			&contact.AlwaysEncrypt, &contact.Blocked, &contact.CreatedAt, &contact.UpdatedAt, &contact.DeletedAt,
 		)
@@ -914,24 +810,24 @@ func (db *PostgreSQL) ListContacts(ctx context.Context, userID string, opts List
 }
 
 // SearchContacts searches contacts by name or email
-func (db *PostgreSQL) SearchContacts(ctx context.Context, userID, query string, limit int) ([]*Contact, error) {
-	db.logger.Debug("Searching contacts", zap.String("user_id", userID), zap.String("query", query))
+func (db *PostgreSQL) SearchContacts(ctx context.Context, mailboxPubkey, query string, limit int) ([]*Contact, error) {
+	db.logger.Debug("Searching contacts", zap.String("mailbox_pubkey", mailboxPubkey), zap.String("query", query))
 
 	if limit <= 0 {
 		limit = 10
 	}
 
 	sqlQuery := `
-		SELECT id, user_id, email, name, npub, notes, organization, phone,
+		SELECT id, mailbox_pubkey, email, name, npub, notes, organization, phone,
 		       always_encrypt, blocked, created_at, updated_at, deleted_at
 		FROM contacts
-		WHERE user_id = $1 AND deleted_at IS NULL
+		WHERE mailbox_pubkey = $1 AND deleted_at IS NULL
 		  AND (name ILIKE $2 OR email ILIKE $2)
 		ORDER BY name ASC NULLS LAST
 		LIMIT $3
 	`
 
-	rows, err := db.db.QueryContext(ctx, sqlQuery, userID, "%"+query+"%", limit)
+	rows, err := db.db.QueryContext(ctx, sqlQuery, mailboxPubkey, "%"+query+"%", limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search contacts: %w", err)
 	}
@@ -941,7 +837,7 @@ func (db *PostgreSQL) SearchContacts(ctx context.Context, userID, query string, 
 	for rows.Next() {
 		contact := &Contact{}
 		err := rows.Scan(
-			&contact.ID, &contact.UserID, &contact.Email, &contact.Name, &contact.Npub,
+			&contact.ID, &contact.MailboxPubkey, &contact.Email, &contact.Name, &contact.Npub,
 			&contact.Notes, &contact.Organization, &contact.Phone,
 			&contact.AlwaysEncrypt, &contact.Blocked, &contact.CreatedAt, &contact.UpdatedAt, &contact.DeletedAt,
 		)
@@ -1132,7 +1028,7 @@ func (db *PostgreSQL) LogAuditEvent(ctx context.Context, entry *AuditLogEntry) e
 	}
 
 	query := `
-		INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details, ip_address, user_agent)
+		INSERT INTO audit_log (id, mailbox_pubkey, action, resource_type, resource_id, details, ip_address, user_agent)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
@@ -1146,7 +1042,7 @@ func (db *PostgreSQL) LogAuditEvent(ctx context.Context, entry *AuditLogEntry) e
 	}
 
 	_, err := db.db.ExecContext(ctx, query,
-		entry.ID, entry.UserID, entry.Action, entry.ResourceType, entry.ResourceID,
+		entry.ID, entry.MailboxPubkey, entry.Action, entry.ResourceType, entry.ResourceID,
 		detailsJSON, entry.IPAddress, entry.UserAgent,
 	)
 	if err != nil {
@@ -1168,11 +1064,16 @@ func (db *PostgreSQL) Migrate(ctx context.Context) error {
 	// In production, you'd use a migration tool like golang-migrate
 	// For now, we'll just check if tables exist
 
+	// Check for a table this service actually owns. Note the schema filter:
+	// cloistr-email shares the database with the platform schema, so an
+	// unqualified table_name lookup would be satisfied by public.users (which
+	// belongs to cloistr-me) and report success even on an uninitialized
+	// email schema.
 	var exists bool
 	err := db.db.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
-			WHERE table_name = 'users'
+			WHERE table_schema = 'email' AND table_name = 'mailboxes'
 		)
 	`).Scan(&exists)
 
@@ -1181,8 +1082,8 @@ func (db *PostgreSQL) Migrate(ctx context.Context) error {
 	}
 
 	if !exists {
-		db.logger.Warn("Database tables not found - please run schema.sql manually")
-		return fmt.Errorf("database not initialized: please run configs/schema.sql")
+		db.logger.Warn("email.mailboxes not found - run configs/schema.sql and configs/migrations/*.sql")
+		return fmt.Errorf("database not initialized: missing email.mailboxes (apply configs/migrations/008_mailboxes.sql)")
 	}
 
 	db.logger.Info("Database migrations complete")
@@ -1229,6 +1130,8 @@ type Address struct {
 	Pubkey          string // hex npub
 	Active          bool
 	Verified        bool
+	IsPrimary       bool // the canonical send-from address for this pubkey
+	NIP05Active     bool // whether this address serves NIP-05 for the pubkey
 	DisplayName     *string // nullable, added via migration
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -1247,16 +1150,19 @@ func (db *PostgreSQL) GetAddressByPubkey(ctx context.Context, pubkey string) (*A
 	db.logger.Debug("Getting address by pubkey", zap.String("pubkey", pubkey))
 
 	query := `
-		SELECT id, username, domain, pubkey, active, verified, display_name,
+		SELECT id, username, domain, pubkey, active, verified,
+		       COALESCE(is_primary, false), COALESCE(nip05_active, false), display_name,
 		       created_at, updated_at, expires_at, grace_period_ends, ban_reason
 		FROM addresses
 		WHERE pubkey = $1 AND active = true
+		ORDER BY is_primary DESC NULLS LAST, id ASC
+		LIMIT 1
 	`
 
 	addr := &Address{}
 	err := db.db.QueryRowContext(ctx, query, pubkey).Scan(
 		&addr.ID, &addr.Username, &addr.Domain, &addr.Pubkey,
-		&addr.Active, &addr.Verified, &addr.DisplayName,
+		&addr.Active, &addr.Verified, &addr.IsPrimary, &addr.NIP05Active, &addr.DisplayName,
 		&addr.CreatedAt, &addr.UpdatedAt, &addr.ExpiresAt,
 		&addr.GracePeriodEnds, &addr.BanReason,
 	)
@@ -1283,7 +1189,8 @@ func (db *PostgreSQL) GetAddressByEmail(ctx context.Context, email string) (*Add
 	username, domain := parts[0], parts[1]
 
 	query := `
-		SELECT id, username, domain, pubkey, active, verified, display_name,
+		SELECT id, username, domain, pubkey, active, verified,
+		       COALESCE(is_primary, false), COALESCE(nip05_active, false), display_name,
 		       created_at, updated_at, expires_at, grace_period_ends, ban_reason
 		FROM addresses
 		WHERE username = $1 AND domain = $2 AND active = true
@@ -1292,7 +1199,7 @@ func (db *PostgreSQL) GetAddressByEmail(ctx context.Context, email string) (*Add
 	addr := &Address{}
 	err := db.db.QueryRowContext(ctx, query, username, domain).Scan(
 		&addr.ID, &addr.Username, &addr.Domain, &addr.Pubkey,
-		&addr.Active, &addr.Verified, &addr.DisplayName,
+		&addr.Active, &addr.Verified, &addr.IsPrimary, &addr.NIP05Active, &addr.DisplayName,
 		&addr.CreatedAt, &addr.UpdatedAt, &addr.ExpiresAt,
 		&addr.GracePeriodEnds, &addr.BanReason,
 	)
@@ -1397,4 +1304,42 @@ func (db *PostgreSQL) UpsertDomain(ctx context.Context, d *Domain) error {
 		return fmt.Errorf("failed to upsert domain: %w", err)
 	}
 	return nil
+}
+
+// GetAddressesByPubkey returns every ACTIVE address owned by pubkey, primary
+// first. With the N-addresses-per-pubkey model these are all valid delivery
+// routes into the one mailbox, and all valid send-from identities.
+func (db *PostgreSQL) GetAddressesByPubkey(ctx context.Context, pubkey string) ([]*Address, error) {
+	db.logger.Debug("Getting all addresses by pubkey", zap.String("pubkey", pubkey))
+
+	query := `
+		SELECT id, username, domain, pubkey, active, verified,
+		       COALESCE(is_primary, false), COALESCE(nip05_active, false), display_name,
+		       created_at, updated_at, expires_at, grace_period_ends, ban_reason
+		FROM addresses
+		WHERE pubkey = $1 AND active = true
+		ORDER BY is_primary DESC NULLS LAST, id ASC
+	`
+
+	rows, err := db.db.QueryContext(ctx, query, pubkey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list addresses by pubkey: %w", err)
+	}
+	defer rows.Close()
+
+	var addrs []*Address
+	for rows.Next() {
+		addr := &Address{}
+		if err := rows.Scan(
+			&addr.ID, &addr.Username, &addr.Domain, &addr.Pubkey,
+			&addr.Active, &addr.Verified, &addr.IsPrimary, &addr.NIP05Active, &addr.DisplayName,
+			&addr.CreatedAt, &addr.UpdatedAt, &addr.ExpiresAt,
+			&addr.GracePeriodEnds, &addr.BanReason,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan address: %w", err)
+		}
+		addrs = append(addrs, addr)
+	}
+
+	return addrs, rows.Err()
 }

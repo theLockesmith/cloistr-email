@@ -51,8 +51,8 @@ func TestEmailStorageIntegration(t *testing.T) {
 
 	t.Run("create and retrieve email", func(t *testing.T) {
 		email := &storage.Email{
-			UserID:      "test-user-1",
-			FromAddress: "alice@cloistr.xyz",
+			MailboxPubkey: "0000000000000000000000000000000000000000000000000000000000000001",
+			FromAddress:   "alice@cloistr.xyz",
 			ToAddress:   "bob@example.com",
 			Subject:     "Test Email Subject",
 			Body:        "Hello, this is a test email body.",
@@ -89,7 +89,7 @@ func TestEmailStorageIntegration(t *testing.T) {
 		recipientNpub := "npub1recipient0000000000000000000000000000000000000000000000"
 
 		email := &storage.Email{
-			UserID:        "test-user-2",
+			MailboxPubkey: "0000000000000000000000000000000000000000000000000000000000000002",
 			FromAddress:   "alice@cloistr.xyz",
 			ToAddress:     "bob@cloistr.xyz",
 			Subject:       "Encrypted Test Email",
@@ -122,13 +122,13 @@ func TestEmailStorageIntegration(t *testing.T) {
 	})
 
 	t.Run("list emails with filters", func(t *testing.T) {
-		userID := "test-user-list"
+		userPubkey := "0000000000000000000000000000000000000000000000000000000000000003"
 
 		// Create multiple emails
 		for i := 0; i < 5; i++ {
 			email := &storage.Email{
-				UserID:      userID,
-				FromAddress: "alice@cloistr.xyz",
+				MailboxPubkey: userPubkey,
+				FromAddress:   "alice@cloistr.xyz",
 				ToAddress:   "bob@example.com",
 				Subject:     "List Test Email",
 				Body:        "Test body",
@@ -150,7 +150,7 @@ func TestEmailStorageIntegration(t *testing.T) {
 			Offset: 0,
 		}
 
-		emails, total, err := db.ListEmails(ctx, userID, filter, opts)
+		emails, total, err := db.ListEmails(ctx, userPubkey, filter, opts)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, total, 5, "Should have at least 5 emails")
 		assert.GreaterOrEqual(t, len(emails), 5, "Should return at least 5 emails")
@@ -158,8 +158,8 @@ func TestEmailStorageIntegration(t *testing.T) {
 
 	t.Run("soft delete email", func(t *testing.T) {
 		email := &storage.Email{
-			UserID:      "test-user-delete",
-			FromAddress: "alice@cloistr.xyz",
+			MailboxPubkey: "0000000000000000000000000000000000000000000000000000000000000004",
+			FromAddress:   "alice@cloistr.xyz",
 			ToAddress:   "bob@example.com",
 			Subject:     "Delete Test",
 			Body:        "To be deleted",

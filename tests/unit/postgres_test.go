@@ -15,6 +15,10 @@ import (
 	"go.uber.org/zap"
 )
 
+// testPubkey is a valid 64-char lowercase hex string used as a stand-in owner
+// pubkey in unit tests that need a MailboxPubkey value but don't touch the DB.
+const testPubkey = "0000000000000000000000000000000000000000000000000000000000000001"
+
 // createTestDB creates a mock database for testing
 func createTestDB(t *testing.T) (*storage.PostgreSQL, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
@@ -38,31 +42,6 @@ func createTestDB(t *testing.T) (*storage.PostgreSQL, sqlmock.Sqlmock) {
 // Model Tests
 // ============================================================================
 
-// TestUserModel tests the User struct
-func TestUserModel(t *testing.T) {
-	now := time.Now()
-
-	user := &storage.User{
-		ID:               "test-uuid",
-		Npub:             "npub1test...",
-		Email:            "test@example.com",
-		EmailVerified:    true,
-		EmailVerifiedAt:  &now,
-		PublicKey:        "abcdef123456",
-		EncryptionMethod: "nip44",
-		CreatedAt:        now,
-		UpdatedAt:        now,
-	}
-
-	assert.Equal(t, "test-uuid", user.ID)
-	assert.Equal(t, "npub1test...", user.Npub)
-	assert.Equal(t, "test@example.com", user.Email)
-	assert.True(t, user.EmailVerified)
-	assert.NotNil(t, user.EmailVerifiedAt)
-	assert.Equal(t, "abcdef123456", user.PublicKey)
-	assert.Equal(t, "nip44", user.EncryptionMethod)
-}
-
 // TestEmailModel tests the Email struct
 func TestEmailModel(t *testing.T) {
 	now := time.Now()
@@ -72,7 +51,7 @@ func TestEmailModel(t *testing.T) {
 
 	email := &storage.Email{
 		ID:            "email-uuid",
-		UserID:        "user-uuid",
+		MailboxPubkey: testPubkey,
 		MessageID:     &messageID,
 		FromAddress:   "sender@example.com",
 		ToAddress:     "recipient@example.com",
@@ -90,7 +69,7 @@ func TestEmailModel(t *testing.T) {
 	}
 
 	assert.Equal(t, "email-uuid", email.ID)
-	assert.Equal(t, "user-uuid", email.UserID)
+	assert.Equal(t, testPubkey, email.MailboxPubkey)
 	assert.Equal(t, "msg-123", *email.MessageID)
 	assert.Equal(t, "sender@example.com", email.FromAddress)
 	assert.Equal(t, "recipient@example.com", email.ToAddress)
@@ -113,7 +92,7 @@ func TestContactModel(t *testing.T) {
 
 	contact := &storage.Contact{
 		ID:            "contact-uuid",
-		UserID:        "user-uuid",
+		MailboxPubkey: testPubkey,
 		Email:         "alice@example.com",
 		Name:          &name,
 		Npub:          &npub,
@@ -127,7 +106,7 @@ func TestContactModel(t *testing.T) {
 	}
 
 	assert.Equal(t, "contact-uuid", contact.ID)
-	assert.Equal(t, "user-uuid", contact.UserID)
+	assert.Equal(t, testPubkey, contact.MailboxPubkey)
 	assert.Equal(t, "alice@example.com", contact.Email)
 	assert.Equal(t, "Alice", *contact.Name)
 	assert.Equal(t, "npub1alice...", *contact.Npub)
@@ -185,7 +164,7 @@ func TestNIP05CacheEntry(t *testing.T) {
 // TestAuditLogEntry tests the AuditLogEntry struct
 func TestAuditLogEntry(t *testing.T) {
 	now := time.Now()
-	userID := "user-uuid"
+	pubkey := testPubkey
 	resourceType := "email"
 	resourceID := "email-uuid"
 	ipAddress := "192.168.1.1"
@@ -193,7 +172,7 @@ func TestAuditLogEntry(t *testing.T) {
 
 	entry := &storage.AuditLogEntry{
 		ID:           "audit-uuid",
-		UserID:       &userID,
+		MailboxPubkey: &pubkey,
 		Action:       "send_email",
 		ResourceType: &resourceType,
 		ResourceID:   &resourceID,
@@ -207,7 +186,7 @@ func TestAuditLogEntry(t *testing.T) {
 	}
 
 	assert.Equal(t, "audit-uuid", entry.ID)
-	assert.Equal(t, "user-uuid", *entry.UserID)
+	assert.Equal(t, testPubkey, *entry.MailboxPubkey)
 	assert.Equal(t, "send_email", entry.Action)
 	assert.Equal(t, "email", *entry.ResourceType)
 	assert.Equal(t, "email-uuid", *entry.ResourceID)
@@ -268,8 +247,8 @@ func TestEmailFilter(t *testing.T) {
 // PostgreSQL with Mock Tests
 // ============================================================================
 
-// TestPostgresCreateUser tests user creation with mock
-func TestPostgresCreateUser(t *testing.T) {
+// TestPostgresEnsureMailbox tests mailbox upsert with mock
+func TestPostgresEnsureMailbox(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
@@ -279,43 +258,22 @@ func TestPostgresCreateUser(t *testing.T) {
 
 	now := time.Now()
 
-	t.Run("successful user creation", func(t *testing.T) {
-		user := &storage.User{
-			Npub:      "npub1test123",
-			Email:     "test@example.com",
-			PublicKey: "abcdef123456",
-		}
+	t.Run("ensure creates new mailbox", func(t *testing.T) {
+		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO mailboxes`)).
+			WithArgs(testPubkey).
+			WillReturnRows(sqlmock.NewRows([]string{"pubkey", "display_name", "created_at", "updated_at", "deleted_at"}).
+				AddRow(testPubkey, nil, now, now, nil))
 
-		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO users`)).
-			WithArgs(sqlmock.AnyArg(), user.Npub, user.Email, false, user.PublicKey, "nip44").
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
-				AddRow(now, now))
-
-		err := postgres.CreateUser(context.Background(), user)
+		mb, err := postgres.EnsureMailbox(context.Background(), testPubkey)
 		assert.NoError(t, err)
-		assert.NotEmpty(t, user.ID)
-		assert.Equal(t, now, user.CreatedAt)
-	})
-
-	t.Run("duplicate user error", func(t *testing.T) {
-		user := &storage.User{
-			Npub:      "npub1test123",
-			Email:     "test@example.com",
-			PublicKey: "abcdef123456",
-		}
-
-		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO users`)).
-			WithArgs(sqlmock.AnyArg(), user.Npub, user.Email, false, user.PublicKey, "nip44").
-			WillReturnError(&pq.Error{Code: "23505"})
-
-		err := postgres.CreateUser(context.Background(), user)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "user already exists")
+		require.NotNil(t, mb)
+		assert.Equal(t, testPubkey, mb.Pubkey)
+		assert.Equal(t, now, mb.CreatedAt)
 	})
 }
 
-// TestPostgresGetUser tests user retrieval with mock
-func TestPostgresGetUser(t *testing.T) {
+// TestPostgresGetMailboxByPubkey tests mailbox retrieval with mock
+func TestPostgresGetMailboxByPubkey(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
@@ -325,39 +283,29 @@ func TestPostgresGetUser(t *testing.T) {
 
 	now := time.Now()
 
-	t.Run("user found", func(t *testing.T) {
-		userID := "test-uuid"
-
+	t.Run("mailbox found", func(t *testing.T) {
 		rows := sqlmock.NewRows([]string{
-			"id", "npub", "email", "email_verified", "email_verified_at",
-			"public_key", "encryption_method", "created_at", "updated_at", "deleted_at",
-		}).AddRow(
-			userID, "npub1test", "test@example.com", true, now,
-			"pubkey123", "nip44", now, now, nil,
-		)
+			"pubkey", "display_name", "created_at", "updated_at", "deleted_at",
+		}).AddRow(testPubkey, nil, now, now, nil)
 
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, npub, email`)).
-			WithArgs(userID).
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT pubkey, display_name, created_at, updated_at, deleted_at FROM mailboxes`)).
+			WithArgs(testPubkey).
 			WillReturnRows(rows)
 
-		user, err := postgres.GetUser(context.Background(), userID)
+		mb, err := postgres.GetMailboxByPubkey(context.Background(), testPubkey)
 		assert.NoError(t, err)
-		require.NotNil(t, user)
-		assert.Equal(t, userID, user.ID)
-		assert.Equal(t, "npub1test", user.Npub)
-		assert.Equal(t, "test@example.com", user.Email)
+		require.NotNil(t, mb)
+		assert.Equal(t, testPubkey, mb.Pubkey)
 	})
 
-	t.Run("user not found", func(t *testing.T) {
-		userID := "nonexistent-uuid"
-
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, npub, email`)).
-			WithArgs(userID).
+	t.Run("mailbox not found", func(t *testing.T) {
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT pubkey, display_name, created_at, updated_at, deleted_at FROM mailboxes`)).
+			WithArgs(testPubkey).
 			WillReturnError(sql.ErrNoRows)
 
-		user, err := postgres.GetUser(context.Background(), userID)
+		mb, err := postgres.GetMailboxByPubkey(context.Background(), testPubkey)
 		assert.NoError(t, err)
-		assert.Nil(t, user)
+		assert.Nil(t, mb)
 	})
 }
 
@@ -374,17 +322,17 @@ func TestPostgresCreateEmail(t *testing.T) {
 
 	t.Run("successful email creation", func(t *testing.T) {
 		email := &storage.Email{
-			UserID:      "user-uuid",
-			FromAddress: "sender@example.com",
-			ToAddress:   "recipient@example.com",
-			Subject:     "Test Subject",
-			Body:        "Test Body",
-			IsEncrypted: true,
+			MailboxPubkey: testPubkey,
+			FromAddress:   "sender@example.com",
+			ToAddress:     "recipient@example.com",
+			Subject:       "Test Subject",
+			Body:          "Test Body",
+			IsEncrypted:   true,
 		}
 
 		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO emails`)).
 			WithArgs(
-				sqlmock.AnyArg(), email.UserID, nil, email.FromAddress, email.ToAddress,
+				sqlmock.AnyArg(), email.MailboxPubkey, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
 				email.IsEncrypted, nil, nil, nil, nil,
 				"sent", "active", "Sent", pq.Array([]string(nil)),
@@ -402,17 +350,17 @@ func TestPostgresCreateEmail(t *testing.T) {
 
 	t.Run("email with direction received", func(t *testing.T) {
 		email := &storage.Email{
-			UserID:      "user-uuid",
-			FromAddress: "sender@example.com",
-			ToAddress:   "recipient@example.com",
-			Subject:     "Test Subject",
-			Body:        "Test Body",
-			Direction:   "received",
+			MailboxPubkey: testPubkey,
+			FromAddress:   "sender@example.com",
+			ToAddress:     "recipient@example.com",
+			Subject:       "Test Subject",
+			Body:          "Test Body",
+			Direction:     "received",
 		}
 
 		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO emails`)).
 			WithArgs(
-				sqlmock.AnyArg(), email.UserID, nil, email.FromAddress, email.ToAddress,
+				sqlmock.AnyArg(), email.MailboxPubkey, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
 				false, nil, nil, nil, nil,
 				"received", "active", "INBOX", pq.Array([]string(nil)),
@@ -427,17 +375,17 @@ func TestPostgresCreateEmail(t *testing.T) {
 
 	t.Run("draft email", func(t *testing.T) {
 		email := &storage.Email{
-			UserID:      "user-uuid",
-			FromAddress: "sender@example.com",
-			ToAddress:   "recipient@example.com",
-			Subject:     "Draft Subject",
-			Body:        "Draft Body",
-			Direction:   "draft",
+			MailboxPubkey: testPubkey,
+			FromAddress:   "sender@example.com",
+			ToAddress:     "recipient@example.com",
+			Subject:       "Draft Subject",
+			Body:          "Draft Body",
+			Direction:     "draft",
 		}
 
 		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO emails`)).
 			WithArgs(
-				sqlmock.AnyArg(), email.UserID, nil, email.FromAddress, email.ToAddress,
+				sqlmock.AnyArg(), email.MailboxPubkey, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
 				false, nil, nil, nil, nil,
 				"draft", "active", "Drafts", pq.Array([]string(nil)),
@@ -466,7 +414,7 @@ func TestPostgresCreateContact(t *testing.T) {
 
 	t.Run("successful contact creation", func(t *testing.T) {
 		contact := &storage.Contact{
-			UserID:        "user-uuid",
+			MailboxPubkey: testPubkey,
 			Email:         "alice@example.com",
 			Name:          &name,
 			Npub:          &npub,
@@ -475,7 +423,7 @@ func TestPostgresCreateContact(t *testing.T) {
 
 		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO contacts`)).
 			WithArgs(
-				sqlmock.AnyArg(), contact.UserID, contact.Email, contact.Name, contact.Npub,
+				sqlmock.AnyArg(), contact.MailboxPubkey, contact.Email, contact.Name, contact.Npub,
 				nil, nil, nil, contact.AlwaysEncrypt, false,
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
@@ -488,13 +436,13 @@ func TestPostgresCreateContact(t *testing.T) {
 
 	t.Run("duplicate contact error", func(t *testing.T) {
 		contact := &storage.Contact{
-			UserID: "user-uuid",
-			Email:  "alice@example.com",
+			MailboxPubkey: testPubkey,
+			Email:         "alice@example.com",
 		}
 
 		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO contacts`)).
 			WithArgs(
-				sqlmock.AnyArg(), contact.UserID, contact.Email, nil, nil,
+				sqlmock.AnyArg(), contact.MailboxPubkey, contact.Email, nil, nil,
 				nil, nil, nil, false, false,
 			).
 			WillReturnError(&pq.Error{Code: "23505"})

@@ -87,14 +87,13 @@ func TestE2EAttachmentBlossomRoundTrip(t *testing.T) {
 	svc := NewService(idSvc, nil, encSvc, db, logger).
 		WithBlossom([]blossom.Server{{URL: ts.URL, Priority: 0}}, 1)
 
-	// Seed user + a parent email row (attachments.email_id FK).
-	user := &storage.User{Npub: pub, Email: pub[:16] + "@cloistr.xyz", PublicKey: pub, EncryptionMethod: "nip44"}
-	if err := db.CreateUser(ctx, user); err != nil {
-		t.Fatalf("create user: %v", err)
+	// Seed mailbox + a parent email row (attachments.email_id FK).
+	if _, err := db.EnsureMailbox(ctx, pub); err != nil {
+		t.Fatalf("ensure mailbox: %v", err)
 	}
 	serverMode := "server"
 	em := &storage.Email{
-		UserID: user.ID, FromAddress: "alice@cloistr.xyz", ToAddress: "bob@example.com",
+		MailboxPubkey: pub, FromAddress: "alice@cloistr.xyz", ToAddress: "bob@example.com",
 		Subject: "with attachment", Body: "", IsEncrypted: true, EncryptionMode: &serverMode,
 		SenderNpub: &pub, Direction: "sent", Folder: "Sent", Status: "active",
 	}

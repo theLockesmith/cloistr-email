@@ -89,17 +89,35 @@ func (p *InboundProcessor) HandleMessage(ctx context.Context, from string, to []
 	return nil
 }
 
-// ValidateRecipient implements transport.RecipientValidator
+// ValidateRecipient implements transport.RecipientValidator.
+//
+// Authority for "is this a deliverable address" is the shared addresses table
+// (owned by cloistr-me), NOT any local record: a user who has picked a handle
+// must be able to receive mail before they have ever logged in here. Any
+// active alias resolves to its owner's single mailbox.
 func (p *InboundProcessor) ValidateRecipient(ctx context.Context, address string) error {
-	// Check if user exists in our database
-	user, err := p.db.GetUserByEmail(ctx, address)
+	pubkey, err := p.resolveRecipientPubkey(ctx, address)
 	if err != nil {
-		return fmt.Errorf("recipient lookup failed: %w", err)
+		return err
 	}
-	if user == nil {
-		return fmt.Errorf("user not found: %s", address)
+	if pubkey == "" {
+		return fmt.Errorf("no such recipient: %s", address)
 	}
 	return nil
+}
+
+// resolveRecipientPubkey maps an inbound recipient address to the owning
+// pubkey via the shared addresses table. Returns ("", nil) when the address
+// is unknown or inactive.
+func (p *InboundProcessor) resolveRecipientPubkey(ctx context.Context, address string) (string, error) {
+	addr, err := p.db.GetAddressByEmail(ctx, address)
+	if err != nil {
+		return "", fmt.Errorf("recipient lookup failed: %w", err)
+	}
+	if addr == nil || !addr.Active {
+		return "", nil
+	}
+	return addr.Pubkey, nil
 }
 
 // ParsedMessage represents a parsed email message
@@ -282,18 +300,26 @@ func (p *InboundProcessor) parseMultipart(body io.Reader, boundary string, parse
 
 // storeForRecipient stores the message for a specific recipient
 func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *ParsedMessage, recipient string, verifyResult *VerificationResult) error {
-	// Look up the recipient user
-	user, err := p.db.GetUserByEmail(ctx, recipient)
+	// Resolve the recipient address to its owning pubkey, then land the message
+	// in that pubkey's single mailbox. Aliases converge here: every active
+	// address for a pubkey delivers to the same mailbox.
+	pubkey, err := p.resolveRecipientPubkey(ctx, recipient)
 	if err != nil {
-		return fmt.Errorf("failed to lookup user: %w", err)
+		return err
 	}
-	if user == nil {
-		return fmt.Errorf("user not found: %s", recipient)
+	if pubkey == "" {
+		return fmt.Errorf("no such recipient: %s", recipient)
+	}
+
+	// The mailbox is created on first delivery — the addresses table already
+	// authorized this recipient, so no prior login is required.
+	if _, err := p.db.EnsureMailbox(ctx, pubkey); err != nil {
+		return fmt.Errorf("failed to ensure mailbox: %w", err)
 	}
 
 	// Build the email record
 	email := &storage.Email{
-		UserID:      user.ID,
+		MailboxPubkey: pubkey,
 		FromAddress: parsed.From,
 		ToAddress:   recipient,
 		Subject:     parsed.Subject,

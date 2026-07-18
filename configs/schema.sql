@@ -1,35 +1,34 @@
 -- coldforge-email Database Schema
 
--- Users table
--- Stores Nostr identities and email accounts
-CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    npub VARCHAR(128) NOT NULL UNIQUE, -- Nostr public key (64-char hex in practice; bech32-capable width)
-    email VARCHAR(255) NOT NULL UNIQUE,
-    email_verified BOOLEAN DEFAULT FALSE,
-    email_verified_at TIMESTAMP,
-    public_key TEXT NOT NULL,
-    encryption_method VARCHAR(50) DEFAULT 'nip44',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP
+-- Mailboxes table
+-- ONE mailbox per Nostr pubkey. cloistr-email deliberately keeps NO private
+-- identity table: identity (who owns which @cloistr.xyz address) lives in the
+-- shared platform tables public.users / public.addresses, owned by cloistr-me.
+-- Addresses (primary + aliases) are delivery ROUTES into this single mailbox:
+--   username@domain -> public.addresses -> pubkey -> mailboxes.pubkey
+-- No FK to public.users(pubkey): the cloistr_email role holds SELECT but not
+-- REFERENCES on the shared schema, so ownership is enforced in the app layer.
+CREATE TABLE IF NOT EXISTS mailboxes (
+    pubkey CHAR(64) PRIMARY KEY,
+    display_name VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    CONSTRAINT mailboxes_pubkey_hex CHECK (pubkey ~ '^[0-9a-f]{64}$')
 );
-
-CREATE INDEX IF NOT EXISTS idx_users_npub ON users(npub);
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Sessions table
 -- Stores authenticated sessions
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mailbox_pubkey CHAR(64) NOT NULL REFERENCES mailboxes(pubkey) ON DELETE CASCADE,
     token VARCHAR(255) NOT NULL UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP NOT NULL,
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_mailbox_pubkey ON sessions(mailbox_pubkey);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
@@ -37,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 -- Stores email metadata and encrypted bodies
 CREATE TABLE IF NOT EXISTS emails (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mailbox_pubkey CHAR(64) NOT NULL REFERENCES mailboxes(pubkey) ON DELETE CASCADE,
     message_id VARCHAR(255) UNIQUE,
     from_address VARCHAR(255) NOT NULL,
     to_address VARCHAR(255) NOT NULL,
@@ -67,7 +66,7 @@ CREATE TABLE IF NOT EXISTS emails (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+CREATE INDEX IF NOT EXISTS idx_emails_mailbox_pubkey ON emails(mailbox_pubkey);
 CREATE INDEX IF NOT EXISTS idx_emails_from ON emails(from_address);
 CREATE INDEX IF NOT EXISTS idx_emails_to ON emails(to_address);
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
@@ -95,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id);
 -- Address book for users
 CREATE TABLE IF NOT EXISTS contacts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mailbox_pubkey CHAR(64) NOT NULL REFERENCES mailboxes(pubkey) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
     name VARCHAR(255),
     npub VARCHAR(128),
@@ -109,10 +108,10 @@ CREATE TABLE IF NOT EXISTS contacts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP,
-    UNIQUE(user_id, email)
+    UNIQUE(mailbox_pubkey, email)
 );
 
-CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_mailbox_pubkey ON contacts(mailbox_pubkey);
 CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
 CREATE INDEX IF NOT EXISTS idx_contacts_npub ON contacts(npub);
 CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
@@ -136,7 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_nip05_cache_expires_at ON nip05_cache(expires_at)
 -- Stores imported and generated encryption keys
 CREATE TABLE IF NOT EXISTS encryption_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mailbox_pubkey CHAR(64) NOT NULL REFERENCES mailboxes(pubkey) ON DELETE CASCADE,
     contact_npub VARCHAR(128),
     public_key TEXT NOT NULL,
     -- Key metadata
@@ -147,14 +146,14 @@ CREATE TABLE IF NOT EXISTS encryption_keys (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_encryption_keys_user_id ON encryption_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_encryption_keys_mailbox_pubkey ON encryption_keys(mailbox_pubkey);
 CREATE INDEX IF NOT EXISTS idx_encryption_keys_contact_npub ON encryption_keys(contact_npub);
 
 -- Email Templates table
 -- For signature templates and canned responses
 CREATE TABLE IF NOT EXISTS email_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mailbox_pubkey CHAR(64) NOT NULL REFERENCES mailboxes(pubkey) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     subject VARCHAR(255),
     body TEXT NOT NULL,
@@ -164,13 +163,13 @@ CREATE TABLE IF NOT EXISTS email_templates (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_email_templates_user_id ON email_templates(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_templates_mailbox_pubkey ON email_templates(mailbox_pubkey);
 
 -- Audit Log
 -- Tracks important actions for security
 CREATE TABLE IF NOT EXISTS audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    mailbox_pubkey CHAR(64) REFERENCES mailboxes(pubkey) ON DELETE SET NULL,
     action VARCHAR(50) NOT NULL,
     resource_type VARCHAR(50),
     resource_id VARCHAR(255),
@@ -180,7 +179,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_mailbox_pubkey ON audit_log(mailbox_pubkey);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
 

@@ -249,7 +249,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		storedBody, storedMode := s.bodyAtRest(ctx, req)
 
 		email := &storage.Email{
-			UserID:         "", // Will be set by GetUserByNpub
+			MailboxPubkey:  req.SenderNpub,
 			MessageID:      stringPtr(deliveryResult.MessageID),
 			FromAddress:    senderAddr.Email,
 			ToAddress:      req.To[0], // Primary recipient
@@ -263,10 +263,12 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 			Status:         "active",
 		}
 
-		// Get sender's user record
-		user, err := s.db.GetUserByNpub(ctx, req.SenderNpub)
-		if err == nil && user != nil {
-			email.UserID = user.ID
+		// The mailbox is keyed by the sender's pubkey; make sure it exists so
+		// the emails FK resolves. Sender eligibility was already validated
+		// against the shared addresses table above.
+		if _, err := s.db.EnsureMailbox(ctx, req.SenderNpub); err != nil {
+			s.logger.Warn("Failed to ensure sender mailbox",
+				zap.Error(err), zap.String("pubkey", req.SenderNpub))
 		}
 
 		// Set recipient pubkey if available
@@ -324,14 +326,6 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 		return nil, fmt.Errorf("user validation failed: %w", err)
 	}
 
-	// Get user record
-	user, err := s.db.GetUserByNpub(ctx, userNpub)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		return nil, fmt.Errorf("user not found")
-	}
 
 	// Get email
 	email, err := s.db.GetEmail(ctx, emailID)
@@ -343,7 +337,7 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 	}
 
 	// Verify ownership
-	if email.UserID != user.ID {
+	if email.MailboxPubkey != userNpub {
 		return nil, fmt.Errorf("access denied")
 	}
 
@@ -468,20 +462,9 @@ type GetEmailResult struct {
 
 // ListEmails retrieves a list of emails for a user
 func (s *Service) ListEmails(ctx context.Context, userNpub string, filter *storage.EmailFilter, opts storage.ListOptions) ([]*storage.Email, int, error) {
-	// Get user record
-	user, err := s.db.GetUserByNpub(ctx, userNpub)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		// Authenticated but not yet provisioned in this service (no users
-		// row). This is a normal new-user state, not an error — they simply
-		// have no mail. Return an empty inbox rather than a 500.
-		return []*storage.Email{}, 0, nil
-	}
-
-	// List emails
-	emails, total, err := s.db.ListEmails(ctx, user.ID, filter, opts)
+	// The mailbox IS the pubkey — no identity lookup needed. An unprovisioned
+	// pubkey simply has no rows, which naturally yields an empty inbox.
+	emails, total, err := s.db.ListEmails(ctx, userNpub, filter, opts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list emails: %w", err)
 	}
@@ -491,14 +474,6 @@ func (s *Service) ListEmails(ctx context.Context, userNpub string, filter *stora
 
 // DeleteEmail soft-deletes an email
 func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) error {
-	// Get user record
-	user, err := s.db.GetUserByNpub(ctx, userNpub)
-	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		return fmt.Errorf("user not found")
-	}
 
 	// Get email to verify ownership
 	email, err := s.db.GetEmail(ctx, emailID)
@@ -508,7 +483,7 @@ func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) err
 	if email == nil {
 		return fmt.Errorf("email not found")
 	}
-	if email.UserID != user.ID {
+	if email.MailboxPubkey != userNpub {
 		return fmt.Errorf("access denied")
 	}
 
@@ -538,14 +513,6 @@ func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachme
 		return nil, fmt.Errorf("blossom storage is not configured")
 	}
 
-	user, err := s.db.GetUserByNpub(ctx, userNpub)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-	if user == nil {
-		return nil, fmt.Errorf("user not found")
-	}
-
 	email, err := s.db.GetEmail(ctx, emailID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get email: %w", err)
@@ -553,7 +520,7 @@ func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachme
 	if email == nil {
 		return nil, fmt.Errorf("email not found")
 	}
-	if email.UserID != user.ID {
+	if email.MailboxPubkey != userNpub {
 		return nil, fmt.Errorf("access denied")
 	}
 
