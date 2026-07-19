@@ -77,6 +77,12 @@ func (s staticAddressStore) GetByNpub(ctx context.Context, npub string) (*identi
 	}
 	return nil, nil
 }
+func (s staticAddressStore) ListByNpub(ctx context.Context, npub string) ([]*identity.UnifiedAddress, error) {
+	if npub == s.addr.Npub {
+		return []*identity.UnifiedAddress{s.addr}, nil
+	}
+	return nil, nil
+}
 func (s staticAddressStore) GetByEmail(ctx context.Context, email string) (*identity.UnifiedAddress, error) {
 	return s.addr, nil
 }

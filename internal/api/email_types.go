@@ -21,6 +21,11 @@ const (
 // SendEmailRequestV2 is the enhanced request body for sending email.
 // Supports both NIP-46 (server-side) and NIP-07 (client-side) encryption.
 type SendEmailRequestV2 struct {
+	// From selects which of the sender's owned addresses to send as
+	// (optional). Any active alias the authenticated pubkey owns is allowed;
+	// empty means use their primary address.
+	From string `json:"from,omitempty"`
+
 	// To is the recipient's email address (required)
 	To []string `json:"to"`
 

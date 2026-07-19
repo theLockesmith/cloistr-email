@@ -28,7 +28,9 @@ const (
 )
 
 // UnifiedAddress represents the connection between an npub and an email address.
-// This is the core identity concept - one npub maps to one @cloistr.xyz address.
+// An npub may own SEVERAL addresses (one primary plus aliases); all of them
+// deliver into that npub's single mailbox, and any of them may be used as a
+// send-from identity.
 type UnifiedAddress struct {
 	// Npub is the user's Nostr public key (hex format)
 	Npub string
@@ -44,6 +46,10 @@ type UnifiedAddress struct {
 
 	// Verified indicates the npub has been verified via NIP-46 authentication
 	Verified bool
+
+	// IsPrimary marks the canonical send-from address for this npub. Exactly
+	// one owned address is primary; the rest are aliases.
+	IsPrimary bool
 }
 
 // ExternalRecipient represents an external email address that may have a known npub
@@ -64,8 +70,12 @@ type ExternalRecipient struct {
 // AddressStore defines the interface for persisting unified addresses.
 // This will be implemented by the PostgreSQL storage layer.
 type AddressStore interface {
-	// GetByNpub retrieves a unified address by npub
+	// GetByNpub retrieves the npub's PRIMARY unified address
 	GetByNpub(ctx context.Context, npub string) (*UnifiedAddress, error)
+
+	// ListByNpub retrieves every ACTIVE address owned by the npub (primary
+	// first). These are the addresses the npub may legitimately send from.
+	ListByNpub(ctx context.Context, npub string) ([]*UnifiedAddress, error)
 
 	// GetByEmail retrieves a unified address by email
 	GetByEmail(ctx context.Context, email string) (*UnifiedAddress, error)
@@ -152,19 +162,63 @@ func (s *Service) ValidateSender(ctx context.Context, npub string) (*UnifiedAddr
 	return addr, nil
 }
 
-// ValidateFromAddress ensures the sender is using their own address.
-// Users can only send from their unified address, not arbitrary addresses.
-func (s *Service) ValidateFromAddress(ctx context.Context, npub, fromAddress string) error {
-	addr, err := s.ValidateSender(ctx, npub)
+// ResolveFromAddress validates that npub may send as fromAddress and returns
+// the matching owned address.
+//
+// An empty fromAddress means "use my primary". Otherwise the address must be
+// one the npub actually owns — any active alias qualifies, not just the
+// primary — which is what makes send-from-alias possible.
+func (s *Service) ResolveFromAddress(ctx context.Context, npub, fromAddress string) (*UnifiedAddress, error) {
+	// No explicit From: fall back to the primary address (and its full
+	// verification path, including the cloistr-me ownership cross-check).
+	if strings.TrimSpace(fromAddress) == "" {
+		return s.ValidateSender(ctx, npub)
+	}
+
+	owned, err := s.store.ListByNpub(ctx, npub)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to list sender addresses: %w", err)
+	}
+	if len(owned) == 0 {
+		return nil, ErrNoUnifiedAddress
 	}
 
-	if !strings.EqualFold(addr.Email, fromAddress) {
-		return ErrFromAddressMismatch
+	var match *UnifiedAddress
+	for _, addr := range owned {
+		if strings.EqualFold(addr.Email, fromAddress) {
+			match = addr
+			break
+		}
+	}
+	if match == nil {
+		return nil, ErrFromAddressMismatch
+	}
+	if !match.Verified {
+		return nil, ErrAddressNotVerified
 	}
 
-	return nil
+	// Cross-check ownership with cloistr-me (authoritative) when configured.
+	if s.verifier != nil {
+		owned, err := s.verifier.VerifyAddressOwnership(ctx, npub, match.Email)
+		if err != nil {
+			s.logger.Warn("cloistr-me verification failed, allowing based on local data",
+				zap.String("email", match.Email),
+				zap.Error(err))
+		} else if !owned {
+			s.logger.Warn("cloistr-me reports address not owned by pubkey",
+				zap.String("email", match.Email),
+				zap.String("npub", npub[:16]+"..."))
+			return nil, ErrAddressOwnershipMismatch
+		}
+	}
+
+	return match, nil
+}
+
+// ValidateFromAddress ensures the sender may send as fromAddress.
+func (s *Service) ValidateFromAddress(ctx context.Context, npub, fromAddress string) error {
+	_, err := s.ResolveFromAddress(ctx, npub, fromAddress)
+	return err
 }
 
 // ResolveRecipient resolves an email address to get encryption capability info.

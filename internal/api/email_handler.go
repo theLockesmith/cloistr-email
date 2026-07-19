@@ -111,6 +111,7 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	// Build send request
 	sendReq := &email.SendRequest{
 		SenderNpub:       userNpub,
+		From:             req.From,
 		To:               req.To,
 		CC:               req.CC,
 		BCC:              req.BCC,

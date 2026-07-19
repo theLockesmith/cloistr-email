@@ -42,6 +42,22 @@ func (a *AddressStoreAdapter) GetByNpub(ctx context.Context, npub string) (*iden
 	return a.toUnifiedAddress(addr), nil
 }
 
+// ListByNpub returns every active address owned by the npub, primary first.
+// With the alias model an npub may own several; all are valid send-from
+// identities and all deliver into the same mailbox.
+func (a *AddressStoreAdapter) ListByNpub(ctx context.Context, npub string) ([]*identity.UnifiedAddress, error) {
+	addrs, err := a.db.GetAddressesByPubkey(ctx, npub)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*identity.UnifiedAddress, 0, len(addrs))
+	for _, addr := range addrs {
+		out = append(out, a.toUnifiedAddress(addr))
+	}
+	return out, nil
+}
+
 // GetByEmail retrieves a unified address by email
 func (a *AddressStoreAdapter) GetByEmail(ctx context.Context, email string) (*identity.UnifiedAddress, error) {
 	addr, err := a.db.GetAddressByEmail(ctx, email)
@@ -89,6 +105,7 @@ func (a *AddressStoreAdapter) toUnifiedAddress(addr *Address) *identity.UnifiedA
 		Email:       addr.Email(),
 		DisplayName: displayName,
 		Verified:    addr.Verified,
+		IsPrimary:   addr.IsPrimary,
 	}
 }
 

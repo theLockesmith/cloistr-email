@@ -24,6 +24,10 @@ type SendRequest struct {
 	// SenderNpub is the sender's Nostr public key (hex)
 	SenderNpub string
 
+	// From optionally selects which owned address to send as. Empty means the
+	// sender's primary address. Must be an active address SenderNpub owns.
+	From string
+
 	// Recipients
 	To  []string
 	CC  []string
@@ -128,8 +132,10 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	sendStart := time.Now()
 	result := &SendResult{}
 
-	// 1. Validate sender has a unified address
-	senderAddr, err := s.identitySvc.ValidateSender(ctx, req.SenderNpub)
+	// 1. Resolve and authorize the send-from address. An explicit From must be
+	// an address this pubkey owns (any active alias); empty falls back to
+	// their primary address.
+	senderAddr, err := s.identitySvc.ResolveFromAddress(ctx, req.SenderNpub, req.From)
 	if err != nil {
 		return nil, fmt.Errorf("sender validation failed: %w", err)
 	}
