@@ -54,6 +54,11 @@ type Config struct {
 	CloistrMeURL    string // Base URL for cloistr-me internal API
 	CloistrMeSecret string // Shared secret for internal API auth
 
+	// InternalAPISecret is the shared bearer secret for cloistr-email's OWN
+	// internal API (e.g. the domain-admin endpoints the admin page calls).
+	// Empty disables the internal API entirely.
+	InternalAPISecret string
+
 	// Unified-auth: Cloistr signer session validation (slice 3 — auth only).
 	// Empty = disabled (skip signer fallback in ValidateSession).
 	SignerURL string
@@ -117,8 +122,9 @@ func Load() (*Config, error) {
 		IdentityServiceURL: getEnv("IDENTITY_SERVICE_URL", "http://localhost:3000"),
 
 		// cloistr-me integration (address verification)
-		CloistrMeURL:    getEnv("CLOISTR_ME_URL", "http://cloistr-me.cloistr.svc.cluster.local:8080"),
-		CloistrMeSecret: getEnv("CLOISTR_ME_SECRET", ""),
+		CloistrMeURL:      getEnv("CLOISTR_ME_URL", "http://cloistr-me.cloistr.svc.cluster.local:8080"),
+		CloistrMeSecret:   getEnv("CLOISTR_ME_SECRET", ""),
+		InternalAPISecret: getEnv("INTERNAL_API_SECRET", ""),
 
 		// Unified-auth signer URL (empty = disabled)
 		SignerURL: getEnv("MAIL_SIGNER_URL", "http://cloistr-signer.cloistr.svc.cluster.local:7777"),

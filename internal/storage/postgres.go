@@ -1266,6 +1266,30 @@ func (db *PostgreSQL) ListActiveDomains(ctx context.Context) ([]*Domain, error) 
 	return out, rows.Err()
 }
 
+// ListAllDomains returns every served domain regardless of active/verified
+// state — for the admin view, which must show pending and deactivated domains.
+func (db *PostgreSQL) ListAllDomains(ctx context.Context) ([]*Domain, error) {
+	rows, err := db.db.QueryContext(ctx, `
+		SELECT id, domain, dkim_selector, dkim_private_key, verified, active, created_at, updated_at
+		FROM domains ORDER BY domain
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all domains: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Domain
+	for rows.Next() {
+		d := &Domain{}
+		if err := rows.Scan(&d.ID, &d.Domain, &d.DKIMSelector, &d.DKIMPrivateKey,
+			&d.Verified, &d.Active, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan domain: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // GetDomain returns a single served domain by name, or nil if absent.
 func (db *PostgreSQL) GetDomain(ctx context.Context, domain string) (*Domain, error) {
 	d := &Domain{}

@@ -14,6 +14,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/config"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/domains"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
@@ -153,38 +154,21 @@ func main() {
 	transportMgr := transport.NewManager(logger)
 	transportMgr.RegisterTransport(smtpTransport)
 
-	// Multi-domain / BYO: load served domains and their per-domain DKIM keys
-	// from the DB. Outbound is signed with the From: domain's key; inbound and
-	// internal-vs-external classification use the served-domains set.
-	if domains, derr := db.ListActiveDomains(context.Background()); derr != nil {
-		logger.Warn("Failed to load served domains; using config defaults", zap.Error(derr))
-	} else if len(domains) > 0 {
-		names := make([]string, 0, len(domains))
-		signers := make(map[string]*transport.DKIMSigner)
-		for _, d := range domains {
-			names = append(names, d.Domain)
-			if d.DKIMPrivateKey == nil || *d.DKIMPrivateKey == "" {
-				logger.Warn("Served domain has no DKIM key; outbound will be unsigned",
-					zap.String("domain", d.Domain))
-				continue
-			}
-			s, serr := transport.NewDKIMSigner(&transport.DKIMConfig{
-				Domain: d.Domain, Selector: d.DKIMSelector, PrivateKey: *d.DKIMPrivateKey,
-			})
-			if serr != nil {
-				logger.Error("Failed to build DKIM signer for domain",
-					zap.String("domain", d.Domain), zap.Error(serr))
-				continue
-			}
-			signers[d.Domain] = s
-		}
-		smtpTransport.WithDKIMProvider(transport.DKIMProviderFunc(func(domain string) *transport.DKIMSigner {
-			return signers[domain]
-		}))
-		identity.SetServedDomains(names)
-		logger.Info("Multi-domain serving enabled",
-			zap.Strings("domains", names), zap.Int("dkim_signers", len(signers)))
+	// Multi-domain / BYO: served domains and their per-domain DKIM keys are held
+	// in a live registry that re-reads the DB on demand. Outbound is signed with
+	// the From: domain's key; inbound + internal/external classification use the
+	// served-domains set. Reloads fan out across replicas via Dragonfly pub/sub,
+	// so domain changes take effect without rolling pods.
+	domainRegistry := domains.NewRegistry(db, sessionStore.GetClient(), logger)
+	if err := domainRegistry.Reload(context.Background()); err != nil {
+		logger.Warn("Failed to load served domains; using config defaults", zap.Error(err))
 	}
+	smtpTransport.WithDKIMProvider(domainRegistry)
+	// Cancellable context so the pub/sub subscriber can be torn down on
+	// shutdown instead of leaking (context.Background().Done() never fires).
+	subscriberCtx, stopSubscriber := context.WithCancel(context.Background())
+	defer stopSubscriber()
+	go domainRegistry.StartSubscriber(subscriberCtx)
 
 	// Server-side decryption on read uses a NIP-46-backed signer store.
 	signerStore := auth.NewNIP46SignerStore(authHandler)
@@ -284,6 +268,25 @@ func main() {
 	authV2Routes.HandleFunc("/nostrconnect/init", apiHandler.InitNostrConnect).Methods("POST")
 	authV2Routes.HandleFunc("/nip46/status", apiHandler.NIP46Status).Methods("GET")
 
+	// Internal domain-admin API — served-domain + per-domain DKIM management,
+	// consumed by the admin page (cloistr-me). Guarded by INTERNAL_API_SECRET;
+	// only registered when the secret is configured. Private keys never leave
+	// this service (responses carry only the public DKIM record).
+	if cfg.InternalAPISecret != "" {
+		domainAdmin := api.NewInternalDomainHandler(db, domainRegistry, domains.NewNetDNSChecker(), cfg.InternalAPISecret, logger)
+		internalRoutes := router.PathPrefix("/internal/v1/domains").Subrouter()
+		internalRoutes.Use(domainAdmin.AuthMiddleware)
+		internalRoutes.HandleFunc("", domainAdmin.ListDomains).Methods("GET")
+		internalRoutes.HandleFunc("", domainAdmin.CreateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/verify", domainAdmin.VerifyDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/activate", domainAdmin.ActivateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/deactivate", domainAdmin.DeactivateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/rotate-dkim", domainAdmin.RotateDKIM).Methods("POST")
+		logger.Info("Internal domain-admin API enabled at /internal/v1/domains")
+	} else {
+		logger.Warn("INTERNAL_API_SECRET not set — domain-admin API disabled")
+	}
+
 	// Middleware
 	router.Use(loggingMiddleware(logger))
 	router.Use(corsMiddleware())
@@ -359,6 +362,9 @@ func main() {
 	<-sigChan
 
 	logger.Info("Shutting down...")
+
+	// Stop the domain-reload subscriber before tearing down the servers.
+	stopSubscriber()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
