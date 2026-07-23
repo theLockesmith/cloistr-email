@@ -11,11 +11,17 @@
 CREATE TABLE IF NOT EXISTS mailboxes (
     pubkey CHAR(64) PRIMARY KEY,
     display_name VARCHAR(255),
+    -- SMTP abuse-control send state (migration 009)
+    send_enabled BOOLEAN NOT NULL DEFAULT TRUE,   -- false = held/suspended at the send gate
+    send_elevated BOOLEAN NOT NULL DEFAULT FALSE, -- true = elevated limits (paid/WoT/operator)
+    send_suspended_at TIMESTAMP,                  -- last suspend-ladder suspension (null = not suspended)
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP,
     CONSTRAINT mailboxes_pubkey_hex CHECK (pubkey ~ '^[0-9a-f]{64}$')
 );
+CREATE INDEX IF NOT EXISTS idx_mailboxes_send_suspended_at
+    ON mailboxes(send_suspended_at) WHERE send_suspended_at IS NOT NULL;
 
 -- Sessions table
 -- Stores authenticated sessions
@@ -244,9 +250,12 @@ CREATE TABLE IF NOT EXISTS email_bounces (
     reason TEXT,
     diagnostic_code VARCHAR(50),
     remote_server VARCHAR(255),
+    sender_pubkey CHAR(64), -- sender attribution for per-account bounce rate (migration 009)
     received_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_email_bounces_sender_pubkey
+    ON email_bounces(sender_pubkey) WHERE sender_pubkey IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_email_bounces_recipient ON email_bounces(original_recipient);
 CREATE INDEX IF NOT EXISTS idx_email_bounces_message_id ON email_bounces(original_message_id);
