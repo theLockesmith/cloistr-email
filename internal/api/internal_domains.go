@@ -90,6 +90,11 @@ type DomainResponse struct {
 type createDomainRequest struct {
 	Domain   string `json:"domain"`
 	Selector string `json:"selector,omitempty"`
+	// DKIMPrivateKey optionally imports an existing PEM private key instead of
+	// generating a new one. Use it to onboard keys created out-of-band (e.g.
+	// scripts/generate-dkim-keys.sh) or BYO-domain keys whose DNS is already
+	// published. When empty, a fresh keypair is generated server-side.
+	DKIMPrivateKey string `json:"dkim_private_key,omitempty"`
 }
 
 func (h *InternalDomainHandler) toResponse(d *storage.Domain) DomainResponse {
@@ -130,8 +135,9 @@ func (h *InternalDomainHandler) ListDomains(w http.ResponseWriter, r *http.Reque
 }
 
 // CreateDomain: POST /internal/v1/domains
-// Generates a DKIM keypair, stores the private key, and returns the DNS records
-// to publish. The domain starts pending (verified=false, active=false).
+// Registers a domain with a DKIM key — either imported from the request
+// (dkim_private_key) or freshly generated — and returns the DNS records to
+// publish. The domain starts pending (verified=false, active=false).
 func (h *InternalDomainHandler) CreateDomain(w http.ResponseWriter, r *http.Request) {
 	var req createDomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -156,16 +162,31 @@ func (h *InternalDomainHandler) CreateDomain(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	key, err := transport.GenerateDKIMKey(domain, selector, 0)
-	if err != nil {
-		h.logger.Error("DKIM keygen failed", zap.String("domain", domain), zap.Error(err))
-		errors.InternalError("KEYGEN_FAILED", "failed to generate DKIM key").WriteResponse(w)
-		return
+	// Import a supplied key, or generate one. Importing validates the PEM by
+	// loading it into a signer (which is also how we derive its DNS record), so
+	// a malformed key is rejected before it reaches the DB.
+	var privatePEM string
+	if imported := strings.TrimSpace(req.DKIMPrivateKey); imported != "" {
+		if _, err := transport.NewDKIMSigner(&transport.DKIMConfig{
+			Domain: domain, Selector: selector, PrivateKey: imported,
+		}); err != nil {
+			errors.BadRequest("INVALID_DKIM_KEY", "dkim_private_key is not a valid RSA private key").WriteResponse(w)
+			return
+		}
+		privatePEM = imported
+	} else {
+		key, err := transport.GenerateDKIMKey(domain, selector, 0)
+		if err != nil {
+			h.logger.Error("DKIM keygen failed", zap.String("domain", domain), zap.Error(err))
+			errors.InternalError("KEYGEN_FAILED", "failed to generate DKIM key").WriteResponse(w)
+			return
+		}
+		privatePEM = key.PrivatePEM
 	}
 
 	d := &storage.Domain{
 		Domain: domain, DKIMSelector: selector,
-		DKIMPrivateKey: &key.PrivatePEM, Verified: false, Active: false,
+		DKIMPrivateKey: &privatePEM, Verified: false, Active: false,
 	}
 	if err := h.db.UpsertDomain(r.Context(), d); err != nil {
 		errors.InternalError("INTERNAL_ERROR", "failed to save domain").WriteResponse(w)
