@@ -133,6 +133,7 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 		// Sender-eligibility failures are CLIENT errors (the user needs to
 		// register/verify their @cloistr.xyz address or is sending from an
 		// address they don't own) — return 4xx, not 500.
+		var rateLimited *email.RateLimitError
 		switch {
 		case stderrors.Is(err, identity.ErrNoUnifiedAddress),
 			stderrors.Is(err, identity.ErrAddressNotVerified):
@@ -140,6 +141,19 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 		case stderrors.Is(err, identity.ErrFromAddressMismatch),
 			stderrors.Is(err, identity.ErrAddressOwnershipMismatch):
 			errors.Forbidden("SENDER_ADDRESS_MISMATCH", err.Error()).WriteResponse(w)
+		// Anonymous identities are receive-only — a permanent 403, not a retry.
+		case stderrors.Is(err, email.ErrSendNotPermitted):
+			errors.Forbidden("SEND_NOT_PERMITTED", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, email.ErrSendSuspended):
+			errors.Forbidden("SEND_SUSPENDED", err.Error()).WriteResponse(w)
+		// Rate limits are transient: 429 + Retry-After so clients back off
+		// instead of hammering.
+		case stderrors.As(err, &rateLimited):
+			retry := int(rateLimited.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			errors.TooManyRequests(string(rateLimited.Reason), rateLimited.Error(), retry).WriteResponse(w)
 		default:
 			errors.InternalError("INTERNAL_ERROR", err.Error()).WriteResponse(w)
 		}

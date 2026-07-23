@@ -95,6 +95,16 @@ type Service struct {
 	// Blossom storage (optional; attachments are offloaded here when set)
 	blossomServers    []blossom.Server
 	blossomRedundancy int
+
+	// sendGate enforces tier send-rights, per-account send state, and outbound
+	// rate limits. Nil disables enforcement (self-hosted / tests).
+	sendGate *SendGate
+}
+
+// WithSendGate enables outbound abuse controls. Returns the service for chaining.
+func (s *Service) WithSendGate(g *SendGate) *Service {
+	s.sendGate = g
+	return s
 }
 
 // WithBlossom enables Blossom attachment offload using the given servers and
@@ -143,6 +153,20 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	s.logger.Debug("Sender validated",
 		zap.String("email", senderAddr.Email),
 		zap.String("npub", req.SenderNpub[:16]+"..."))
+
+	// 1b. Abuse controls: tier send-rights (anonymous = receive-only), account
+	// send state (suspend ladder), and outbound rate limits. Checked before any
+	// delivery work so a denied send costs nothing downstream.
+	if s.sendGate != nil {
+		recipients := len(req.To) + len(req.CC) + len(req.BCC)
+		size := int64(len(req.Body) + len(req.HTMLBody) + len(req.PreEncryptedBody))
+		for _, a := range req.Attachments {
+			size += int64(len(a.Data))
+		}
+		if err := s.sendGate.Check(ctx, req.SenderNpub, recipients, size); err != nil {
+			return nil, err
+		}
+	}
 
 	// 2. Resolve recipients for encryption capability
 	allRecipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))

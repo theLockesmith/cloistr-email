@@ -254,6 +254,63 @@ func (db *PostgreSQL) GetMailboxByPubkey(ctx context.Context, pubkey string) (*M
 	return mb, nil
 }
 
+// SendState is a mailbox's outbound send state (migration 009). It is the
+// email-local gate, distinct from users.enabled which is the platform-wide
+// suspend hammer owned by cloistr-me.
+type SendState struct {
+	Enabled     bool
+	Elevated    bool
+	SuspendedAt *time.Time
+}
+
+// GetMailboxSendState returns the send state for a pubkey. A mailbox that does
+// not exist yet is treated as enabled and non-elevated — the send path creates
+// it on first send, and absence must not silently block a legitimate sender.
+func (db *PostgreSQL) GetMailboxSendState(ctx context.Context, pubkey string) (SendState, error) {
+	st := SendState{Enabled: true}
+	err := db.db.QueryRowContext(ctx, `
+		SELECT send_enabled, send_elevated, send_suspended_at
+		FROM mailboxes WHERE pubkey = $1 AND deleted_at IS NULL
+	`, pubkey).Scan(&st.Enabled, &st.Elevated, &st.SuspendedAt)
+	if err == sql.ErrNoRows {
+		return SendState{Enabled: true}, nil
+	}
+	if err != nil {
+		return SendState{}, fmt.Errorf("failed to get mailbox send state: %w", err)
+	}
+	return st, nil
+}
+
+// SetMailboxSendEnabled flips the email-local send gate (used by the suspend
+// ladder's hold/suspend rungs).
+func (db *PostgreSQL) SetMailboxSendEnabled(ctx context.Context, pubkey string, enabled bool, suspendedAt *time.Time) error {
+	_, err := db.db.ExecContext(ctx, `
+		UPDATE mailboxes
+		SET send_enabled = $2, send_suspended_at = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE pubkey = $1
+	`, pubkey, enabled, suspendedAt)
+	if err != nil {
+		return fmt.Errorf("failed to set mailbox send state: %w", err)
+	}
+	return nil
+}
+
+// GetAccountCreatedAt reads the platform identity's creation time from the
+// shared users table, for the "new account (<7d)" sub-cap. Returns ok=false when
+// the identity has no users row yet (cloistr-me provisions it on first auth).
+func (db *PostgreSQL) GetAccountCreatedAt(ctx context.Context, pubkey string) (time.Time, bool, error) {
+	var created time.Time
+	err := db.db.QueryRowContext(ctx,
+		`SELECT created_at FROM public.users WHERE pubkey = $1`, pubkey).Scan(&created)
+	if err == sql.ErrNoRows {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("failed to get account created_at: %w", err)
+	}
+	return created, true, nil
+}
+
 // EnsureMailbox returns the mailbox for pubkey, creating it if absent.
 //
 // Mailbox creation is deliberately implicit: the authority on whether someone

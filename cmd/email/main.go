@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-common/platform"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/api"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
@@ -19,6 +20,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/metrics"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/ratelimit"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
@@ -185,6 +187,30 @@ func main() {
 			zap.Int("servers", len(blossomServers)),
 			zap.Int("redundancy", cfg.BlossomRedundancy))
 	}
+	// Outbound abuse controls (audit C): tier send-rights (anonymous =
+	// receive-only), per-account send state, and pubkey-keyed rate limits shared
+	// across replicas via Dragonfly. In standalone mode platform.GetTier returns
+	// "named", so self-hosters keep full send rights by default.
+	platformClient, perr := platform.NewClient(platform.Config{
+		Mode:        platform.Mode(cfg.PlatformMode),
+		DatabaseURL: cfg.DatabaseURL,
+		ServiceID:   "email",
+	})
+	if perr != nil {
+		logger.Warn("Platform client unavailable; outbound abuse controls DISABLED", zap.Error(perr))
+	} else {
+		defer platformClient.Close()
+		gate := email.NewSendGate(
+			platformClient,
+			db,
+			ratelimit.NewRedisStore(sessionStore.GetClient()),
+			ratelimit.DefaultLimits(),
+		)
+		emailSvc.WithSendGate(gate)
+		logger.Info("Outbound abuse controls enabled",
+			zap.String("platform_mode", cfg.PlatformMode))
+	}
+
 	emailHandler := api.NewEmailHandler(emailSvc, logger)
 
 	// Setup routes

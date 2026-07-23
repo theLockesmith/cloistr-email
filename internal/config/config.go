@@ -54,6 +54,12 @@ type Config struct {
 	CloistrMeURL    string // Base URL for cloistr-me internal API
 	CloistrMeSecret string // Shared secret for internal API auth
 
+	// PlatformMode selects cloistr-common platform integration:
+	// "platform" (query get_user_tier / shared quotas) or "standalone"
+	// (self-hosted: everyone is treated as a named tier). Abuse-control rate
+	// limits apply in both modes; tier gating only bites in platform mode.
+	PlatformMode string
+
 	// InternalAPISecret is the shared bearer secret for cloistr-email's OWN
 	// internal API (e.g. the domain-admin endpoints the admin page calls).
 	// Empty disables the internal API entirely.
@@ -124,6 +130,7 @@ func Load() (*Config, error) {
 		// cloistr-me integration (address verification)
 		CloistrMeURL:      getEnv("CLOISTR_ME_URL", "http://cloistr-me.cloistr.svc.cluster.local:8080"),
 		CloistrMeSecret:   getEnv("CLOISTR_ME_SECRET", ""),
+		PlatformMode:      getEnv("CLOISTR_MODE", "standalone"),
 		InternalAPISecret: getEnv("INTERNAL_API_SECRET", ""),
 
 		// Unified-auth signer URL (empty = disabled)
