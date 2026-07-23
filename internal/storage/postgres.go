@@ -1307,6 +1307,17 @@ func (db *PostgreSQL) GetDomain(ctx context.Context, domain string) (*Domain, er
 	return d, nil
 }
 
+// DeleteDomain removes a served domain by name. Hard delete — the domains
+// table has no soft-delete column, and callers refresh the signer registry
+// afterward. Returns nil even if the domain did not exist.
+func (db *PostgreSQL) DeleteDomain(ctx context.Context, domain string) error {
+	_, err := db.db.ExecContext(ctx, `DELETE FROM domains WHERE domain = $1`, strings.ToLower(domain))
+	if err != nil {
+		return fmt.Errorf("failed to delete domain: %w", err)
+	}
+	return nil
+}
+
 // UpsertDomain inserts or updates a served domain by name.
 func (db *PostgreSQL) UpsertDomain(ctx context.Context, d *Domain) error {
 	if d.DKIMSelector == "" {

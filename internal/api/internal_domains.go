@@ -268,6 +268,25 @@ func (h *InternalDomainHandler) setActive(w http.ResponseWriter, r *http.Request
 	h.respondJSON(w, http.StatusOK, h.toResponse(d))
 }
 
+// DeleteDomain: DELETE /internal/v1/domains/{domain}
+// Removes a served domain entirely (e.g. to re-key it, or drop a BYO domain).
+// If it was active, the reload drops it from every replica's signer map.
+func (h *InternalDomainHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
+	d := h.load(w, r)
+	if d == nil {
+		return
+	}
+	if err := h.db.DeleteDomain(r.Context(), d.Domain); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to delete domain").WriteResponse(w)
+		return
+	}
+	if err := h.registry.PublishReload(r.Context()); err != nil {
+		h.logger.Warn("domain reload publish failed", zap.Error(err))
+	}
+	h.logger.Info("domain deleted", zap.String("domain", d.Domain))
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "deleted", "domain": d.Domain})
+}
+
 // RotateDKIM: POST /internal/v1/domains/{domain}/rotate-dkim
 // Generates a fresh keypair+selector and returns the new DNS record. The domain
 // is set back to unverified (the new record must be published + verified);

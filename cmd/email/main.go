@@ -278,6 +278,7 @@ func main() {
 		internalRoutes.Use(domainAdmin.AuthMiddleware)
 		internalRoutes.HandleFunc("", domainAdmin.ListDomains).Methods("GET")
 		internalRoutes.HandleFunc("", domainAdmin.CreateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}", domainAdmin.DeleteDomain).Methods("DELETE")
 		internalRoutes.HandleFunc("/{domain}/verify", domainAdmin.VerifyDomain).Methods("POST")
 		internalRoutes.HandleFunc("/{domain}/activate", domainAdmin.ActivateDomain).Methods("POST")
 		internalRoutes.HandleFunc("/{domain}/deactivate", domainAdmin.DeactivateDomain).Methods("POST")
