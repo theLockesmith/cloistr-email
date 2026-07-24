@@ -53,8 +53,28 @@ snapshot. Both must be solved.
 
 cloistr-email exposes an **internal domain-admin API** (Bearer `INTERNAL_API_SECRET`,
 same pattern as cloistr-me's `/internal/v1/addresses/verify` that cloistr-email
-already calls — just the reverse direction). The admin page is a **client** that
-renders the lifecycle; it never touches the `email` schema or sees a private key.
+already calls — just the reverse direction). It never touches the `email` schema
+or exposes a private key.
+
+**The call path is two hops, not browser-direct** (corrected 2026-07-24 by the
+auth/common session). The admin UI is a browser SPA and cannot hold a bearer
+secret — it would ship in the bundle:
+
+```
+browser (cloistr-admin-ui)
+   --[NIP-98, platform-admin]-->  cloistr-me  /admin/v1/domains/*
+   --[Bearer, server-to-server]-->  cloistr-email  /internal/v1/domains/*
+```
+
+The admin UI reuses its existing NIP-98 auth; **cloistr-me is a thin
+authenticated proxy and the only thing holding the Bearer secret**. The SPA
+never sees it.
+
+The bearer is cloistr-email's **own** inbound secret — each service holds its
+own, so a leak of one cannot open another's admin surface. It lives in
+`cloistr-email-secrets/INTERNAL_API_SECRET` (Atlas-managed, from the
+`internal_api_secret` vault var); cloistr-me is wired the same value as
+`EMAIL_INTERNAL_SECRET` to make the server-to-server hop.
 
 ### Proposed endpoints (`/internal/v1/domains`)
 
@@ -122,15 +142,29 @@ for now the view shows records to copy + a "verify" button that polls resolution
 4. Domain-management view: list + status, "add domain" wizard rendering the DNS
    records, verify/activate/rotate actions — all via the internal API.
 
-## Open questions for the admin session
+## Resolved — contract is locked (auth/common session, 2026-07-24)
 
-- **Confirm the client-of-internal-API model** (vs. a granted direct DB write). This
-  doc recommends the API; it keeps schema ownership + secrets on cloistr-email.
-- Auth: reuse `INTERNAL_API_SECRET`, or does the admin page carry its own service
-  credential to cloistr-email?
-- Is domain-add an admin-only (platform) action, or self-serve for BYO-domain users?
-  That changes authz on the endpoints.
-- Any existing DNS-API access (Cloudflare) we can lean on for auto-verify?
+1. **Internal-API-client model — confirmed.** No direct DB grant to cloistr-me on
+   the `email` schema. The schema-isolation argument is decisive: cloistr-email
+   holds SELECT-not-REFERENCES on `public.*`, and reversing that for a write path
+   carrying a DKIM private key is backwards. Keys + signer reload stay here.
+2. **Auth — two hops, not browser-direct** (see the diagram above). cloistr-me
+   proxies; the SPA holds no bearer. cloistr-email mints its **own** inbound
+   secret (not a reuse of cloistr-me's) and exposes it so Atlas can wire
+   `EMAIL_INTERNAL_URL` + `EMAIL_INTERNAL_SECRET` into cloistr-me.
+3. **Authz — admin-only (platform staff) for v1.** DKIM/DNS/served-domain
+   activation has real shared-outbound-reputation blast radius. Self-serve
+   BYO-domain needs ownership proof + rate limits; deferred, not needed pre-launch.
+4. **Verify — poll public DNS for v1.** It is the general solution and works for
+   future BYO domains in zones we do not control. A Cloudflare API token exists at
+   the infra level (cert-manager uses it for DNS-01), so auto-publishing our own
+   zones is a viable later enhancement — but it is not wired to these services,
+   and BYO domains would not be in our CF account anyway.
+
+**Standing constraint:** internal responses stay strictly public-only — never
+serialize `dkim_private_key`, including on POST/rotate responses — so neither the
+proxy nor the view can leak it. (Implemented: `DomainResponse` has no such field;
+verified by review.)
 
 ## Note on urgency
 

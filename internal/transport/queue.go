@@ -71,7 +71,17 @@ const (
 
 	// QueueStatusRetry means the message failed but will be retried
 	QueueStatusRetry QueueStatus = "retry"
+
+	// QueueStatusHeld means the abuse-control ladder has parked this message.
+	// Held messages are never dequeued for delivery until explicitly released,
+	// which is what makes the "throttle" and "hold" rungs of the suspend ladder
+	// real rather than advisory.
+	QueueStatusHeld QueueStatus = "held"
 )
+
+// MetadataSenderPubkey is the metadata key carrying the sending account's
+// pubkey, so the queue can be held/released per account without a schema change.
+const MetadataSenderPubkey = "sender_pubkey"
 
 // PermanentFailureCallback is called when a message permanently fails
 type PermanentFailureCallback func(ctx context.Context, msg *QueuedMessage, err error)
@@ -466,4 +476,83 @@ type QueueStats struct {
 // generateQueueID generates a unique queue message ID
 func generateQueueID() string {
 	return fmt.Sprintf("q_%d_%s", time.Now().UnixNano(), randomString(8))
+}
+
+// HoldForSender parks every not-yet-delivered message from a sender. Used by
+// the suspend ladder's hold rung: mail already accepted is retained (not
+// bounced) so a false positive can be undone by ReleaseForSender.
+// Returns the number of messages held.
+func (q *OutboundQueue) HoldForSender(ctx context.Context, senderPubkey string) (int64, error) {
+	res, err := q.db.ExecContext(ctx, `
+		UPDATE outbound_queue
+		SET status = $1
+		WHERE metadata->>'sender_pubkey' = $2
+		  AND status IN ($3, $4)
+	`, QueueStatusHeld, senderPubkey, QueueStatusPending, QueueStatusRetry)
+	if err != nil {
+		return 0, fmt.Errorf("failed to hold messages for sender: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	q.logger.Info("Held queued messages for sender",
+		zap.String("sender_pubkey", senderPubkey), zap.Int64("held", n))
+	return n, nil
+}
+
+// ReleaseForSender returns held messages to the pending pool for delivery,
+// scheduling them immediately. The inverse of HoldForSender.
+func (q *OutboundQueue) ReleaseForSender(ctx context.Context, senderPubkey string) (int64, error) {
+	res, err := q.db.ExecContext(ctx, `
+		UPDATE outbound_queue
+		SET status = $1, next_attempt = NOW()
+		WHERE metadata->>'sender_pubkey' = $2
+		  AND status = $3
+	`, QueueStatusPending, senderPubkey, QueueStatusHeld)
+	if err != nil {
+		return 0, fmt.Errorf("failed to release messages for sender: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	q.logger.Info("Released held messages for sender",
+		zap.String("sender_pubkey", senderPubkey), zap.Int64("released", n))
+	return n, nil
+}
+
+// DeliverFunc attempts delivery of one queued message.
+type DeliverFunc func(ctx context.Context, msg *QueuedMessage) error
+
+// StartWorker drains the queue until ctx is cancelled: dequeue a batch, attempt
+// delivery, and mark each sent or failed (MarkFailed applies the retry backoff
+// and the permanent-failure callback). Held messages are excluded by Dequeue,
+// so the ladder's hold survives worker restarts.
+func (q *OutboundQueue) StartWorker(ctx context.Context, interval time.Duration, batch int, deliver DeliverFunc) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	q.logger.Info("Outbound queue worker started",
+		zap.Duration("interval", interval), zap.Int("batch", batch))
+
+	for {
+		select {
+		case <-ctx.Done():
+			q.logger.Info("Outbound queue worker stopped")
+			return
+		case <-ticker.C:
+			msgs, err := q.Dequeue(ctx, batch)
+			if err != nil {
+				q.logger.Error("Queue dequeue failed", zap.Error(err))
+				continue
+			}
+			for _, m := range msgs {
+				if derr := deliver(ctx, m); derr != nil {
+					if merr := q.MarkFailed(ctx, m.ID, derr); merr != nil {
+						q.logger.Error("Failed to mark queued message failed",
+							zap.String("id", m.ID), zap.Error(merr))
+					}
+					continue
+				}
+				if merr := q.MarkSent(ctx, m.ID); merr != nil {
+					q.logger.Error("Failed to mark queued message sent",
+						zap.String("id", m.ID), zap.Error(merr))
+				}
+			}
+		}
+	}
 }

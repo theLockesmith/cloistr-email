@@ -427,6 +427,14 @@ func writeAttachmentPart(sb *strings.Builder, att Attachment) {
 	}
 }
 
+// SendRaw delivers an already-serialized RFC 5322 message. Used by the outbound
+// queue worker, whose messages were built (and DKIM-signed) when they were
+// enqueued — re-building them here would produce a different message than the
+// one already accepted.
+func (t *SMTPTransport) SendRaw(ctx context.Context, from string, to []string, message []byte) error {
+	return t.sendViaSMTP(ctx, from, to, message)
+}
+
 // sendViaSMTP handles the SMTP connection and message submission
 func (t *SMTPTransport) sendViaSMTP(ctx context.Context, from string, to []string, message []byte) error {
 	addr := fmt.Sprintf("%s:%d", t.config.Host, t.config.Port)

@@ -211,6 +211,17 @@ func main() {
 			zap.String("platform_mode", cfg.PlatformMode))
 	}
 
+	// Outbound queue: durable store-and-forward for retries and the abuse
+	// ladder's throttle/hold rungs. Previously dead code — constructed here and
+	// drained by a worker so held messages are retained (not bounced) and
+	// released when a hold lifts.
+	outboundQueue := transport.NewOutboundQueue(db.DB(), transport.DefaultQueueConfig(), logger)
+	emailSvc.WithQueue(outboundQueue)
+	go outboundQueue.StartWorker(subscriberCtx, 30*time.Second, 20,
+		func(ctx context.Context, m *transport.QueuedMessage) error {
+			return smtpTransport.SendRaw(ctx, m.From, m.To, m.RawMessage)
+		})
+
 	emailHandler := api.NewEmailHandler(emailSvc, logger)
 
 	// Setup routes

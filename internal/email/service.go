@@ -99,6 +99,33 @@ type Service struct {
 	// sendGate enforces tier send-rights, per-account send state, and outbound
 	// rate limits. Nil disables enforcement (self-hosted / tests).
 	sendGate *SendGate
+
+	// queue provides durable store-and-forward: transient delivery failures are
+	// retried from it, and the abuse ladder holds/releases per account. Nil
+	// falls back to fire-and-forget delivery.
+	queue *transport.OutboundQueue
+}
+
+// WithQueue enables durable outbound queueing. Returns the service for chaining.
+func (s *Service) WithQueue(q *transport.OutboundQueue) *Service {
+	s.queue = q
+	return s
+}
+
+// HoldSender parks a sender's undelivered mail (suspend-ladder hold rung).
+func (s *Service) HoldSender(ctx context.Context, pubkey string) (int64, error) {
+	if s.queue == nil {
+		return 0, nil
+	}
+	return s.queue.HoldForSender(ctx, pubkey)
+}
+
+// ReleaseSender returns a sender's held mail to the delivery pool.
+func (s *Service) ReleaseSender(ctx context.Context, pubkey string) (int64, error) {
+	if s.queue == nil {
+		return 0, nil
+	}
+	return s.queue.ReleaseForSender(ctx, pubkey)
 }
 
 // WithSendGate enables outbound abuse controls. Returns the service for chaining.
