@@ -275,11 +275,20 @@ func main() {
 	// storage pool, and incremental reporting drifts as messages are deleted, so
 	// this periodically re-measures what each mailbox actually holds and
 	// corrects the recorded figure.
-	if perr == nil && cfg.UsageReconcileInterval > 0 {
+	//
+	// Platform mode only: in standalone there is no shared quota pool to be a
+	// component of — RecordUsage tracks in memory — so reconciling against a
+	// user_quota_usage table that a self-hoster does not have is incoherent.
+	switch {
+	case perr != nil:
+		// No platform client; nothing to report usage to.
+	case platformClient.Mode() != platform.ModePlatform:
+		logger.Info("Storage usage reconciler not started (standalone mode has no shared quota pool)")
+	case cfg.UsageReconcileInterval <= 0:
+		logger.Warn("Storage usage reconciler DISABLED; quota figures will drift as mail is deleted")
+	default:
 		reconciler := usage.New(db.DB(), platformClient, logger)
 		go reconciler.Run(subscriberCtx, cfg.UsageReconcileInterval)
-	} else if perr == nil {
-		logger.Warn("Storage usage reconciler DISABLED; quota figures will drift as mail is deleted")
 	}
 
 	emailHandler := api.NewEmailHandler(emailSvc, logger)

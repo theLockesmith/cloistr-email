@@ -227,3 +227,29 @@ func TestReconcileToleratesMissingQuotaTable(t *testing.T) {
 		t.Errorf("result = %+v calls = %+v, want a 100-byte correction", result, rec.calls)
 	}
 }
+
+// A missing GRANT is an operator fix, not a code failure, and must be
+// distinguishable so the log names the one-line remedy instead of burying it.
+func TestReconcileReportsUnreadableUsageDistinctly(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("FROM emails").WillReturnRows(messageRows().AddRow("alice", 100))
+	mock.ExpectQuery("FROM attachments").WillReturnRows(messageRows())
+	mock.ExpectQuery("FROM user_quota_usage").
+		WillReturnError(errors.New("pq: permission denied for table user_quota_usage (42501)"))
+
+	rec := &fakeRecorder{}
+	_, err = New(db, rec, zap.NewNop()).Reconcile(t.Context())
+	if !errors.Is(err, ErrUsageUnreadable) {
+		t.Fatalf("err = %v, want it to wrap ErrUsageUnreadable", err)
+	}
+	// Nothing must be reported off a measurement we could not compare against —
+	// a blind absolute write would double-count every mailbox.
+	if len(rec.calls) != 0 {
+		t.Errorf("got %d RecordUsage calls, want 0", len(rec.calls))
+	}
+}

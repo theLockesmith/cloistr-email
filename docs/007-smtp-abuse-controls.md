@@ -165,6 +165,16 @@ email_complaints  -- ARF spam complaints, attributed via sender_pubkey
 
 ## Not yet done
 
+- **`GRANT SELECT ON user_quota_usage TO cloistr_email`** — the storage
+  reconciler reads back its own component to compute a delta, and the role
+  cannot currently see the table. Same grant class as the `get_user_tier`
+  blocker below. Until then the reconciler logs the remedy and skips; email
+  storage is not counted against the shared pool. Only bites in `platform` mode —
+  in `standalone` the reconciler does not start at all, since there is no shared
+  pool to be a component of.
+- **`ALTER FUNCTION public.get_user_tier(character) SECURITY DEFINER`** —
+  spine-side, and required *before* flipping `CLOISTR_MODE=platform`, or every
+  send fails its tier lookup.
 - **FBL enrollment** — operator action. Register the sending domains with
   Microsoft SNDS/JMRP, Yahoo/AOL CFL and the rest, pointing each at an address
   this service receives. The ingestion path and the complaint-rate rung are

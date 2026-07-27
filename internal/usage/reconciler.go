@@ -14,6 +14,7 @@ package usage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,6 +25,12 @@ import (
 
 // serviceID is this service's component key in user_quota_usage.
 const serviceID = "email"
+
+// ErrUsageUnreadable means the platform quota table exists but this service's
+// database role cannot read it. Distinguished from an ordinary failure because
+// the fix is a single GRANT, not a code change, and repeating a stack trace
+// every cycle hides that.
+var ErrUsageUnreadable = errors.New("cannot read recorded usage")
 
 // Recorder applies a usage delta. Satisfied by *platform.Client.
 //
@@ -213,10 +220,16 @@ func (r *Reconciler) recordedComponents(ctx context.Context) (map[string]int64, 
 
 	rows, err := r.db.QueryContext(ctx, query, platform.QuotaTypeStorageBytes, serviceID)
 	if err != nil {
-		// Standalone deployments have no platform quota tables. Treat every
-		// component as zero; RecordUsage falls through to in-memory tracking.
+		// Deployments without the platform quota tables have nothing to
+		// reconcile against. Treat every component as zero.
 		if strings.Contains(err.Error(), "does not exist") {
 			return map[string]int64{}, nil
+		}
+		// A missing grant is an operator fix, not a code failure. Reporting it
+		// as a plain error buries a one-line GRANT under a stack trace every
+		// cycle, so surface it as its own condition.
+		if strings.Contains(err.Error(), "permission denied") {
+			return nil, fmt.Errorf("%w: %v", ErrUsageUnreadable, err)
 		}
 		return nil, fmt.Errorf("read recorded usage: %w", err)
 	}
@@ -262,6 +275,12 @@ func (r *Reconciler) Run(ctx context.Context, interval time.Duration) {
 
 func (r *Reconciler) runOnce(ctx context.Context) {
 	result, err := r.Reconcile(ctx)
+	if errors.Is(err, ErrUsageUnreadable) {
+		r.logger.Warn("Storage usage reconcile skipped; quota figures will not update",
+			zap.String("fix", "GRANT SELECT ON user_quota_usage TO cloistr_email"),
+			zap.Error(err))
+		return
+	}
 	if err != nil {
 		r.logger.Error("Storage usage reconcile failed", zap.Error(err))
 		return
