@@ -53,3 +53,5 @@ ui/dist/
 
 # Symlinks (except .claude)
 .claude
+CLAUDE.md
+.claude/
