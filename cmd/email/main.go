@@ -25,6 +25,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/usage"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -253,7 +254,7 @@ func main() {
 	// and escalates warn → throttle → hold. The top rung stays off unless the
 	// operator opts in, because a suspend revokes access to every Cloistr
 	// service, not just email.
-	if cfg.AbuseDetectionEnabled {
+	if cfg.AbuseDetectionEnabled && cfg.AbuseScanInterval > 0 {
 		abuseCfg := abuse.DefaultConfig()
 		abuseCfg.Thresholds.AllowAutoSuspend = cfg.AbuseAutoSuspend
 
@@ -262,6 +263,17 @@ func main() {
 		go detector.Run(subscriberCtx, cfg.AbuseScanInterval)
 	} else {
 		logger.Warn("Abuse detection ladder DISABLED; rate limits and tier gating still apply")
+	}
+
+	// Storage quota reconciliation. Email is one component of a platform-wide
+	// storage pool, and incremental reporting drifts as messages are deleted, so
+	// this periodically re-measures what each mailbox actually holds and
+	// corrects the recorded figure.
+	if perr == nil && cfg.UsageReconcileInterval > 0 {
+		reconciler := usage.New(db.DB(), platformClient, logger)
+		go reconciler.Run(subscriberCtx, cfg.UsageReconcileInterval)
+	} else if perr == nil {
+		logger.Warn("Storage usage reconciler DISABLED; quota figures will drift as mail is deleted")
 	}
 
 	emailHandler := api.NewEmailHandler(emailSvc, logger)

@@ -74,6 +74,11 @@ type Config struct {
 	// only once the thresholds have been calibrated against real traffic.
 	AbuseAutoSuspend bool
 
+	// UsageReconcileInterval is how often this service re-measures each
+	// mailbox's stored bytes and corrects its component of the shared platform
+	// storage quota. Zero disables reconciliation.
+	UsageReconcileInterval time.Duration
+
 	// InternalAPISecret is the shared bearer secret for cloistr-email's OWN
 	// internal API (e.g. the domain-admin endpoints the admin page calls).
 	// Empty disables the internal API entirely.
@@ -152,6 +157,9 @@ func Load() (*Config, error) {
 		AbuseScanInterval:     getEnvDuration("ABUSE_SCAN_INTERVAL", 15*time.Minute),
 		AbuseAutoSuspend:      getEnvBool("ABUSE_AUTO_SUSPEND", false),
 
+		// Storage quota reconciliation
+		UsageReconcileInterval: getEnvDuration("USAGE_RECONCILE_INTERVAL", 6*time.Hour),
+
 		// Unified-auth signer URL (empty = disabled)
 		SignerURL: getEnv("MAIL_SIGNER_URL", "http://cloistr-signer.cloistr.svc.cluster.local:7777"),
 
@@ -207,7 +215,9 @@ func getEnvBool(key string, defaultValue bool) bool {
 // with a default value
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
-		if d, err := time.ParseDuration(value); err == nil && d > 0 {
+		// Zero is accepted and meaningful — callers use it to disable a periodic
+		// job — but a negative value is always a mistake, so fall back.
+		if d, err := time.ParseDuration(value); err == nil && d >= 0 {
 			return d
 		}
 	}
