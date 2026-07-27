@@ -178,3 +178,66 @@ func TestPostgresSignalsToleratesMissingTables(t *testing.T) {
 		t.Errorf("got %d signal sets, want 0", len(got))
 	}
 }
+
+// email_complaints only exists once migration 010 is applied, so on any
+// deployment running ahead of that migration the first account with sends will
+// drive this query against a table that is not there. Missing-relation
+// tolerance for outbound_queue is not enough: Collect early-returns at zero
+// senders, so the complaint path is only reached once real traffic exists.
+func TestPostgresSignalsToleratesMissingComplaintsTable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("FROM outbound_queue")).
+		WillReturnRows(sqlmock.NewRows([]string{"pubkey", "messages", "recipients", "recipients_last_hour"}).
+			AddRow("alice", 50, 80, 5))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM email_bounces")).
+		WillReturnRows(sqlmock.NewRows([]string{"sender_pubkey", "hard", "soft"}).AddRow("alice", 2, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM email_complaints")).
+		WillReturnError(errors.New(`relation "email_complaints" does not exist`))
+
+	got, err := NewPostgresSignals(db).Collect(t.Context(), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d signal sets, want 1", len(got))
+	}
+	// The bounce signal must survive: an unapplied complaints migration cannot
+	// be allowed to disable bounce-rate enforcement.
+	if got[0].HardBounces != 2 {
+		t.Errorf("HardBounces = %d, want 2", got[0].HardBounces)
+	}
+	if got[0].Complaints != 0 {
+		t.Errorf("Complaints = %d, want 0", got[0].Complaints)
+	}
+}
+
+// Likewise for a missing email_bounces: the pass must keep going rather than
+// abort and leave velocity enforcement dead too.
+func TestPostgresSignalsToleratesMissingBouncesTable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta("FROM outbound_queue")).
+		WillReturnRows(sqlmock.NewRows([]string{"pubkey", "messages", "recipients", "recipients_last_hour"}).
+			AddRow("alice", 50, 900, 900))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM email_bounces")).
+		WillReturnError(errors.New(`relation "email_bounces" does not exist`))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM email_complaints")).
+		WillReturnRows(sqlmock.NewRows([]string{"sender_pubkey", "complaints"}))
+
+	got, err := NewPostgresSignals(db).Collect(t.Context(), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(got) != 1 || got[0].RecipientsLastHour != 900 {
+		t.Fatalf("got %+v, want the velocity signal to survive", got)
+	}
+}
