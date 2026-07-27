@@ -299,9 +299,11 @@ func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) er
 	// First, get the current message state
 	var attempts, maxAttempts int
 	var messageID, sender string
-	var recipientsJSON []byte
-	selectQuery := `SELECT attempts, max_attempts, message_id, sender, recipients FROM outbound_queue WHERE id = $1`
-	if selectErr := q.db.QueryRowContext(ctx, selectQuery, id).Scan(&attempts, &maxAttempts, &messageID, &sender, &recipientsJSON); selectErr != nil {
+	var recipientsJSON, metadataJSON []byte
+	// metadata comes along because the permanent-failure callback records a
+	// bounce, and bounce attribution needs the sender pubkey stored there.
+	selectQuery := `SELECT attempts, max_attempts, message_id, sender, recipients, metadata FROM outbound_queue WHERE id = $1`
+	if selectErr := q.db.QueryRowContext(ctx, selectQuery, id).Scan(&attempts, &maxAttempts, &messageID, &sender, &recipientsJSON, &metadataJSON); selectErr != nil {
 		return fmt.Errorf("failed to get message attempts: %w", selectErr)
 	}
 
@@ -353,6 +355,11 @@ func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) er
 		var recipients []string
 		json.Unmarshal(recipientsJSON, &recipients)
 
+		var metadata map[string]string
+		if len(metadataJSON) > 0 {
+			json.Unmarshal(metadataJSON, &metadata)
+		}
+
 		msg := &QueuedMessage{
 			ID:        id,
 			MessageID: messageID,
@@ -360,6 +367,7 @@ func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) er
 			To:        recipients,
 			Attempts:  attempts,
 			LastError: errStr,
+			Metadata:  metadata,
 		}
 		q.onPermanentFailure(ctx, msg, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -50,7 +51,22 @@ type BounceInfo struct {
 
 	// ReceivedAt is when the bounce was received
 	ReceivedAt time.Time
+
+	// SenderPubkey attributes the bounce to the account that sent the original
+	// message. Without it a bounce is only attributable to the recipient, which
+	// makes per-account bounce rate — the primary abuse signal — impossible.
+	// Empty when attribution fails; stored as NULL.
+	SenderPubkey string
 }
+
+// SenderResolver maps a bounced message back to the pubkey of the account that
+// sent it, using whatever identifying scraps the bounce carried.
+type SenderResolver func(ctx context.Context, messageID, recipient string) (string, error)
+
+// senderAttributionWindow bounds the recipient-based attribution fallback. Most
+// bounces arrive within minutes; anything older is too likely to attribute to
+// the wrong sender.
+const senderAttributionWindow = 7 * 24 * time.Hour
 
 // BounceHandler processes bounce messages
 type BounceHandler struct {
@@ -60,10 +76,21 @@ type BounceHandler struct {
 	// Callbacks
 	onHardBounce func(ctx context.Context, bounce *BounceInfo) error
 	onSoftBounce func(ctx context.Context, bounce *BounceInfo) error
+
+	// resolveSender attributes an inbound bounce to a sending account
+	resolveSender SenderResolver
 }
 
 // BounceHandlerOption configures the bounce handler
 type BounceHandlerOption func(*BounceHandler)
+
+// WithSenderResolver overrides how inbound bounces are attributed to a sending
+// account. Defaults to QueueSenderResolver over the handler's own database.
+func WithSenderResolver(r SenderResolver) BounceHandlerOption {
+	return func(h *BounceHandler) {
+		h.resolveSender = r
+	}
+}
 
 // WithHardBounceCallback sets a callback for hard bounces
 func WithHardBounceCallback(fn func(ctx context.Context, bounce *BounceInfo) error) BounceHandlerOption {
@@ -79,9 +106,13 @@ func WithSoftBounceCallback(fn func(ctx context.Context, bounce *BounceInfo) err
 	}
 }
 
-// RecordOutboundFailure records a bounce from an outbound delivery failure
-// This is called by the outbound queue when a message permanently fails
-func (h *BounceHandler) RecordOutboundFailure(ctx context.Context, messageID string, recipients []string, err error) error {
+// RecordOutboundFailure records a bounce from an outbound delivery failure.
+// This is called by the outbound queue when a message permanently fails.
+//
+// senderPubkey comes straight from the queue metadata, so this path needs no
+// attribution guesswork — unlike inbound DSNs it always knows who sent the
+// message. Pass "" only when the queue row genuinely carried no sender.
+func (h *BounceHandler) RecordOutboundFailure(ctx context.Context, messageID, senderPubkey string, recipients []string, err error) error {
 	errStr := ""
 	if err != nil {
 		errStr = err.Error()
@@ -104,6 +135,7 @@ func (h *BounceHandler) RecordOutboundFailure(ctx context.Context, messageID str
 			Reason:            errStr,
 			DiagnosticCode:    extractSMTPCodeFromError(errStr),
 			ReceivedAt:        time.Now(),
+			SenderPubkey:      senderPubkey,
 		}
 
 		// Store in database if available
@@ -193,7 +225,99 @@ func NewBounceHandler(db *sql.DB, logger *zap.Logger, opts ...BounceHandlerOptio
 		opt(h)
 	}
 
+	if h.resolveSender == nil {
+		h.resolveSender = QueueSenderResolver(db)
+	}
+
 	return h
+}
+
+// QueueSenderResolver attributes a bounce to a sending account by looking the
+// original message up in the outbound queue.
+//
+// The Message-ID path is exact. The recipient path is a fallback for the common
+// case where a remote MTA returns a DSN with no usable Message-ID: it picks the
+// most recent message this service sent to that recipient inside
+// senderAttributionWindow. That can misattribute when two accounts mailed the
+// same recipient in the same window, so the ladder treats bounce rate as one
+// signal among several rather than grounds for action on its own.
+func QueueSenderResolver(db *sql.DB) SenderResolver {
+	return func(ctx context.Context, messageID, recipient string) (string, error) {
+		if db == nil {
+			return "", nil
+		}
+
+		if messageID != "" {
+			const byMessageID = `
+				SELECT metadata->>'sender_pubkey'
+				FROM outbound_queue
+				WHERE message_id = $1 AND metadata->>'sender_pubkey' IS NOT NULL
+				ORDER BY created_at DESC
+				LIMIT 1
+			`
+			var pubkey sql.NullString
+			err := db.QueryRowContext(ctx, byMessageID, messageID).Scan(&pubkey)
+			switch {
+			case err == nil && pubkey.Valid && pubkey.String != "":
+				return pubkey.String, nil
+			case err != nil && !isBenignQueryErr(err):
+				return "", err
+			}
+		}
+
+		if recipient != "" {
+			const byRecipient = `
+				SELECT metadata->>'sender_pubkey'
+				FROM outbound_queue
+				WHERE recipients @> to_jsonb($1::text)
+				  AND metadata->>'sender_pubkey' IS NOT NULL
+				  AND created_at > $2
+				ORDER BY created_at DESC
+				LIMIT 1
+			`
+			var pubkey sql.NullString
+			err := db.QueryRowContext(ctx, byRecipient, recipient,
+				time.Now().Add(-senderAttributionWindow)).Scan(&pubkey)
+			switch {
+			case err == nil && pubkey.Valid:
+				return pubkey.String, nil
+			case err != nil && !isBenignQueryErr(err):
+				return "", err
+			}
+		}
+
+		return "", nil
+	}
+}
+
+// isBenignQueryErr reports whether an error means "nothing to attribute" rather
+// than a real failure — no matching row, or the optional table not existing.
+func isBenignQueryErr(err error) bool {
+	return err == sql.ErrNoRows || strings.Contains(err.Error(), "does not exist")
+}
+
+// attributeSender fills in info.SenderPubkey when it is not already known.
+func (h *BounceHandler) attributeSender(ctx context.Context, info *BounceInfo) {
+	if info.SenderPubkey != "" || h.resolveSender == nil {
+		return
+	}
+
+	pubkey, err := h.resolveSender(ctx, info.OriginalMessageID, info.OriginalRecipient)
+	if err != nil {
+		h.logger.Warn("Failed to attribute bounce to a sender",
+			zap.String("message_id", info.OriginalMessageID),
+			zap.String("recipient", info.OriginalRecipient),
+			zap.Error(err))
+		return
+	}
+	if pubkey == "" {
+		h.logger.Debug("Bounce could not be attributed to a sender",
+			zap.String("message_id", info.OriginalMessageID),
+			zap.String("recipient", info.OriginalRecipient))
+		return
+	}
+
+	info.SenderPubkey = pubkey
 }
 
 // IsBounce checks if a message is a bounce message
@@ -255,6 +379,10 @@ func (h *BounceHandler) ProcessBounce(ctx context.Context, from string, to []str
 		}
 	}
 
+	// Attribute the bounce to the account that sent the original message before
+	// storing, so per-account bounce rate is queryable.
+	h.attributeSender(ctx, bounceInfo)
+
 	// Store the bounce in the database
 	if err := h.storeBounce(ctx, bounceInfo); err != nil {
 		h.logger.Error("Failed to store bounce", zap.Error(err))
@@ -295,29 +423,44 @@ func (h *BounceHandler) parseBounce(data []byte) (*BounceInfo, error) {
 		ReceivedAt: time.Now(),
 	}
 
+	// A DSN keeps the interesting fields (Final-Recipient, Diagnostic-Code, the
+	// returned copy of the original message) in MIME parts, not in the top-level
+	// headers. Read the body once here and hand it to each extractor — msg.Body
+	// is a one-shot reader, so they cannot each read it themselves.
+	var body []byte
+	if msg.Body != nil {
+		body, _ = io.ReadAll(io.LimitReader(msg.Body, maxDSNBodyScan))
+	}
+
 	// Try to extract the original Message-ID
-	info.OriginalMessageID = extractOriginalMessageID(msg)
+	info.OriginalMessageID = extractOriginalMessageID(msg, body)
 
 	// Try to extract the original recipient
-	info.OriginalRecipient = extractOriginalRecipient(msg)
+	info.OriginalRecipient = extractOriginalRecipient(msg, body)
 
 	// Parse the diagnostic code and determine bounce type
-	info.DiagnosticCode, info.Reason = extractDiagnosticInfo(msg)
+	info.DiagnosticCode, info.Reason = extractDiagnosticInfo(msg, body)
 	info.Type = classifyBounce(info.DiagnosticCode, info.Reason)
 
 	return info, nil
 }
 
-// extractOriginalMessageID extracts the original Message-ID from a bounce
-func extractOriginalMessageID(msg *mail.Message) string {
-	// Check common headers for original Message-ID
+// embeddedMessageIDRe finds the original Message-ID inside the message/rfc822
+// part that DSNs attach, which is where it lives when no header carries it.
+var embeddedMessageIDRe = regexp.MustCompile(`(?im)^\s*Message-I[Dd]\s*:\s*(<[^>]+>)`)
+
+// extractOriginalMessageID extracts the original Message-ID from a bounce.
+// Accurate extraction matters beyond bookkeeping: it is the exact path for
+// attributing the bounce to a sending account.
+func extractOriginalMessageID(msg *mail.Message, body []byte) string {
+	// Headers that carry the original Message-ID directly
 	headers := []string{
-		"X-Failed-Recipients",
 		"X-Original-Message-ID",
+		"In-Reply-To",
 	}
 
 	for _, header := range headers {
-		if value := msg.Header.Get(header); value != "" {
+		if value := strings.TrimSpace(msg.Header.Get(header)); value != "" {
 			return value
 		}
 	}
@@ -331,48 +474,85 @@ func extractOriginalMessageID(msg *mail.Message) string {
 		}
 	}
 
+	// Fall back to the returned copy of the original message in the DSN body
+	if m := embeddedMessageIDRe.FindSubmatch(body); m != nil {
+		return string(m[1])
+	}
+
 	return ""
 }
 
+// maxDSNBodyScan caps how much of a bounce body is scanned for the original
+// Message-ID. DSN headers appear early; reading further just invites a large
+// attachment to burn memory on every bounce.
+const maxDSNBodyScan = 64 * 1024
+
+// dsnFieldRe matches a named field in a message/delivery-status part, where the
+// per-recipient DSN fields actually live rather than in the top-level headers.
+func dsnFieldRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?im)^\s*` + regexp.QuoteMeta(name) + `\s*:\s*(.+)$`)
+}
+
+var (
+	finalRecipientRe    = dsnFieldRe("Final-Recipient")
+	originalRecipientRe = dsnFieldRe("Original-Recipient")
+	diagnosticCodeRe    = dsnFieldRe("Diagnostic-Code")
+
+	// diagnosticCodeParseRe splits "550 5.1.1 User unknown" into code, enhanced
+	// status and reason.
+	diagnosticCodeParseRe = regexp.MustCompile(`^(\d{3})\s+(\d\.\d\.\d)?\s*(.*)$`)
+)
+
+// dsnField returns a field from the top-level headers, falling back to the
+// delivery-status part in the body.
+func dsnField(msg *mail.Message, body []byte, header string, bodyRe *regexp.Regexp) string {
+	if v := strings.TrimSpace(msg.Header.Get(header)); v != "" {
+		return v
+	}
+	if m := bodyRe.FindSubmatch(body); m != nil {
+		return strings.TrimSpace(string(m[1]))
+	}
+	return ""
+}
+
+// stripAddressType drops the "rfc822;" address-type prefix DSN fields carry.
+func stripAddressType(value string) string {
+	if parts := strings.SplitN(value, ";", 2); len(parts) == 2 {
+		return strings.TrimSpace(parts[1])
+	}
+	return strings.TrimSpace(value)
+}
+
 // extractOriginalRecipient extracts the original recipient from a bounce
-func extractOriginalRecipient(msg *mail.Message) string {
+func extractOriginalRecipient(msg *mail.Message, body []byte) string {
 	// Check X-Failed-Recipients header
 	if failed := msg.Header.Get("X-Failed-Recipients"); failed != "" {
 		return strings.TrimSpace(failed)
 	}
 
-	// Check Original-Recipient header
-	if orig := msg.Header.Get("Original-Recipient"); orig != "" {
-		// Format: rfc822;user@example.com
-		parts := strings.SplitN(orig, ";", 2)
-		if len(parts) == 2 {
-			return strings.TrimSpace(parts[1])
-		}
-		return strings.TrimSpace(orig)
+	// Check Original-Recipient (header or DSN part), format: rfc822;user@example.com
+	if orig := dsnField(msg, body, "Original-Recipient", originalRecipientRe); orig != "" {
+		return stripAddressType(orig)
 	}
 
 	// Try to extract from Final-Recipient
-	if final := msg.Header.Get("Final-Recipient"); final != "" {
-		parts := strings.SplitN(final, ";", 2)
-		if len(parts) == 2 {
-			return strings.TrimSpace(parts[1])
-		}
+	if final := dsnField(msg, body, "Final-Recipient", finalRecipientRe); final != "" {
+		return stripAddressType(final)
 	}
 
 	return ""
 }
 
 // extractDiagnosticInfo extracts diagnostic code and reason from a bounce
-func extractDiagnosticInfo(msg *mail.Message) (code string, reason string) {
-	// Check Diagnostic-Code header
-	if diag := msg.Header.Get("Diagnostic-Code"); diag != "" {
+func extractDiagnosticInfo(msg *mail.Message, body []byte) (code string, reason string) {
+	// Check Diagnostic-Code (header or DSN part)
+	if diag := dsnField(msg, body, "Diagnostic-Code", diagnosticCodeRe); diag != "" {
 		// Format: smtp;550 5.1.1 User unknown
 		parts := strings.SplitN(diag, ";", 2)
 		if len(parts) == 2 {
 			code = strings.TrimSpace(parts[1])
 			// Extract just the status code
-			codeMatch := regexp.MustCompile(`^(\d{3})\s+(\d\.\d\.\d)?\s*(.*)$`)
-			if matches := codeMatch.FindStringSubmatch(code); len(matches) > 0 {
+			if matches := diagnosticCodeParseRe.FindStringSubmatch(code); len(matches) > 0 {
 				reason = matches[3]
 				code = matches[1]
 				if matches[2] != "" {
@@ -473,9 +653,16 @@ func (h *BounceHandler) storeBounce(ctx context.Context, info *BounceInfo) error
 	query := `
 		INSERT INTO email_bounces (
 			original_recipient, original_message_id, bounce_type,
-			reason, diagnostic_code, received_at
-		) VALUES ($1, $2, $3, $4, $5, $6)
+			reason, diagnostic_code, received_at, sender_pubkey
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
+
+	// NULL rather than "" for unattributed bounces, so the partial index on
+	// sender_pubkey stays small and rate queries can't divide by phantom rows.
+	var senderPubkey interface{}
+	if info.SenderPubkey != "" {
+		senderPubkey = info.SenderPubkey
+	}
 
 	_, err := h.db.ExecContext(ctx, query,
 		info.OriginalRecipient,
@@ -484,6 +671,7 @@ func (h *BounceHandler) storeBounce(ctx context.Context, info *BounceInfo) error
 		info.Reason,
 		info.DiagnosticCode,
 		info.ReceivedAt,
+		senderPubkey,
 	)
 
 	// Ignore errors if table doesn't exist (optional feature)
@@ -512,6 +700,46 @@ func (h *BounceHandler) GetBounceCount(ctx context.Context, recipient string, si
 	}
 
 	return count, nil
+}
+
+// SenderBounceCounts is the per-account bounce picture over some window.
+type SenderBounceCounts struct {
+	// Hard is the number of permanent failures
+	Hard int
+
+	// Soft is the number of temporary failures
+	Soft int
+
+	// Total counts every attributed bounce, including unknown-type ones
+	Total int
+}
+
+// SenderBounceCounts returns how many bounces a sending account accrued since
+// the given time. This is the raw input to the abuse ladder's bounce-rate rung;
+// it deliberately returns counts rather than a rate, because the denominator
+// (messages actually sent) lives in the outbound queue.
+func (h *BounceHandler) SenderBounceCounts(ctx context.Context, senderPubkey string, since time.Time) (*SenderBounceCounts, error) {
+	counts := &SenderBounceCounts{}
+	if h.db == nil || senderPubkey == "" {
+		return counts, nil
+	}
+
+	const query = `
+		SELECT
+			COUNT(*) FILTER (WHERE bounce_type = $3),
+			COUNT(*) FILTER (WHERE bounce_type = $4),
+			COUNT(*)
+		FROM email_bounces
+		WHERE sender_pubkey = $1 AND received_at > $2
+	`
+
+	err := h.db.QueryRowContext(ctx, query, senderPubkey, since, BounceTypeHard, BounceTypeSoft).
+		Scan(&counts.Hard, &counts.Soft, &counts.Total)
+	if err != nil && !isBenignQueryErr(err) {
+		return counts, err
+	}
+
+	return counts, nil
 }
 
 // IsHardBounced checks if a recipient has hard bounced recently

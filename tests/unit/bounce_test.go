@@ -190,6 +190,7 @@ func TestRecordOutboundFailure(t *testing.T) {
 		err := handler.RecordOutboundFailure(
 			context.Background(),
 			"<test123@example.com>",
+			"aabbccdd",
 			[]string{"user@example.com"},
 			assert.AnError,
 		)
@@ -208,6 +209,7 @@ func TestRecordOutboundFailure(t *testing.T) {
 		err := handler.RecordOutboundFailure(
 			context.Background(),
 			"<test123@example.com>",
+			"aabbccdd",
 			[]string{"user@example.com"},
 			fmt.Errorf("550 5.1.1 User unknown"),
 		)
@@ -229,6 +231,7 @@ func TestRecordOutboundFailure(t *testing.T) {
 		err := handler.RecordOutboundFailure(
 			context.Background(),
 			"<test456@example.com>",
+			"aabbccdd",
 			[]string{"user@example.com"},
 			fmt.Errorf("452 Mailbox full, try again later"),
 		)
@@ -249,6 +252,7 @@ func TestRecordOutboundFailure(t *testing.T) {
 		err := handler.RecordOutboundFailure(
 			context.Background(),
 			"<test789@example.com>",
+			"aabbccdd",
 			[]string{"user1@example.com", "user2@example.com", "user3@example.com"},
 			fmt.Errorf("550 User unknown"),
 		)

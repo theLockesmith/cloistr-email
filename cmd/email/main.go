@@ -211,11 +211,28 @@ func main() {
 			zap.String("platform_mode", cfg.PlatformMode))
 	}
 
+	// Bounce handling: also previously dead code. Bounces are the primary abuse
+	// signal — a sender blasting invalid addresses shows up here first — but
+	// nothing recorded them, so email_bounces stayed empty. Every bounce is
+	// attributed back to the sending account so the ladder can compute a
+	// per-account bounce rate rather than a service-wide one.
+	bounceHandler := transport.NewBounceHandler(db.DB(), logger)
+
 	// Outbound queue: durable store-and-forward for retries and the abuse
 	// ladder's throttle/hold rungs. Previously dead code — constructed here and
 	// drained by a worker so held messages are retained (not bounced) and
 	// released when a hold lifts.
-	outboundQueue := transport.NewOutboundQueue(db.DB(), transport.DefaultQueueConfig(), logger)
+	outboundQueue := transport.NewOutboundQueue(db.DB(), transport.DefaultQueueConfig(), logger,
+		transport.WithPermanentFailureCallback(
+			func(ctx context.Context, m *transport.QueuedMessage, err error) {
+				// The queue row knows exactly who sent this, so no attribution
+				// guesswork is needed on this path.
+				if recErr := bounceHandler.RecordOutboundFailure(ctx, m.MessageID,
+					m.Metadata[transport.MetadataSenderPubkey], m.To, err); recErr != nil {
+					logger.Error("Failed to record outbound failure as bounce",
+						zap.String("message_id", m.MessageID), zap.Error(recErr))
+				}
+			}))
 	emailSvc.WithQueue(outboundQueue)
 	go outboundQueue.StartWorker(subscriberCtx, 30*time.Second, 20,
 		func(ctx context.Context, m *transport.QueuedMessage) error {
@@ -365,8 +382,11 @@ func main() {
 			TLSKeyFile:     cfg.SMTPInboundTLSKey,
 		}
 
-		// Create SMTP server
-		smtpServer = transport.NewSMTPServer(smtpConfig, inboundProcessor, inboundProcessor, logger)
+		// Create SMTP server. The bounce handler intercepts DSNs before they are
+		// delivered as ordinary mail, so returned messages become abuse signal
+		// instead of inbox noise.
+		smtpServer = transport.NewSMTPServer(smtpConfig, inboundProcessor, inboundProcessor, logger,
+			transport.WithBounceHandler(bounceHandler))
 	}
 
 	// Start servers in goroutines
