@@ -85,6 +85,22 @@ func (l Limits) Elevated() Limits {
 	return e
 }
 
+// Throttled returns limits for an account the abuse ladder has clamped: a small
+// fraction of normal throughput.
+//
+// The account keeps sending — a throttle must not read as an outage to someone
+// who was wrongly flagged — but at a rate that makes bulk spam pointless. The
+// domain-wide backstops are untouched, since they are not about this account.
+func (l Limits) Throttled() Limits {
+	t := l
+	t.Account.MsgPerMin = Window{Max: 1, Period: time.Minute}
+	t.Account.MsgPerHour = Window{Max: 10, Period: time.Hour}
+	t.Account.MsgPerDay = Window{Max: 50, Period: 24 * time.Hour}
+	t.Account.RecipPerMsg = 5
+	t.Account.RecipPerDay = Window{Max: 50, Period: 24 * time.Hour}
+	return t
+}
+
 // NewAccountRecipPerDay returns the per-account recipient/day cap for a "new"
 // (<NewAccountDays) named account: 20 recipients/day per the send-rights table.
 func NewAccountAccountLimits(base AccountLimits) AccountLimits {

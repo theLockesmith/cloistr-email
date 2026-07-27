@@ -49,22 +49,38 @@ type SendStateStore interface {
 	GetAccountCreatedAt(ctx context.Context, pubkey string) (time.Time, bool, error)
 }
 
+// ThrottleLookup reports whether the abuse ladder has clamped this account.
+// Satisfied by *abuse.RedisMarkStore; an interface so the gate does not depend
+// on the ladder's storage.
+type ThrottleLookup interface {
+	Throttled(ctx context.Context, pubkey string) (bool, error)
+}
+
 // SendGate decides whether an outbound send is permitted, applying, in order:
 // tier send-rights, the account's local send state, then rate limits.
 //
 // Order matters: a hard denial (anonymous / suspended) must not consume rate
 // limit quota, so the cheap categorical checks run first.
 type SendGate struct {
-	tiers   TierProvider
-	state   SendStateStore
-	rlStore ratelimit.Store
-	limits  ratelimit.Limits
-	now     func() time.Time
+	tiers     TierProvider
+	state     SendStateStore
+	rlStore   ratelimit.Store
+	limits    ratelimit.Limits
+	throttles ThrottleLookup
+	now       func() time.Time
 }
 
 // NewSendGate builds the gate over a shared rate-limit Store.
 func NewSendGate(tiers TierProvider, state SendStateStore, rlStore ratelimit.Store, limits ratelimit.Limits) *SendGate {
 	return &SendGate{tiers: tiers, state: state, rlStore: rlStore, limits: limits, now: time.Now}
+}
+
+// WithThrottles makes the gate honour the abuse ladder's throttle rung. Without
+// it the ladder's hold and suspend rungs still bite (they flip send state in
+// Postgres), but a throttle is inert.
+func (g *SendGate) WithThrottles(t ThrottleLookup) *SendGate {
+	g.throttles = t
+	return g
 }
 
 // Check authorizes an outbound send of the given recipient count and size.
@@ -86,12 +102,28 @@ func (g *SendGate) Check(ctx context.Context, pubkey string, recipients int, byt
 		return ErrSendSuspended
 	}
 
+	// The abuse ladder's throttle rung. A lookup failure is treated as
+	// "not throttled": the mark store is a cache of a judgement, and a Redis
+	// blip must not deny every send on the platform. The harder rungs live in
+	// Postgres above, so nothing dangerous fails open here.
+	throttled := false
+	if g.throttles != nil {
+		if t, terr := g.throttles.Throttled(ctx, pubkey); terr == nil {
+			throttled = t
+		}
+	}
+
 	// Paid tier or an operator/WoT elevation lifts the per-account windows;
-	// domain-wide backstops and the size cap still apply.
-	elevated := state.Elevated || tier == platform.TierPaid
+	// domain-wide backstops and the size cap still apply. A throttle overrides
+	// elevation — the ladder judged this specific account, and paying does not
+	// buy out of that.
+	elevated := (state.Elevated || tier == platform.TierPaid) && !throttled
 
 	effective := g.limits
-	if elevated {
+	switch {
+	case throttled:
+		effective = effective.Throttled()
+	case elevated:
 		effective = effective.Elevated()
 	}
 

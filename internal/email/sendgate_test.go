@@ -174,3 +174,87 @@ func TestMissingUsersRowIsNotTreatedAsNew(t *testing.T) {
 		t.Fatalf("second send denied (%v) — treated as new account", err)
 	}
 }
+
+// fakeThrottles stands in for the abuse ladder's mark store.
+type fakeThrottles struct {
+	throttled bool
+	err       error
+}
+
+func (f fakeThrottles) Throttled(ctx context.Context, pubkey string) (bool, error) {
+	return f.throttled, f.err
+}
+
+// A throttled account keeps sending — being wrongly flagged must not read as an
+// outage — but at a rate that makes bulk spam pointless.
+func TestThrottledAccountGetsClampedLimits(t *testing.T) {
+	g := gate(platform.TierNamed, establishedNamed()).WithThrottles(fakeThrottles{throttled: true})
+	ctx := context.Background()
+
+	if err := g.Check(ctx, gatePubkey, 5, 100); err != nil {
+		t.Fatalf("first throttled send denied: %v", err)
+	}
+
+	// Throttled limits allow 1 message/minute, so the second is refused.
+	err := g.Check(ctx, gatePubkey, 1, 100)
+	var rlErr *RateLimitError
+	if !errors.As(err, &rlErr) {
+		t.Fatalf("err = %v, want a RateLimitError", err)
+	}
+	if rlErr.Reason != ratelimit.ReasonAcctMsgMin {
+		t.Errorf("reason = %v, want %v", rlErr.Reason, ratelimit.ReasonAcctMsgMin)
+	}
+}
+
+// Recipients-per-message drops to 5 under a throttle, which is what actually
+// caps a spam blast.
+func TestThrottledAccountRecipientCap(t *testing.T) {
+	g := gate(platform.TierNamed, establishedNamed()).WithThrottles(fakeThrottles{throttled: true})
+
+	err := g.Check(context.Background(), gatePubkey, 20, 100)
+	var rlErr *RateLimitError
+	if !errors.As(err, &rlErr) {
+		t.Fatalf("err = %v, want a RateLimitError", err)
+	}
+	if rlErr.Reason != ratelimit.ReasonRecipPerMsg {
+		t.Errorf("reason = %v, want %v", rlErr.Reason, ratelimit.ReasonRecipPerMsg)
+	}
+}
+
+// The ladder judged this specific account; paying does not buy out of it.
+func TestThrottleOverridesElevation(t *testing.T) {
+	st := establishedNamed()
+	st.state.Elevated = true
+	g := gate(platform.TierPaid, st).WithThrottles(fakeThrottles{throttled: true})
+	ctx := context.Background()
+
+	if err := g.Check(ctx, gatePubkey, 1, 100); err != nil {
+		t.Fatalf("first throttled send denied: %v", err)
+	}
+	if err := g.Check(ctx, gatePubkey, 1, 100); err == nil {
+		t.Error("elevated account escaped the throttle")
+	}
+}
+
+// A mark-store outage must not deny every send on the platform: the hard rungs
+// are enforced in Postgres, so nothing dangerous fails open here.
+func TestThrottleLookupFailureFailsOpen(t *testing.T) {
+	g := gate(platform.TierNamed, establishedNamed()).
+		WithThrottles(fakeThrottles{err: errors.New("redis down")})
+
+	if err := g.Check(context.Background(), gatePubkey, 5, 100); err != nil {
+		t.Fatalf("send denied because the mark store was unavailable: %v", err)
+	}
+}
+
+// Without a throttle mark the account keeps its normal limits.
+func TestUnthrottledAccountUnaffected(t *testing.T) {
+	g := gate(platform.TierNamed, establishedNamed()).WithThrottles(fakeThrottles{throttled: false})
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		if err := g.Check(ctx, gatePubkey, 1, 100); err != nil {
+			t.Fatalf("send %d denied under normal limits: %v", i, err)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-common/platform"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/abuse"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/api"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
@@ -198,14 +199,21 @@ func main() {
 	})
 	if perr != nil {
 		logger.Warn("Platform client unavailable; outbound abuse controls DISABLED", zap.Error(perr))
-	} else {
+	}
+
+	// Ladder marks live in Dragonfly so a throttle applied by one replica is
+	// honoured by all of them. Constructed unconditionally — the send gate reads
+	// it, and the detector below writes it.
+	abuseMarks := abuse.NewRedisMarkStore(sessionStore.GetClient())
+
+	if perr == nil {
 		defer platformClient.Close()
 		gate := email.NewSendGate(
 			platformClient,
 			db,
 			ratelimit.NewRedisStore(sessionStore.GetClient()),
 			ratelimit.DefaultLimits(),
-		)
+		).WithThrottles(abuseMarks)
 		emailSvc.WithSendGate(gate)
 		logger.Info("Outbound abuse controls enabled",
 			zap.String("platform_mode", cfg.PlatformMode))
@@ -238,6 +246,23 @@ func main() {
 		func(ctx context.Context, m *transport.QueuedMessage) error {
 			return smtpTransport.SendRaw(ctx, m.From, m.To, m.RawMessage)
 		})
+
+	// Detection ladder: the send gate answers "may this account send now?" from
+	// tier and rate limits, which cannot see the patterns that only emerge across
+	// many sends. This scanner watches bounce rate and burst velocity per account
+	// and escalates warn → throttle → hold. The top rung stays off unless the
+	// operator opts in, because a suspend revokes access to every Cloistr
+	// service, not just email.
+	if cfg.AbuseDetectionEnabled {
+		abuseCfg := abuse.DefaultConfig()
+		abuseCfg.Thresholds.AllowAutoSuspend = cfg.AbuseAutoSuspend
+
+		ladder := abuse.NewLadder(abuseCfg, abuseMarks, db, outboundQueue, logger)
+		detector := abuse.NewDetector(abuse.NewPostgresSignals(db.DB()), ladder, abuseCfg, logger)
+		go detector.Run(subscriberCtx, cfg.AbuseScanInterval)
+	} else {
+		logger.Warn("Abuse detection ladder DISABLED; rate limits and tier gating still apply")
+	}
 
 	emailHandler := api.NewEmailHandler(emailSvc, logger)
 

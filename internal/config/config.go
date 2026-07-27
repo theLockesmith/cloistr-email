@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -59,6 +60,19 @@ type Config struct {
 	// (self-hosted: everyone is treated as a named tier). Abuse-control rate
 	// limits apply in both modes; tier gating only bites in platform mode.
 	PlatformMode string
+
+	// Abuse detection ladder (warn → throttle → hold → suspend).
+	//
+	// AbuseDetectionEnabled gates the whole scanner. AbuseScanInterval is how
+	// often active senders are re-evaluated.
+	AbuseDetectionEnabled bool
+	AbuseScanInterval     time.Duration
+
+	// AbuseAutoSuspend permits the ladder's top rung. Off by default and
+	// deliberately so: a suspend sets users.enabled = FALSE, which revokes the
+	// account's access to EVERY Cloistr service, not just email. Enable this
+	// only once the thresholds have been calibrated against real traffic.
+	AbuseAutoSuspend bool
 
 	// InternalAPISecret is the shared bearer secret for cloistr-email's OWN
 	// internal API (e.g. the domain-admin endpoints the admin page calls).
@@ -133,6 +147,11 @@ func Load() (*Config, error) {
 		PlatformMode:      getEnv("CLOISTR_MODE", "standalone"),
 		InternalAPISecret: getEnv("INTERNAL_API_SECRET", ""),
 
+		// Abuse detection ladder
+		AbuseDetectionEnabled: getEnvBool("ABUSE_DETECTION_ENABLED", true),
+		AbuseScanInterval:     getEnvDuration("ABUSE_SCAN_INTERVAL", 15*time.Minute),
+		AbuseAutoSuspend:      getEnvBool("ABUSE_AUTO_SUSPEND", false),
+
 		// Unified-auth signer URL (empty = disabled)
 		SignerURL: getEnv("MAIL_SIGNER_URL", "http://cloistr-signer.cloistr.svc.cluster.local:7777"),
 
@@ -179,6 +198,17 @@ func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if boolVal, err := strconv.ParseBool(value); err == nil {
 			return boolVal
+		}
+	}
+	return defaultValue
+}
+
+// getEnvDuration gets an environment variable as a Go duration ("15m", "6h")
+// with a default value
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if d, err := time.ParseDuration(value); err == nil && d > 0 {
+			return d
 		}
 	}
 	return defaultValue
