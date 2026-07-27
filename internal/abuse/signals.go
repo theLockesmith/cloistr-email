@@ -45,6 +45,10 @@ func (p *PostgresSignals) Collect(ctx context.Context, window time.Duration) ([]
 		return nil, err
 	}
 
+	if err := p.applyComplaints(ctx, since, byPubkey); err != nil {
+		return nil, err
+	}
+
 	out := make([]Signals, 0, len(byPubkey))
 	for _, s := range byPubkey {
 		out = append(out, *s)
@@ -125,6 +129,43 @@ func (p *PostgresSignals) applyBounces(ctx context.Context, since time.Time, byP
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate bounce signals: %w", err)
+	}
+
+	return nil
+}
+
+// applyComplaints folds in feedback-loop complaints. Yields nothing until the
+// sending domains are FBL-enrolled, and nothing at all on a deployment that has
+// not run migration 010.
+func (p *PostgresSignals) applyComplaints(ctx context.Context, since time.Time, byPubkey map[string]*Signals) error {
+	const query = `
+		SELECT sender_pubkey, COUNT(*)
+		FROM email_complaints
+		WHERE received_at > $1 AND sender_pubkey IS NOT NULL
+		GROUP BY 1
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, since)
+	if err != nil {
+		if isMissingRelation(err) {
+			return nil
+		}
+		return fmt.Errorf("collect complaint signals: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var pubkey string
+		var complaints int
+		if err := rows.Scan(&pubkey, &complaints); err != nil {
+			return fmt.Errorf("scan complaint signals: %w", err)
+		}
+		if s, ok := byPubkey[pubkey]; ok {
+			s.Complaints = complaints
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate complaint signals: %w", err)
 	}
 
 	return nil

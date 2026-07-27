@@ -113,6 +113,7 @@ type SMTPServer struct {
 	spfValidator *SPFValidator
 	dkimVerifier *DKIMVerifier
 	bounceHandler *BounceHandler
+	fblHandler    *FBLHandler
 	logger       *zap.Logger
 
 	mu      sync.Mutex
@@ -147,6 +148,14 @@ func WithDKIMVerifier(v *DKIMVerifier) SMTPServerOption {
 func WithBounceHandler(h *BounceHandler) SMTPServerOption {
 	return func(s *SMTPServer) {
 		s.bounceHandler = h
+	}
+}
+
+// WithFBLHandler adds feedback-loop (spam complaint) ingestion to the SMTP
+// server.
+func WithFBLHandler(h *FBLHandler) SMTPServerOption {
+	return func(s *SMTPServer) {
+		s.fblHandler = h
 	}
 }
 
@@ -474,6 +483,24 @@ func (s *smtpSession) Data(r io.Reader) error {
 	}
 
 	data := buf.Bytes()
+
+	// Check if this is a feedback-loop complaint. This runs before the bounce
+	// check because an ARF report is also a multipart/report and would otherwise
+	// be misfiled as a bounce, turning the strongest abuse signal into the
+	// weaker one.
+	if s.backend.server.fblHandler != nil && s.backend.server.fblHandler.IsComplaint(data) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := s.backend.server.fblHandler.ProcessComplaint(ctx, data); err != nil {
+			s.logger.Error("Failed to process spam complaint",
+				zap.String("from", s.from),
+				zap.Error(err))
+		} else {
+			// Complaint recorded; do not deliver the report as ordinary mail.
+			return nil
+		}
+	}
 
 	// Check if this is a bounce message
 	if s.backend.server.bounceHandler != nil && s.backend.server.bounceHandler.IsBounce(s.from, data) {

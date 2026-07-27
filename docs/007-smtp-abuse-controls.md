@@ -1,7 +1,7 @@
 # RFC-007: SMTP Abuse Controls
 
-**Status:** Implemented (detection ladder shipped; FBL ingestion pending enrollment)
-**Migration:** `configs/migrations/009_smtp_abuse_controls.sql`
+**Status:** Implemented (FBL ingestion built; awaiting provider enrollment to produce data)
+**Migrations:** `configs/migrations/009_smtp_abuse_controls.sql`, `010_fbl_complaints.sql`
 
 ## Problem
 
@@ -67,7 +67,23 @@ account that sent the original message:
 Unattributed bounces are stored with `sender_pubkey` NULL and simply do not
 count against anyone.
 
-### 4. Detection ladder (`internal/abuse/`)
+### 4. Feedback-loop complaints (`internal/transport/fbl.go`)
+
+When a recipient at a large provider hits "report spam", enrolled senders get an
+ARF report (RFC 5965) back. This is stronger evidence than a bounce — a bounce
+means the address was wrong, a complaint means a real person did not want the
+mail — and providers begin throttling a sender around a **0.1%** complaint rate,
+far below anything a bounce rate would flag.
+
+Reports are intercepted on the inbound path *before* the bounce check, since an
+ARF report is also a `multipart/report` and would otherwise be misfiled as a
+bounce. Attribution reuses the same resolver as bounces.
+
+**This produces no data until the sending domains are enrolled** in each
+provider's FBL programme (Microsoft SNDS/JMRP, Yahoo/AOL CFL, and so on). That
+is an operator action; the code path is inert but complete until then.
+
+### 5. Detection ladder (`internal/abuse/`)
 
 A scanner (default every 15 min) evaluates every account that sent mail in the
 window and escalates:
@@ -81,11 +97,21 @@ window and escalates:
 
 Triggers (`abuse.DefaultThresholds`):
 
-- **Hard bounce rate** over 24h: ≥5% warn, ≥15% throttle, ≥35% hold, ≥60%
-  suspend. Rates are ignored below 20 messages, where they are statistical noise.
+- **Hard bounce rate** over 24h (per message): ≥5% warn, ≥15% throttle, ≥35%
+  hold, ≥60% suspend. Ignored below 20 messages, where rates are statistical
+  noise.
+- **Complaint rate** over 24h (per *recipient*, since a complaint comes from one
+  person): ≥0.1% warn, ≥0.3% throttle, ≥0.5% hold. Ignored below 200 recipients.
+  Complaints never warrant a suspend on their own — unwanted is not the same as
+  fraudulent, and the platform-wide hammer should not fall on evidence that
+  indirect.
 - **Velocity**: >500 recipients in an hour holds outright, regardless of bounce
   rate. This is the compromised-account tripwire — it fires before any bounce has
   had time to come back.
+
+Each signal proposes a rung and the account lands on the highest; they never
+cancel each other out, because a clean bounce rate says nothing about whether
+recipients want the mail.
 
 Soft bounces are recorded but are not actionable on their own: a full mailbox
 says nothing about the sender.
@@ -131,12 +157,18 @@ mailboxes.send_suspended_at    TIMESTAMP -- when the ladder last closed the gate
 former is email-local and owned by this service, the latter is the platform-wide
 hammer owned by cloistr-me.
 
-## Not yet built
+## Schema (migration 010)
 
-- **FBL ingestion** — parsing ARF complaint reports and attributing them via
-  `sender_pubkey`. Blocked on feedback-loop enrollment with the major providers.
-  Complaint rate is a stronger signal than bounce rate and should become a rung
-  trigger once available.
+```
+email_complaints  -- ARF spam complaints, attributed via sender_pubkey
+```
+
+## Not yet done
+
+- **FBL enrollment** — operator action. Register the sending domains with
+  Microsoft SNDS/JMRP, Yahoo/AOL CFL and the rest, pointing each at an address
+  this service receives. The ingestion path and the complaint-rate rung are
+  already live; they simply see nothing until reports start arriving.
 - **rspamd** — outbound content scoring. Not deployed.
 - **Operator review surface** — marks are currently visible only in logs. An
   admin endpoint listing held accounts with their reasons would make the

@@ -125,6 +125,10 @@ func TestPostgresSignalsJoinsSendsAndBounces(t *testing.T) {
 			// denominator, so it must be dropped rather than invented.
 			AddRow("carol", 99, 0))
 
+	mock.ExpectQuery("FROM email_complaints").
+		WillReturnRows(sqlmock.NewRows([]string{"sender_pubkey", "complaints"}).
+			AddRow("alice", 4))
+
 	got, err := NewPostgresSignals(db).Collect(t.Context(), 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -141,6 +145,9 @@ func TestPostgresSignalsJoinsSendsAndBounces(t *testing.T) {
 	alice := byPubkey["alice"]
 	if alice.MessagesSent != 120 || alice.HardBounces != 45 || alice.RecipientsLastHour != 40 {
 		t.Errorf("alice = %+v, want messages=120 hard=45 lastHour=40", alice)
+	}
+	if alice.Complaints != 4 {
+		t.Errorf("alice.Complaints = %d, want 4", alice.Complaints)
 	}
 	if _, ok := byPubkey["carol"]; ok {
 		t.Error("carol has bounces but no sends and should not be judged")

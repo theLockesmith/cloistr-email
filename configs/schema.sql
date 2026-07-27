@@ -279,3 +279,23 @@ CREATE TABLE IF NOT EXISTS domains (
 );
 
 CREATE INDEX IF NOT EXISTS idx_domains_active ON domains(active);
+
+-- Feedback-loop (FBL) spam complaints (migration 010).
+-- ARF reports (RFC 5965) from providers whose users hit "report spam".
+-- Complaint rate is a stronger abuse signal than bounce rate: a bounce means
+-- the address was wrong, a complaint means a real person did not want the mail.
+-- Empty until the sending domains are enrolled in each provider's FBL programme.
+CREATE TABLE IF NOT EXISTS email_complaints (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    original_recipient VARCHAR(255),
+    original_message_id VARCHAR(255),
+    feedback_type VARCHAR(32) NOT NULL DEFAULT 'other', -- abuse, fraud, virus, other
+    reporting_mta VARCHAR(255),
+    received_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    sender_pubkey CHAR(64)  -- attribution; nullable (providers routinely redact)
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_complaints_sender_pubkey
+    ON email_complaints(sender_pubkey) WHERE sender_pubkey IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_email_complaints_received_at
+    ON email_complaints(received_at DESC);

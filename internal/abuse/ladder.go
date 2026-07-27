@@ -86,6 +86,11 @@ type Signals struct {
 	// RecipientsLastHour measures burst velocity, which catches a compromised
 	// account before a 24h bounce rate has time to move.
 	RecipientsLastHour int
+
+	// Complaints are feedback-loop reports: a real recipient pressed "report
+	// spam". Stronger evidence than a bounce, which only says an address was
+	// wrong. Always zero until the sending domains are FBL-enrolled.
+	Complaints int
 }
 
 // HardBounceRate is hard bounces per message sent, in [0,1]. Zero when the
@@ -95,6 +100,18 @@ func (s Signals) HardBounceRate() float64 {
 		return 0
 	}
 	return float64(s.HardBounces) / float64(s.MessagesSent)
+}
+
+// ComplaintRate is complaints per recipient reached, in [0,1].
+//
+// The denominator is recipients rather than messages: a complaint comes from one
+// person, so a single message to 500 people that draws 5 complaints is a 1%
+// complaint rate, not 500%.
+func (s Signals) ComplaintRate() float64 {
+	if s.RecipientsSent <= 0 {
+		return 0
+	}
+	return float64(s.Complaints) / float64(s.RecipientsSent)
 }
 
 // Thresholds is the operator-configurable trigger set. Every rate is a fraction
@@ -115,6 +132,18 @@ type Thresholds struct {
 	ThrottleHardBounceRate float64
 	HoldHardBounceRate     float64
 	SuspendHardBounceRate  float64
+
+	// Complaint-rate escalation points. These are an order of magnitude tighter
+	// than the bounce thresholds because they measure something stronger: a real
+	// recipient reporting the mail as spam, not merely a wrong address. Large
+	// providers begin throttling a sender around 0.1%.
+	WarnComplaintRate     float64
+	ThrottleComplaintRate float64
+	HoldComplaintRate     float64
+
+	// MinRecipientsForComplaintRate is the volume floor for complaint rate,
+	// counted in recipients, since that is the denominator.
+	MinRecipientsForComplaintRate int
 
 	// VelocityRecipientsPerHour holds an account outright when exceeded,
 	// regardless of bounce rate. This is the compromised-account tripwire: it
@@ -144,6 +173,11 @@ func DefaultThresholds() Thresholds {
 		SuspendHardBounceRate:     0.60,
 		VelocityRecipientsPerHour: 500,
 		AllowAutoSuspend:          false,
+
+		WarnComplaintRate:             0.001,
+		ThrottleComplaintRate:         0.003,
+		HoldComplaintRate:             0.005,
+		MinRecipientsForComplaintRate: 200,
 	}
 }
 
@@ -162,6 +196,20 @@ func (t Thresholds) Evaluate(s Signals) (Rung, string) {
 			s.RecipientsLastHour, t.VelocityRecipientsPerHour)
 	}
 
+	// Each remaining signal proposes a rung; the account lands on the highest.
+	// Signals must not cancel each other out — a clean bounce rate says nothing
+	// about whether recipients are reporting the mail as spam.
+	rung, reason := t.evaluateBounceRate(s)
+
+	if cRung, cReason := t.evaluateComplaintRate(s); cRung > rung {
+		rung, reason = cRung, cReason
+	}
+
+	return rung, reason
+}
+
+// evaluateBounceRate judges the account on hard bounces per message.
+func (t Thresholds) evaluateBounceRate(s Signals) (Rung, string) {
 	// Below the volume floor, rates carry no information.
 	if s.MessagesSent < t.MinMessages {
 		return RungNone, ""
@@ -182,6 +230,33 @@ func (t Thresholds) Evaluate(s Signals) (Rung, string) {
 		return RungThrottle, reason(t.ThrottleHardBounceRate)
 	case t.WarnHardBounceRate > 0 && rate >= t.WarnHardBounceRate:
 		return RungWarn, reason(t.WarnHardBounceRate)
+	}
+
+	return RungNone, ""
+}
+
+// evaluateComplaintRate judges the account on feedback-loop complaints per
+// recipient. It tops out at hold: a complaint rate says the mail was unwanted,
+// which is not the same as fraud, and the platform-wide hammer should not fall
+// on evidence this indirect.
+func (t Thresholds) evaluateComplaintRate(s Signals) (Rung, string) {
+	if s.RecipientsSent < t.MinRecipientsForComplaintRate {
+		return RungNone, ""
+	}
+
+	rate := s.ComplaintRate()
+	reason := func(threshold float64) string {
+		return fmt.Sprintf("spam complaint rate %.2f%% (%d/%d) exceeds %.2f%%",
+			rate*100, s.Complaints, s.RecipientsSent, threshold*100)
+	}
+
+	switch {
+	case t.HoldComplaintRate > 0 && rate >= t.HoldComplaintRate:
+		return RungHold, reason(t.HoldComplaintRate)
+	case t.ThrottleComplaintRate > 0 && rate >= t.ThrottleComplaintRate:
+		return RungThrottle, reason(t.ThrottleComplaintRate)
+	case t.WarnComplaintRate > 0 && rate >= t.WarnComplaintRate:
+		return RungWarn, reason(t.WarnComplaintRate)
 	}
 
 	return RungNone, ""

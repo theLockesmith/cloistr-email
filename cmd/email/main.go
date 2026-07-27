@@ -227,6 +227,12 @@ func main() {
 	// per-account bounce rate rather than a service-wide one.
 	bounceHandler := transport.NewBounceHandler(db.DB(), logger)
 
+	// Feedback-loop ingestion. Complaint rate is a stronger signal than bounce
+	// rate — a bounce means the address was wrong, a complaint means a real
+	// person did not want the mail — but it stays empty until the sending
+	// domains are enrolled in each provider's FBL programme.
+	fblHandler := transport.NewFBLHandler(db.DB(), logger)
+
 	// Outbound queue: durable store-and-forward for retries and the abuse
 	// ladder's throttle/hold rungs. Previously dead code — constructed here and
 	// drained by a worker so held messages are retained (not bounced) and
@@ -423,7 +429,8 @@ func main() {
 		// delivered as ordinary mail, so returned messages become abuse signal
 		// instead of inbox noise.
 		smtpServer = transport.NewSMTPServer(smtpConfig, inboundProcessor, inboundProcessor, logger,
-			transport.WithBounceHandler(bounceHandler))
+			transport.WithBounceHandler(bounceHandler),
+			transport.WithFBLHandler(fblHandler))
 	}
 
 	// Start servers in goroutines
