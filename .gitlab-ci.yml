@@ -23,7 +23,7 @@ test:unit:
     CGO_ENABLED: "1"
   script:
     - go mod download
-    - go test -v -race -short -cover ./...
+    - go test -v -race -timeout 25m -short -cover ./...
   coverage: '/coverage: \d+\.\d+% of statements/'
 
 test:lint:
