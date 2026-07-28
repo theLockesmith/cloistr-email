@@ -6,12 +6,16 @@ stages:
 include:
   - project: 'coldforge/ci-templates'
     ref: main
+    file: '/templates/cloistr-rules.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
     file: '/templates/kaniko-build.yml'
   - project: 'coldforge/ci-templates'
     ref: main
     file: '/templates/frontend-smoke.yml'
 
 test:unit:
+  extends: .cloistr-rules
   stage: test
   retry: 1
   image: golang:1.25
@@ -23,6 +27,7 @@ test:unit:
   coverage: '/coverage: \d+\.\d+% of statements/'
 
 test:lint:
+  extends: .cloistr-rules
   stage: test
   retry: 1
   image: golangci/golangci-lint:latest
