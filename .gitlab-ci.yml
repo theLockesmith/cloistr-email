@@ -6,29 +6,18 @@ stages:
 include:
   - project: 'coldforge/ci-templates'
     ref: main
+    file: '/templates/cloistr-rules.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
+    file: '/templates/go-test.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
     file: '/templates/kaniko-build.yml'
   - project: 'coldforge/ci-templates'
     ref: main
     file: '/templates/frontend-smoke.yml'
 
-test:unit:
-  stage: test
-  retry: 1
-  image: golang:1.25
-  variables:
-    CGO_ENABLED: "1"
-  script:
-    - go mod download
-    - go test -v -race -short -cover ./...
-  coverage: '/coverage: \d+\.\d+% of statements/'
 
-test:lint:
-  stage: test
-  retry: 1
-  image: golangci/golangci-lint:latest
-  script:
-    - golangci-lint run ./...
-  allow_failure: true
 
 build:backend:
   extends: .kaniko-build
@@ -53,3 +42,11 @@ smoke-test:
   needs: ["build:frontend"]
   variables:
     SMOKE_IMAGE: "$CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA"
+
+test:unit:
+  extends: [.go-test, .cloistr-rules]
+  variables:
+    GO_TEST_EXTRA: "-short"
+
+test:lint:
+  extends: [.go-lint, .cloistr-rules]
