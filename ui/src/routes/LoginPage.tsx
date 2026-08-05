@@ -10,9 +10,15 @@
  * Auth bridge: when LoginModal completes, @cloistr/auth's signer is set;
  * handleClose hands it to loginWithSigner (email backend challenge/verify → JWT
  * → navigates to the intended route, defaulting to /inbox).
+ *
+ * Error state: the App.tsx loop breaker navigates here with
+ * location.state.authError when it detects rapid oscillation between /login and
+ * a protected route. This surfaces a human-readable message instead of leaving
+ * the user watching an infinite flicker.
  */
 
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useNostrAuth } from '@cloistr/auth'
 import { Header, LoginModal } from '@cloistr/ui/components'
 import { useLoginWithSigner } from '../hooks/useLoginWithSigner'
@@ -29,18 +35,31 @@ export default function LoginPage() {
   const { signer } = useNostrAuth()
   const { loginWithSigner } = useLoginWithSigner()
   const [modalOpen, setModalOpen] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+
+  // The App.tsx loop breaker passes an authError in location state when it
+  // detects repeated /login ↔ protected-route oscillation. Show it here so the
+  // user knows something went wrong and can take action (sign in manually).
+  const location = useLocation()
+  const locationError = (location.state as { authError?: string } | null)?.authError ?? null
 
   const handleClose = async () => {
     setModalOpen(false)
+    setLoginError(null)
     if (signer) {
       try {
         await loginWithSigner(signer)
         // loginWithSigner navigates on success
       } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Sign-in failed'
+        setLoginError(msg)
         console.error('LoginPage: loginWithSigner failed', err)
       }
     }
   }
+
+  // Prefer a fresh login-attempt error over the stale loop-breaker message.
+  const displayError = loginError ?? locationError
 
   return (
     <>
@@ -51,6 +70,12 @@ export default function LoginPage() {
         <p className="text-xl text-[var(--cloistr-text-muted)] mb-8">
           Encrypted, Nostr-native email. One address for email, Nostr, and Lightning.
         </p>
+
+        {displayError && (
+          <div className="mb-6 rounded-lg border border-[var(--cloistr-error,#f87171)]/40 bg-[var(--cloistr-error,#f87171)]/10 px-4 py-3 text-sm text-[var(--cloistr-error,#dc2626)]">
+            {displayError}
+          </div>
+        )}
 
         <button
           onClick={() => setModalOpen(true)}

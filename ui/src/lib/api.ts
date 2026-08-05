@@ -39,8 +39,16 @@ apiV2.interceptors.request.use(addAuthToken)
 // Handle auth errors
 const handleAuthError = (error: AxiosError) => {
   if (error.response?.status === 401) {
-    localStorage.removeItem('session_token')
+    // Clear ALL auth keys. Previously only session_token and user_pubkey were
+    // removed, leaving access_token and token_expiry intact. On the next page
+    // load BackendAuthProvider.validateToken() found a valid access_token and
+    // set user+token in memory (isAuthenticated()=true), but every API call
+    // immediately 401'd again because session_token was still missing — creating
+    // the login redirect loop the operator reported.
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('token_expiry')
     localStorage.removeItem('user_pubkey')
+    localStorage.removeItem('session_token')
     window.location.href = '/login'
   }
   return Promise.reject(error)
