@@ -45,6 +45,13 @@ smoke-test:
 
 test:unit:
   extends: [.go-test, .cloistr-rules]
+  # Local override of the shared .go-test `timeout: 30m`. This suite passes in
+  # 674-1565s even with -short, so at worst it clears 30m by ~4 minutes; when the
+  # cluster is degraded it tips straight into job_execution_timeout (three
+  # consecutive times on !39/!38 on 2026-08-04). Raising the ceiling here rather
+  # than in ci-templates keeps every other repo on 30m. The suite's runtime is
+  # the real problem and is worth cutting down separately.
+  timeout: 50m
   variables:
     GO_TEST_EXTRA: "-short"
 
