@@ -23,7 +23,7 @@ ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
 # Runtime stage - use unprivileged nginx for OpenShift compatibility
-FROM nginxinc/nginx-unprivileged:1.25-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 
 # Copy app files
 COPY --from=builder /app/dist /usr/share/nginx/html
