@@ -82,19 +82,55 @@ export function useActiveKeyReScope(): void {
   const scopedPubkeyRef = useRef<string | null>(null)
   // Prevent concurrent re-auth attempts
   const inFlightRef = useRef(false)
+  // True when this run is a first-time bootstrap, not a key switch.
+  const bootstrappingRef = useRef(false)
 
   useEffect(() => {
     if (!activePubkey || !signer) return
 
-    // On first run, record the current pubkey from localStorage (set by login).
-    // This prevents re-authing immediately on mount when already scoped correctly.
+    // FIRST RUN.
+    //
+    // This used to read user_pubkey and fall back to activePubkey when nothing
+    // was stored:
+    //
+    //   scopedPubkeyRef.current = stored ?? activePubkey
+    //
+    // With nothing stored — a fresh browser, or a session whose token was
+    // cleared — that recorded the CURRENT key, the equality check below matched
+    // immediately, and the exchange never ran. No key "switch" ever follows on a
+    // normal load, so the user sat on /login holding a perfectly valid shared
+    // session. Measured against production: 2 of 4 loads landed on /login with
+    // ZERO calls to /auth/challenge, while the signer returned 200 to
+    // /api/v1/keys and /api/v1/nostrconnect/session on every single attempt.
+    //
+    // The guard's real purpose is narrower: don't re-auth when the backend is
+    // ALREADY scoped to this key. That requires a usable token, not merely a
+    // remembered pubkey.
     if (scopedPubkeyRef.current === null) {
       const stored = localStorage.getItem('user_pubkey')
-      scopedPubkeyRef.current = stored ?? activePubkey
+      const token = localStorage.getItem('access_token')
+      const expiry = localStorage.getItem('token_expiry')
+      const tokenUsable =
+        !!token && !!expiry && new Date(expiry) > new Date() && stored === activePubkey
+
+      // Only claim we are scoped when there is a live token for this key.
+      // Otherwise leave the ref null so the exchange below runs.
+      scopedPubkeyRef.current = tokenUsable ? stored : null
+
+      // Remember that this run is a first-time bootstrap rather than a key
+      // switch. They need different endings: a switch just needs the cache
+      // cleared, whereas a bootstrap has to get BackendAuthProvider to notice
+      // the brand-new token, and it only reads it on mount.
+      bootstrappingRef.current = !tokenUsable
     }
 
-    // Already scoped to this key — nothing to do
-    if (scopedPubkeyRef.current === activePubkey) return
+    // Already scoped to this key with a live token — nothing to do.
+    // Reset the bootstrap counter: we are demonstrably working, so a later
+    // legitimate bootstrap in this tab must not be blocked by a stale count.
+    if (scopedPubkeyRef.current === activePubkey) {
+      sessionStorage.removeItem('email_bootstrap_attempts')
+      return
+    }
 
     // Prevent concurrent attempts
     if (inFlightRef.current) return
@@ -105,12 +141,46 @@ export function useActiveKeyReScope(): void {
     reAuthForKey(signer)
       .then((newPubkey) => {
         scopedPubkeyRef.current = newPubkey
-        // Flush all mail data so the new identity's mailbox loads immediately
+
+        if (bootstrappingRef.current) {
+          bootstrappingRef.current = false
+
+          // BOUNDED, because the navigation below is a HARD one and resets
+          // every React ref — so a ref cannot detect a loop across it. If the
+          // backend rejects the freshly minted token, BackendAuthProvider
+          // clears it, we bootstrap again, and that repeats forever. Count the
+          // attempts in sessionStorage (survives the reload, dies with the tab)
+          // and stop after two, leaving the user on /login where the manual
+          // sign-in still works.
+          const KEY = 'email_bootstrap_attempts'
+          const attempts = Number(sessionStorage.getItem(KEY) ?? '0') + 1
+          sessionStorage.setItem(KEY, String(attempts))
+          if (attempts > 2) {
+            console.error(
+              '[useActiveKeyReScope] bootstrap produced a token the backend will not accept ' +
+                `(${attempts} attempts); staying on /login rather than looping`,
+            )
+            return
+          }
+          // BackendAuthProvider reads access_token on MOUNT, so simply storing
+          // it leaves the app rendering !authed on /login with a valid session
+          // sitting in localStorage. A hard navigation remounts the provider so
+          // validateToken runs with a real Bearer token — the same ending
+          // useLoginWithSigner uses after a manual sign-in.
+          window.location.replace('/inbox')
+          return
+        }
+
+        // Key switch: discard all mail data so the new identity's mailbox loads
+        // immediately. No navigation — the user stays where they are.
         void queryClient.invalidateQueries()
       })
       .catch((err) => {
         console.error('[useActiveKeyReScope] re-auth failed for', targetPubkey, err)
-        // Don't update scopedPubkeyRef — next activePubkey change will retry
+        // Leave scopedPubkeyRef null so a later render retries. Without this a
+        // transient backend blip during bootstrap would strand the user on
+        // /login for the rest of the session.
+        scopedPubkeyRef.current = null
       })
       .finally(() => {
         inFlightRef.current = false
