@@ -115,8 +115,19 @@ func (s *DKIMSigner) Sign(message []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to finalize DKIM signature: %w", err)
 	}
 
-	// Get the DKIM-Signature header
-	dkimHeader := fmt.Sprintf("DKIM-Signature: %s\r\n", signer.Signature())
+	// Get the DKIM-Signature header.
+	//
+	// signer.Signature() ALREADY ends with CRLF. Appending another produced
+	// "\r\n\r\n", which terminates the header block — so every header after the
+	// signature (From, To, Subject, Message-ID...) became BODY text. Receiving
+	// MTAs then reject the message; Gmail returns
+	//   550 5.7.1 ... not RFC 5322 compliant: 'From' header is missing
+	// which failed every MX and surfaced as a 500 from /api/v2/email/send.
+	//
+	// Normalise instead of assuming: trim any trailing newlines and add exactly
+	// one CRLF, so this stays correct whichever way the library behaves.
+	sig := strings.TrimRight(signer.Signature(), "\r\n")
+	dkimHeader := "DKIM-Signature: " + sig + "\r\n"
 
 	// Prepend the DKIM-Signature header to the message
 	signedBuf.WriteString(dkimHeader)

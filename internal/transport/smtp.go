@@ -226,6 +226,14 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 
 // buildRawEmail constructs the RFC 5322 formatted email
 func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte, error) {
+	// A blank From produces "From: \r\n", which receiving MTAs treat as a
+	// MISSING header — Gmail answers 550 5.7.1 "'From' header is missing" and
+	// every MX refuses the message. Fail here, where the cause is obvious,
+	// rather than emitting mail that cannot be delivered anywhere.
+	if strings.TrimSpace(msg.FromAddress) == "" {
+		return nil, fmt.Errorf("cannot build message: FromAddress is empty")
+	}
+
 	var sb strings.Builder
 
 	// Generate Message-ID if not provided
