@@ -1,12 +1,12 @@
 module git.aegis-hq.xyz/coldforge/cloistr-email
 
-go 1.25.0
+go 1.26.6
 
 require (
 	git.aegis-hq.xyz/coldforge/cloistr-common v0.3.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/emersion/go-msgauth v0.7.0
-	github.com/emersion/go-smtp v0.24.0
+	github.com/emersion/go-smtp v0.25.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/joho/godotenv v1.5.1
@@ -14,7 +14,7 @@ require (
 	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	go.uber.org/zap v1.28.0
 )
 
