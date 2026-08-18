@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useBackendAuth, useSharedSessionMaybe } from '@cloistr/ui/components'
+import { useBackendAuth } from '@cloistr/ui/components'
 import LoginPage from './routes/LoginPage'
 import InboxPage from './routes/InboxPage'
 import ComposePage from './routes/ComposePage'
@@ -32,7 +32,6 @@ function clearAllAuthState() {
 
 function App() {
   const { isAuthenticated, loading } = useBackendAuth()
-  const sharedSession = useSharedSessionMaybe()
   const authed = isAuthenticated()
 
   // Bootstrap signer↔mail NIP-46 connection for signer-session users.
@@ -42,20 +41,21 @@ function App() {
   // Re-scope backend session and flush mailbox cache when the active key changes.
   useActiveKeyReScope()
 
-  // isResolving stays true while BackendAuthProvider's SSO bootstrap is in
-  // flight (bootstrapKeys + performBackendAuth). BackendAuthProvider.loading
-  // only covers validateToken(), which completes long before SSO does. Without
-  // this second gate the app renders !authed and immediately redirects to /login
-  // before the silent SSO exchange finishes — the "flicker to /login" the
-  // operator reported. BackendAuthProvider provides SharedSessionContext so
-  // useSharedSessionMaybe() returns a live value from inside it.
-  const isResolving = sharedSession?.isResolving ?? false
-
   // Per-render log of redirect-to-/login timestamps (module-level so it
   // survives React re-renders but resets on a full hard navigation).
   const loginRedirectLog = useRef<number[]>([])
 
-  if (loading || isResolving) {
+  // `isResolving` is deliberately NOT checked here any more (2026-08-17).
+  //
+  // BackendAuthProvider now renders the fleet-wide AuthRestoreGate
+  // ("Signing you in securely") for exactly that phase, and it gates ABOVE this
+  // component — so while the silent SSO restore is in flight App never renders
+  // at all and this branch is unreachable. Keeping it would only reintroduce
+  // mail's own divergent "Loading..." on top of the shared one.
+  //
+  // `loading` is still ours: it covers BackendAuthProvider.validateToken(),
+  // which resolves long before SSO does.
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-lg">Loading...</div>

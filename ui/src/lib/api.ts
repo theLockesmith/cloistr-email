@@ -230,38 +230,14 @@ export const keyAPI = {
 // Auth API
 // ============================================================================
 
-export const authAPI = {
-  // Start NIP-46 authentication
-  startNIP46: (bunkerUrl: string) =>
-    api.post<AuthChallengeResponse>('/auth/nip46/start', { bunker_url: bunkerUrl }),
-
-  // Verify NIP-46 signature
-  verifyNIP46: (challengeId: string, signedEvent: string) =>
-    api.post<AuthVerifyResponse>('/auth/nip46/verify', {
-      challenge_id: challengeId,
-      signed_event: signedEvent,
-    }),
-
-  // Connect to bunker
-  connectBunker: (challengeId: string) =>
-    api.post<AuthVerifyResponse>('/auth/nip46/connect', {
-      challenge_id: challengeId,
-    }),
-
-  // NIP-07 authentication (extension-based)
-  // The server verifies a signed event from the client
-  verifyNIP07: (signedEvent: string) =>
-    api.post<AuthVerifyResponse>('/auth/nip07/verify', {
-      signed_event: signedEvent,
-    }),
-
-  // Get current session
-  getSession: () => api.get<UserInfo>('/auth/session'),
-
-  // Logout
-  logout: () => api.post('/auth/logout', {}),
-}
-
+// NOTE: the former `authAPI` export was REMOVED 2026-08-17. It defined five
+// endpoints — /auth/nip46/start, /auth/nip46/verify, /auth/nip46/connect,
+// /auth/nip07/verify, /auth/session — of which the backend registers only
+// /auth/nip46/verify. It had no callers anywhere in the app: real auth goes
+// through BackendAuthProvider (/auth/challenge, /auth/verify, /auth/token-info)
+// in @cloistr/ui. Dead code that reads like the auth path is worse than none:
+// it was the first place investigation landed when SSO appeared to fail
+// silently, and it cost a wrong root cause before the call graph was checked.
 // ============================================================================
 // Unified Address API
 // ============================================================================
