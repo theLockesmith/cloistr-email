@@ -544,7 +544,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list emails: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var emails []*Email
 	for rows.Next() {
@@ -657,7 +657,7 @@ func (db *PostgreSQL) PermanentlyDeleteEmail(ctx context.Context, id string) err
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// First delete attachments
 	_, err = tx.ExecContext(ctx, `DELETE FROM attachments WHERE email_id = $1`, id)
@@ -843,7 +843,7 @@ func (db *PostgreSQL) ListContacts(ctx context.Context, mailboxPubkey string, op
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list contacts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var contacts []*Contact
 	for rows.Next() {
@@ -888,7 +888,7 @@ func (db *PostgreSQL) SearchContacts(ctx context.Context, mailboxPubkey, query s
 	if err != nil {
 		return nil, fmt.Errorf("failed to search contacts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var contacts []*Contact
 	for rows.Next() {
@@ -1005,7 +1005,7 @@ func (db *PostgreSQL) GetAttachmentsByEmail(ctx context.Context, emailID string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get attachments: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var attachments []*Attachment
 	for rows.Next() {
@@ -1309,7 +1309,7 @@ func (db *PostgreSQL) ListActiveDomains(ctx context.Context) ([]*Domain, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to list domains: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []*Domain
 	for rows.Next() {
@@ -1333,7 +1333,7 @@ func (db *PostgreSQL) ListAllDomains(ctx context.Context) ([]*Domain, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list all domains: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []*Domain
 	for rows.Next() {
@@ -1417,7 +1417,7 @@ func (db *PostgreSQL) GetAddressesByPubkey(ctx context.Context, pubkey string) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to list addresses by pubkey: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var addrs []*Address
 	for rows.Next() {

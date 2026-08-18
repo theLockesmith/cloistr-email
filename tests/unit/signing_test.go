@@ -98,7 +98,7 @@ func TestLocalSignerSign(t *testing.T) {
 // TestEmailSignerSign tests the email signing workflow
 func TestEmailSignerSign(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)
@@ -184,7 +184,7 @@ func TestEmailSignerSign(t *testing.T) {
 // TestSignatureHeaders tests that signature headers are correctly formatted
 func TestSignatureHeaders(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)
@@ -220,7 +220,7 @@ func TestSignatureHeaders(t *testing.T) {
 // TestCanonicalization tests that canonicalization is deterministic
 func TestCanonicalization(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)
@@ -266,7 +266,7 @@ func TestCanonicalization(t *testing.T) {
 // TestSignEmailConvenience tests the SignEmail convenience function
 func TestSignEmailConvenience(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)

@@ -36,12 +36,12 @@ func skipIfNoDatabase(t *testing.T) string {
 func TestEmailStorageIntegration(t *testing.T) {
 	dbURL := skipIfNoDatabase(t)
 	logger := getTestLogger(t)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Connect to database
 	db, err := storage.NewPostgres(dbURL, logger)
 	require.NoError(t, err, "Failed to connect to database")
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 
@@ -185,7 +185,7 @@ func TestEmailStorageIntegration(t *testing.T) {
 // TestEncryptedEmailFlow tests the full encryption workflow
 func TestEncryptedEmailFlow(t *testing.T) {
 	logger := getTestLogger(t)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// These tests use mocks to test the encryption flow without NIP-46 bunker
 	t.Run("prepare encrypted email with key resolution", func(t *testing.T) {
@@ -409,11 +409,11 @@ func TestEncryptionModeHandling(t *testing.T) {
 func TestNIP05CacheIntegration(t *testing.T) {
 	dbURL := skipIfNoDatabase(t)
 	logger := getTestLogger(t)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	db, err := storage.NewPostgres(dbURL, logger)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	err = db.Migrate(ctx)

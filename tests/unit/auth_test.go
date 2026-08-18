@@ -177,7 +177,7 @@ func TestParseBunkerURL(t *testing.T) {
 func TestCreateAuthChallenge(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	sessionStore := NewMockSessionStore()
 
@@ -268,7 +268,7 @@ func TestCreateAuthChallenge(t *testing.T) {
 func TestVerifyAuthSignature(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	sessionStore := NewMockSessionStore()
 
@@ -407,7 +407,7 @@ func TestVerifyAuthSignature(t *testing.T) {
 			setupChallenge: func() (*auth.AuthChallenge, string) {
 				// Create a challenge and manually delete it to simulate expiration
 				expiredChallenge := createFreshChallenge()
-				sessionStore.DeleteNIP46Challenge(ctx, expiredChallenge.ID)
+				_ = sessionStore.DeleteNIP46Challenge(ctx, expiredChallenge.ID)
 				return expiredChallenge, expiredChallenge.ID
 			},
 			createEvent: func(challenge *auth.AuthChallenge) string {
@@ -485,7 +485,7 @@ func TestVerifyAuthSignature(t *testing.T) {
 func TestValidateSession(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	sessionStore := NewMockSessionStore()
 
@@ -516,8 +516,8 @@ func TestValidateSession(t *testing.T) {
 	}
 
 	// Save sessions
-	sessionStore.SaveSession(ctx, validSession)
-	sessionStore.SaveSession(ctx, expiredSession)
+	_ = sessionStore.SaveSession(ctx, validSession)
+	_ = sessionStore.SaveSession(ctx, expiredSession)
 
 	tests := []struct {
 		name          string
@@ -616,7 +616,7 @@ func TestHelperFunctions(t *testing.T) {
 				// We need to access the internal function through a challenge creation
 				// since generateRandomHex is not exported
 				logger, _ := zap.NewDevelopment()
-				defer logger.Sync()
+				defer func() { _ = logger.Sync() }()
 
 				sessionStore := NewMockSessionStore()
 				handler, err := auth.NewNIP46Handler(
@@ -652,7 +652,7 @@ func TestHelperFunctions(t *testing.T) {
 	t.Run("generateSecureToken produces 64 character hex", func(t *testing.T) {
 		// Test through session creation since generateSecureToken is not exported
 		logger, _ := zap.NewDevelopment()
-		defer logger.Sync()
+		defer func() { _ = logger.Sync() }()
 
 		sessionStore := NewMockSessionStore()
 		handler, err := auth.NewNIP46Handler(
@@ -726,7 +726,7 @@ func TestHelperFunctions(t *testing.T) {
 func TestLogout(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	sessionStore := NewMockSessionStore()
 
@@ -754,7 +754,7 @@ func TestLogout(t *testing.T) {
 					ExpiresAt: time.Now().Add(24 * time.Hour),
 					CreatedAt: time.Now(),
 				}
-				sessionStore.SaveSession(ctx, session)
+				_ = sessionStore.SaveSession(ctx, session)
 				return session
 			},
 			expectError: false,

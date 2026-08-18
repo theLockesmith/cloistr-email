@@ -38,7 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Load configuration
 	cfg, err := config.Load()
@@ -57,7 +57,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Run migrations
 	if err := db.Migrate(context.Background()); err != nil {
@@ -208,7 +208,7 @@ func main() {
 	abuseMarks := abuse.NewRedisMarkStore(sessionStore.GetClient())
 
 	if perr == nil {
-		defer platformClient.Close()
+		defer func() { _ = platformClient.Close() }()
 		gate := email.NewSendGate(
 			platformClient,
 			db,
@@ -300,19 +300,19 @@ func main() {
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ok","service":"coldforge-email","timestamp":"%s"}`, time.Now().UTC().Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, `{"status":"ok","service":"coldforge-email","timestamp":"%s"}`, time.Now().UTC().Format(time.RFC3339))
 	}).Methods("GET")
 
 	// Ready check
 	router.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(context.Background()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","reason":"database"}`)
+			_, _ = fmt.Fprintf(w, `{"status":"not_ready","reason":"database"}`)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ready"}`)
+		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
 	}).Methods("GET")
 
 	// API v1 routes

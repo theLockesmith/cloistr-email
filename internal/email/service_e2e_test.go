@@ -112,7 +112,7 @@ func TestE2EServerSideEncryptionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Sender keypair (stands in for the user's bunker key).
 	sk := nostr.GeneratePrivateKey()
@@ -176,7 +176,7 @@ func TestE2EServerSideEncryptionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("raw open: %v", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	var dbBody, dbMode string
 	var dbEncrypted bool
 	if err := raw.QueryRowContext(ctx,
@@ -225,7 +225,7 @@ func TestE2EListEmailsUnprovisionedUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// ListEmails only touches s.db; the other deps are irrelevant here.
 	svc := NewService(nil, nil, nil, db, logger)

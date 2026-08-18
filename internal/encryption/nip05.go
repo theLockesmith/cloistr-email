@@ -105,7 +105,7 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 		metrics.NIP05LookupDuration.Observe(time.Since(lookupStart).Seconds())
 		return "", fmt.Errorf("NIP-05 lookup failed for %s: %w", email, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()

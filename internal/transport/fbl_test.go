@@ -128,7 +128,7 @@ func TestProcessComplaintAttributesAndStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	const pubkey = "deadbeef"
 	mock.ExpectExec("INSERT INTO email_complaints").
@@ -154,7 +154,7 @@ func TestProcessComplaintStoresUnattributedAsNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec("INSERT INTO email_complaints").
 		WithArgs("someone@hotmail.com", "<reported-xyz789@cloistr.xyz>", "abuse",
@@ -179,7 +179,7 @@ func TestProcessComplaintToleratesMissingTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec("INSERT INTO email_complaints").
 		WillReturnError(errMissingRelation{})

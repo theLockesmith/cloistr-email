@@ -147,15 +147,28 @@ func (h *BounceHandler) RecordOutboundFailure(ctx context.Context, messageID, se
 			}
 		}
 
-		// Call appropriate callback
+		// Call appropriate callback.
+		//
+		// Errors are logged, not returned: the bounce is already durably stored
+		// above, and failing this whole call because a downstream notifier had a
+		// bad day would lose that record. But they must not be DISCARDED — these
+		// callbacks are what suppress future sends to a hard-bouncing address, so
+		// a silent failure here means we keep mailing an address that already
+		// bounced, which is precisely what damages sender reputation.
 		switch bounceType {
 		case BounceTypeHard:
 			if h.onHardBounce != nil {
-				h.onHardBounce(ctx, bounce)
+				if cbErr := h.onHardBounce(ctx, bounce); cbErr != nil {
+					h.logger.Error("Hard-bounce callback failed",
+						zap.String("message_id", messageID), zap.Error(cbErr))
+				}
 			}
 		case BounceTypeSoft:
 			if h.onSoftBounce != nil {
-				h.onSoftBounce(ctx, bounce)
+				if cbErr := h.onSoftBounce(ctx, bounce); cbErr != nil {
+					h.logger.Error("Soft-bounce callback failed",
+						zap.String("message_id", messageID), zap.Error(cbErr))
+				}
 			}
 		}
 	}

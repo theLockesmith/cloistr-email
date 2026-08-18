@@ -20,7 +20,7 @@ import (
 func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	validPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
@@ -38,7 +38,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "alice", r.URL.Query().Get("name"))
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(encryption.NIP05Response{
+				_ = json.NewEncoder(w).Encode(encryption.NIP05Response{
 					Names: map[string]string{
 						"alice": validPubkey,
 					},
@@ -52,7 +52,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "ALICE", r.URL.Query().Get("name"))
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(encryption.NIP05Response{
+				_ = json.NewEncoder(w).Encode(encryption.NIP05Response{
 					Names: map[string]string{
 						"alice": validPubkey, // lowercase in response
 					},
@@ -66,7 +66,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "_", r.URL.Query().Get("name"))
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(encryption.NIP05Response{
+				_ = json.NewEncoder(w).Encode(encryption.NIP05Response{
 					Names: map[string]string{
 						"_": validPubkey,
 					},
@@ -79,7 +79,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 			email: "bob@example.com",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(encryption.NIP05Response{
+				_ = json.NewEncoder(w).Encode(encryption.NIP05Response{
 					Names: map[string]string{
 						"alice": validPubkey, // different name
 					},
@@ -111,7 +111,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 			email: "alice@example.com",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte("invalid json {{{"))
+				_, _ = w.Write([]byte("invalid json {{{"))
 			},
 			expectError: true,
 			errorMsg:    "failed to parse NIP-05 response",
@@ -121,7 +121,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 			email: "alice@example.com",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(encryption.NIP05Response{
+				_ = json.NewEncoder(w).Encode(encryption.NIP05Response{
 					Names: map[string]string{
 						"alice": "shortpubkey",
 					},
@@ -174,7 +174,7 @@ func TestNIP05Resolver_ResolvePubkey(t *testing.T) {
 func TestNIP05Resolver_EmailValidation(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	resolver := encryption.NewNIP05Resolver(logger)
 	ctx := context.Background()
@@ -218,7 +218,7 @@ func TestNIP05Resolver_EmailValidation(t *testing.T) {
 func TestNIP05Resolver_Cache(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	resolver := encryption.NewNIP05Resolver(logger)
 
@@ -242,7 +242,7 @@ func TestNIP05Resolver_Cache(t *testing.T) {
 func TestCompositeKeyResolver(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	validPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
@@ -368,7 +368,7 @@ func TestNIP05Response_Structure(t *testing.T) {
 func TestNIP05Resolver_WithHTTPServer(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	validPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
@@ -398,7 +398,7 @@ func TestNIP05Resolver_WithHTTPServer(t *testing.T) {
 			// Return empty names for unknown users
 		}
 
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -410,7 +410,7 @@ func TestNIP05Resolver_WithHTTPServer(t *testing.T) {
 	t.Run("test server responds correctly", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/.well-known/nostr.json?name=alice")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -424,7 +424,7 @@ func TestNIP05Resolver_WithHTTPServer(t *testing.T) {
 	t.Run("test server returns empty for unknown user", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/.well-known/nostr.json?name=unknown")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -450,7 +450,7 @@ func (m *MockKeyResolverWithError) ResolvePubkey(ctx context.Context, email stri
 func TestCompositeKeyResolver_ErrorPropagation(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	t.Run("last error is propagated", func(t *testing.T) {
 		firstResolver := &MockKeyResolverWithError{err: fmt.Errorf("first error")}

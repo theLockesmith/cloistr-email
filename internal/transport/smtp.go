@@ -353,7 +353,8 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 		if err != nil {
 			t.logger.Warn("Failed to sign email, sending unsigned",
 				zap.Error(err))
-		} else if sigHeaders != nil {
+		} else {
+			// No nil check: ranging a nil map is a no-op in Go.
 			for k, v := range sigHeaders {
 				sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
 			}
@@ -459,10 +460,10 @@ func (t *SMTPTransport) sendViaSMTP(ctx context.Context, from string, to []strin
 	// Create SMTP client
 	client, err := smtp.NewClient(conn, t.config.Host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Set local hostname
 	if err := client.Hello(t.config.LocalName); err != nil {
@@ -510,7 +511,7 @@ func (t *SMTPTransport) sendViaSMTP(ctx context.Context, from string, to []strin
 
 	_, err = wc.Write(message)
 	if err != nil {
-		wc.Close()
+		_ = wc.Close()
 		return fmt.Errorf("failed to write message: %w", err)
 	}
 
@@ -519,7 +520,7 @@ func (t *SMTPTransport) sendViaSMTP(ctx context.Context, from string, to []strin
 	}
 
 	// Quit gracefully
-	client.Quit()
+	_ = client.Quit()
 
 	return nil
 }
@@ -547,13 +548,13 @@ func (t *SMTPTransport) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("cannot connect to SMTP server: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client, err := smtp.NewClient(conn, t.config.Host)
 	if err != nil {
 		return fmt.Errorf("SMTP handshake failed: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	return client.Noop()
 }
@@ -794,10 +795,10 @@ func (t *SMTPTransport) sendToHost(ctx context.Context, addr string, from string
 	// Create SMTP client
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Set local hostname
 	if err := client.Hello(t.config.LocalName); err != nil {
@@ -836,7 +837,7 @@ func (t *SMTPTransport) sendToHost(ctx context.Context, addr string, from string
 
 	_, err = wc.Write(message)
 	if err != nil {
-		wc.Close()
+		_ = wc.Close()
 		return fmt.Errorf("failed to write message: %w", err)
 	}
 
@@ -844,6 +845,6 @@ func (t *SMTPTransport) sendToHost(ctx context.Context, addr string, from string
 		return fmt.Errorf("failed to close data writer: %w", err)
 	}
 
-	client.Quit()
+	_ = client.Quit()
 	return nil
 }

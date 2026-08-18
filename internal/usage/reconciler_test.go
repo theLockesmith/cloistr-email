@@ -42,7 +42,7 @@ func TestReconcileRecordsDeltaNotAbsolute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectMeasurements(mock,
 		messageRows().AddRow("alice", 1000),
@@ -74,7 +74,7 @@ func TestReconcileSkipsMailboxesAlreadyInSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectMeasurements(mock,
 		messageRows().AddRow("alice", 1000),
@@ -104,7 +104,7 @@ func TestReconcileCorrectsEmptiedMailboxDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectMeasurements(mock,
 		messageRows(),
@@ -134,7 +134,7 @@ func TestReconcileIncludesInlineAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectMeasurements(mock,
 		messageRows().AddRow("alice", 1000),
@@ -159,7 +159,7 @@ func TestReconcileHandlesAttachmentOnlyMailbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectMeasurements(mock,
 		messageRows(),
@@ -183,7 +183,7 @@ func TestReconcileContinuesPastRecordFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectMeasurements(mock,
 		messageRows().AddRow("alice", 1000).AddRow("bob", 2000),
@@ -211,7 +211,7 @@ func TestReconcileToleratesMissingQuotaTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectQuery("FROM emails").WillReturnRows(messageRows().AddRow("alice", 100))
 	mock.ExpectQuery("FROM attachments").WillReturnRows(messageRows())
@@ -235,7 +235,7 @@ func TestReconcileReportsUnreadableUsageDistinctly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectQuery("FROM emails").WillReturnRows(messageRows().AddRow("alice", 100))
 	mock.ExpectQuery("FROM attachments").WillReturnRows(messageRows())

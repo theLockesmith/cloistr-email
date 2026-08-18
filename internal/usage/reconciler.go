@@ -153,7 +153,7 @@ func (r *Reconciler) measureMessages(ctx context.Context) (map[string]int64, err
 	if err != nil {
 		return nil, fmt.Errorf("measure message storage: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	bytes := make(map[string]int64)
 	for rows.Next() {
@@ -189,7 +189,7 @@ func (r *Reconciler) addInlineAttachments(ctx context.Context, bytes map[string]
 	if err != nil {
 		return fmt.Errorf("measure attachment storage: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var pubkey string
@@ -233,7 +233,7 @@ func (r *Reconciler) recordedComponents(ctx context.Context) (map[string]int64, 
 		}
 		return nil, fmt.Errorf("read recorded usage: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	recorded := make(map[string]int64)
 	for rows.Next() {

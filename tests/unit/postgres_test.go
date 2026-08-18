@@ -19,25 +19,6 @@ import (
 // pubkey in unit tests that need a MailboxPubkey value but don't touch the DB.
 const testPubkey = "0000000000000000000000000000000000000000000000000000000000000001"
 
-// createTestDB creates a mock database for testing
-func createTestDB(t *testing.T) (*storage.PostgreSQL, sqlmock.Sqlmock) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-
-	logger, _ := zap.NewDevelopment()
-
-	// Use reflection or a test helper to inject the mock db
-	postgres := &storage.PostgreSQL{}
-	// We need to expose the db field or create a test constructor
-	// For now, we'll test the models and helper functions
-	_ = db
-	_ = mock
-	_ = postgres
-	_ = logger
-
-	return nil, mock
-}
-
 // ============================================================================
 // Model Tests
 // ============================================================================
@@ -251,7 +232,7 @@ func TestEmailFilter(t *testing.T) {
 func TestPostgresEnsureMailbox(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -276,7 +257,7 @@ func TestPostgresEnsureMailbox(t *testing.T) {
 func TestPostgresGetMailboxByPubkey(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -313,7 +294,7 @@ func TestPostgresGetMailboxByPubkey(t *testing.T) {
 func TestPostgresCreateEmail(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -403,7 +384,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 func TestPostgresCreateContact(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -457,7 +438,7 @@ func TestPostgresCreateContact(t *testing.T) {
 func TestPostgresMarkEmailAsRead(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -478,7 +459,7 @@ func TestPostgresMarkEmailAsRead(t *testing.T) {
 func TestPostgresMoveEmailToFolder(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -513,7 +494,7 @@ func TestPostgresMoveEmailToFolder(t *testing.T) {
 func TestPostgresDeleteEmail(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -546,7 +527,7 @@ func TestPostgresDeleteEmail(t *testing.T) {
 func TestPostgresDeleteContact(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)
@@ -579,7 +560,7 @@ func TestPostgresDeleteContact(t *testing.T) {
 func TestPostgresCacheNIP05(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	logger, _ := zap.NewDevelopment()
 	postgres := newTestPostgres(db, logger)

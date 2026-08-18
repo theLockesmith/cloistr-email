@@ -111,7 +111,7 @@ func TestPostgresSignalsJoinsSendsAndBounces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectQuery("FROM outbound_queue").
 		WillReturnRows(sqlmock.NewRows([]string{"pubkey", "messages", "recipients", "recipients_last_hour"}).
@@ -165,7 +165,7 @@ func TestPostgresSignalsToleratesMissingTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM outbound_queue")).
 		WillReturnError(errors.New(`relation "outbound_queue" does not exist`))
@@ -189,7 +189,7 @@ func TestPostgresSignalsToleratesMissingComplaintsTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM outbound_queue")).
 		WillReturnRows(sqlmock.NewRows([]string{"pubkey", "messages", "recipients", "recipients_last_hour"}).
@@ -223,7 +223,7 @@ func TestPostgresSignalsToleratesMissingBouncesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectQuery(regexp.QuoteMeta("FROM outbound_queue")).
 		WillReturnRows(sqlmock.NewRows([]string{"pubkey", "messages", "recipients", "recipients_last_hour"}).

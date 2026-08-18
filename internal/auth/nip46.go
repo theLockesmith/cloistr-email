@@ -500,7 +500,11 @@ func (h *NIP46Handler) getUserPubkeyFromBunker(ctx context.Context, challengeDat
 	}})
 	defer sub.Unsub()
 
-	relay.Publish(ctx, event)
+	if err := relay.Publish(ctx, event); err != nil {
+		// Fail fast. Without this we fall through to the wait below and report a
+		// generic timeout ~30s later, hiding a cause that was knowable now.
+		return "", fmt.Errorf("failed to publish request to relay: %w", err)
+	}
 
 	// Wait for response
 	timeout := time.NewTimer(10 * time.Second)
@@ -671,7 +675,7 @@ func (h *NIP46Handler) validateSignerSession(ctx context.Context, token string) 
 		h.logger.Warn("signer session: request failed", zap.Error(err))
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -730,7 +734,7 @@ func (h *NIP46Handler) SignEvent(ctx context.Context, userPubkey string, event *
 	if err != nil {
 		return fmt.Errorf("failed to connect to relay: %w", err)
 	}
-	defer relay.Close()
+	defer func() { _ = relay.Close() }()
 
 	clientPubkey, _ := nostr.GetPublicKey(conn.ClientPrivateKey)
 
@@ -765,7 +769,13 @@ func (h *NIP46Handler) SignEvent(ctx context.Context, userPubkey string, event *
 		Tags:      nostr.Tags{{"p", conn.BunkerPubkey}},
 		Content:   encryptedContent,
 	}
-	reqEvent.Sign(conn.ClientPrivateKey)
+	if err := reqEvent.Sign(conn.ClientPrivateKey); err != nil {
+		// Matches the checked idiom already used at lines 321 and 490.
+		// An unsigned event is rejected by the relay, so swallowing this
+		// turned a knowable signing fault into a 30s wait for a reply
+		// that could never arrive.
+		return fmt.Errorf("failed to sign request event: %w", err)
+	}
 
 	// Subscribe and publish
 	sub, _ := relay.Subscribe(ctx, nostr.Filters{{
@@ -776,7 +786,11 @@ func (h *NIP46Handler) SignEvent(ctx context.Context, userPubkey string, event *
 	}})
 	defer sub.Unsub()
 
-	relay.Publish(ctx, reqEvent)
+	if err := relay.Publish(ctx, reqEvent); err != nil {
+		// Fail fast. Without this we fall through to the wait below and report a
+		// generic timeout ~30s later, hiding a cause that was knowable now.
+		return fmt.Errorf("failed to publish request to relay: %w", err)
+	}
 
 	// Wait for response
 	timeout := time.NewTimer(30 * time.Second)
@@ -841,7 +855,7 @@ func (h *NIP46Handler) EncryptContent(ctx context.Context, userPubkey string, re
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to relay: %w", err)
 	}
-	defer relay.Close()
+	defer func() { _ = relay.Close() }()
 
 	clientPubkey, _ := nostr.GetPublicKey(conn.ClientPrivateKey)
 
@@ -864,7 +878,13 @@ func (h *NIP46Handler) EncryptContent(ctx context.Context, userPubkey string, re
 		Tags:      nostr.Tags{{"p", conn.BunkerPubkey}},
 		Content:   encryptedContent,
 	}
-	reqEvent.Sign(conn.ClientPrivateKey)
+	if err := reqEvent.Sign(conn.ClientPrivateKey); err != nil {
+		// Matches the checked idiom already used at lines 321 and 490.
+		// An unsigned event is rejected by the relay, so swallowing this
+		// turned a knowable signing fault into a 30s wait for a reply
+		// that could never arrive.
+		return "", fmt.Errorf("failed to sign request event: %w", err)
+	}
 
 	sub, _ := relay.Subscribe(ctx, nostr.Filters{{
 		Kinds:   []int{24133},
@@ -874,7 +894,11 @@ func (h *NIP46Handler) EncryptContent(ctx context.Context, userPubkey string, re
 	}})
 	defer sub.Unsub()
 
-	relay.Publish(ctx, reqEvent)
+	if err := relay.Publish(ctx, reqEvent); err != nil {
+		// Fail fast. Without this we fall through to the wait below and report a
+		// generic timeout ~30s later, hiding a cause that was knowable now.
+		return "", fmt.Errorf("failed to publish request to relay: %w", err)
+	}
 
 	timeout := time.NewTimer(30 * time.Second)
 	defer timeout.Stop()
@@ -924,7 +948,7 @@ func (h *NIP46Handler) DecryptContent(ctx context.Context, userPubkey string, se
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to relay: %w", err)
 	}
-	defer relay.Close()
+	defer func() { _ = relay.Close() }()
 
 	clientPubkey, _ := nostr.GetPublicKey(conn.ClientPrivateKey)
 
@@ -947,7 +971,13 @@ func (h *NIP46Handler) DecryptContent(ctx context.Context, userPubkey string, se
 		Tags:      nostr.Tags{{"p", conn.BunkerPubkey}},
 		Content:   encryptedContent,
 	}
-	reqEvent.Sign(conn.ClientPrivateKey)
+	if err := reqEvent.Sign(conn.ClientPrivateKey); err != nil {
+		// Matches the checked idiom already used at lines 321 and 490.
+		// An unsigned event is rejected by the relay, so swallowing this
+		// turned a knowable signing fault into a 30s wait for a reply
+		// that could never arrive.
+		return "", fmt.Errorf("failed to sign request event: %w", err)
+	}
 
 	sub, _ := relay.Subscribe(ctx, nostr.Filters{{
 		Kinds:   []int{24133},
@@ -957,7 +987,9 @@ func (h *NIP46Handler) DecryptContent(ctx context.Context, userPubkey string, se
 	}})
 	defer sub.Unsub()
 
-	relay.Publish(ctx, reqEvent)
+	if err := relay.Publish(ctx, reqEvent); err != nil {
+		return "", fmt.Errorf("failed to publish request to relay: %w", err)
+	}
 
 	timeout := time.NewTimer(30 * time.Second)
 	defer timeout.Stop()
