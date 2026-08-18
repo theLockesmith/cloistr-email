@@ -30,10 +30,24 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Create nginx config for SPA with unprivileged port
 USER root
+# email.cloistr.xyz is an ALIAS; mail.cloistr.xyz is canonical. Both Routes
+# pointed at this same frontend, so the app served on two origins at once.
+# That is not cosmetic: cookies and the shared .cloistr.xyz SSO session are
+# per-origin, so a user who landed on email.* had a different browser origin
+# from every other app in the suite and could appear signed out.
+#
+# Redirect here rather than by deleting the Route: the Route keeps its TLS
+# certificate and DNS, and anything already linking to email.* keeps working
+# instead of breaking. Only the UI is redirected — /api is deliberately left
+# alone so existing API clients on email.* are not broken by a 301 they may
+# not follow on non-GET verbs.
 RUN echo 'server { \
     listen 8080; \
     root /usr/share/nginx/html; \
     index index.html; \
+    if ($host = email.cloistr.xyz) { \
+        return 301 https://mail.cloistr.xyz$request_uri; \
+    } \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
