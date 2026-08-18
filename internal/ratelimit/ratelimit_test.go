@@ -153,7 +153,7 @@ func TestLimitsArePerPubkey(t *testing.T) {
 	other := "bb16282f720514d926a57b5c13f02d1f4e32bd6fe3e00f713f50964571685f62"
 
 	for i := 0; i < 5; i++ {
-		l.Allow(ctx, send(1))
+		_, _ = l.Allow(ctx, send(1))
 	}
 	if d, _ := l.Allow(ctx, send(1)); d.Allowed {
 		t.Fatal("first account should be exhausted")

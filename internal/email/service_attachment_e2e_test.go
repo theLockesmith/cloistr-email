@@ -49,7 +49,7 @@ func (m *mockBlossomStore) handler() http.Handler {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Write(b)
+		_, _ = w.Write(b)
 	})
 	return mux
 }
@@ -66,7 +66,7 @@ func TestE2EAttachmentBlossomRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sk := nostr.GeneratePrivateKey()
 	pub, err := nostr.GetPublicKey(sk)

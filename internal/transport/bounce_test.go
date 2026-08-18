@@ -160,7 +160,7 @@ func TestQueueSenderResolverByMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	const pubkey = "deadbeef"
 	mock.ExpectQuery("FROM outbound_queue").
@@ -187,7 +187,7 @@ func TestQueueSenderResolverFallsBackToRecipient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	const pubkey = "cafebabe"
 	mock.ExpectQuery(regexp.QuoteMeta("recipients @> to_jsonb")).
@@ -213,7 +213,7 @@ func TestQueueSenderResolverFallsThroughOnMessageIDMiss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	const pubkey = "cafebabe"
 	mock.ExpectQuery("message_id = ").
@@ -241,7 +241,7 @@ func TestStoreBounceWritesSenderPubkey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	const pubkey = "deadbeef"
 	mock.ExpectExec("INSERT INTO email_bounces").
@@ -274,7 +274,7 @@ func TestStoreBounceWritesNullForUnattributedSender(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	mock.ExpectExec("INSERT INTO email_bounces").
 		WithArgs("nobody@example.com", "", BounceTypeUnknown, "", "",
@@ -328,7 +328,7 @@ func TestSenderBounceCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	const pubkey = "deadbeef"
 	since := time.Now().Add(-24 * time.Hour)
@@ -358,7 +358,7 @@ func TestSenderBounceCountsIgnoresEmptyPubkey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	h := NewBounceHandler(db, zap.NewNop())
 	counts, err := h.SenderBounceCounts(context.Background(), "", time.Now())

@@ -239,7 +239,7 @@ func (q *OutboundQueue) Dequeue(ctx context.Context, limit int) ([]*QueuedMessag
 	if err != nil {
 		return nil, fmt.Errorf("failed to dequeue messages: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var messages []*QueuedMessage
 	for rows.Next() {
@@ -352,12 +352,23 @@ func (q *OutboundQueue) MarkFailed(ctx context.Context, id string, err error) er
 
 	// Call permanent failure callback if registered and this is a permanent failure
 	if isPermanent && q.onPermanentFailure != nil {
+		// These errors were previously discarded. On a permanent failure this
+		// callback is what generates the bounce, so a failed unmarshal here
+		// silently produced a bounce with NO recipients — the one path where
+		// losing the address list matters most. Log and continue: a bounce with
+		// partial data still beats no bounce at all.
 		var recipients []string
-		json.Unmarshal(recipientsJSON, &recipients)
+		if err := json.Unmarshal(recipientsJSON, &recipients); err != nil {
+			q.logger.Warn("Failed to unmarshal recipients for permanent-failure callback",
+				zap.String("id", id), zap.Error(err))
+		}
 
 		var metadata map[string]string
 		if len(metadataJSON) > 0 {
-			json.Unmarshal(metadataJSON, &metadata)
+			if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+				q.logger.Warn("Failed to unmarshal metadata for permanent-failure callback",
+					zap.String("id", id), zap.Error(err))
+			}
 		}
 
 		msg := &QueuedMessage{
@@ -423,8 +434,16 @@ func (q *OutboundQueue) GetMessage(ctx context.Context, id string) (*QueuedMessa
 		msg.LastError = lastError.String
 	}
 
-	json.Unmarshal(recipientsJSON, &msg.To)
-	json.Unmarshal(metadataJSON, &msg.Metadata)
+	// Errors logged rather than returned: the caller asked for a message and the
+	// scalar columns are already populated, so returning nil here would turn a
+	// malformed recipients blob into "message not found", which is worse and
+	// harder to diagnose than a message with an empty To.
+	if err := json.Unmarshal(recipientsJSON, &msg.To); err != nil {
+		q.logger.Warn("Failed to unmarshal recipients", zap.String("id", id), zap.Error(err))
+	}
+	if err := json.Unmarshal(metadataJSON, &msg.Metadata); err != nil {
+		q.logger.Warn("Failed to unmarshal metadata", zap.String("id", id), zap.Error(err))
+	}
 
 	return msg, nil
 }

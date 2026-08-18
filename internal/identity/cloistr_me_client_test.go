@@ -39,7 +39,7 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 				}
 
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(VerifyAddressResponse{
+				_ = json.NewEncoder(w).Encode(VerifyAddressResponse{
 					Valid:    true,
 					Username: "alice",
 					Pubkey:   pubkey,
@@ -55,7 +55,7 @@ func TestCloistrMeClient_VerifyAddressOwnership(t *testing.T) {
 			name: "address not owned by pubkey",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(VerifyAddressResponse{Valid: false})
+				_ = json.NewEncoder(w).Encode(VerifyAddressResponse{Valid: false})
 			},
 			pubkey:    pubkey,
 			address:   "alice@cloistr.xyz",
@@ -155,7 +155,7 @@ func TestCloistrMeClient_RequestFormat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedRequest = r
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(VerifyAddressResponse{Valid: true})
+		_ = json.NewEncoder(w).Encode(VerifyAddressResponse{Valid: true})
 	}))
 	defer server.Close()
 

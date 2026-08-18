@@ -80,7 +80,7 @@ func (m *mockBlossom) handler() http.Handler {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			w.Write(body)
+			_, _ = w.Write(body)
 		case http.MethodDelete:
 			if !validAuth(r, "delete") {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -208,7 +208,7 @@ func TestUploadRedundancyAndFallback(t *testing.T) {
 func TestDownloadHashMismatchSkipsServer(t *testing.T) {
 	// Server returns data that does not match the requested hash.
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("tampered"))
+		_, _ = w.Write([]byte("tampered"))
 	}))
 	defer bad.Close()
 	good := newMockBlossom()
@@ -268,7 +268,7 @@ func TestDownloadRejectsOversizeBlob(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		buf := make([]byte, 1<<20)
 		for written := 0; written <= maxBlobSize; written += len(buf) {
-			w.Write(buf)
+			_, _ = w.Write(buf)
 		}
 	}))
 	defer big.Close()

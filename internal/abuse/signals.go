@@ -77,7 +77,7 @@ func (p *PostgresSignals) collectSends(ctx context.Context, since, hourAgo time.
 		}
 		return nil, fmt.Errorf("collect send signals: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	byPubkey := make(map[string]*Signals)
 	for rows.Next() {
@@ -115,7 +115,7 @@ func (p *PostgresSignals) applyBounces(ctx context.Context, since time.Time, byP
 		}
 		return fmt.Errorf("collect bounce signals: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var pubkey string
@@ -152,7 +152,7 @@ func (p *PostgresSignals) applyComplaints(ctx context.Context, since time.Time, 
 		}
 		return fmt.Errorf("collect complaint signals: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var pubkey string

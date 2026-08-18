@@ -37,7 +37,7 @@ func (m *MockNIP05Resolver) ResolvePubkey(ctx context.Context, emailAddr string)
 // TestVerifyUnsignedEmail tests verification of unsigned emails
 func TestVerifyUnsignedEmail(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	verifier := email.NewEmailVerifier(nil, logger)
 	ctx := context.Background()
@@ -62,7 +62,7 @@ func TestVerifyUnsignedEmail(t *testing.T) {
 // TestVerifySignedEmail tests verification of a properly signed email
 func TestVerifySignedEmail(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create signer
 	privateKey := nostr.GeneratePrivateKey()
@@ -107,7 +107,7 @@ func TestVerifySignedEmail(t *testing.T) {
 // TestVerifyTamperedEmail tests that tampered emails fail verification
 func TestVerifyTamperedEmail(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)
@@ -213,7 +213,7 @@ func TestVerifyTamperedEmail(t *testing.T) {
 // TestVerifyWithNIP05 tests NIP-05 verification
 func TestVerifyWithNIP05(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)
@@ -293,7 +293,7 @@ func TestVerifyWithNIP05(t *testing.T) {
 // TestVerifyEmailConvenience tests the VerifyEmail convenience function
 func TestVerifyEmailConvenience(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	privateKey := nostr.GeneratePrivateKey()
 	signer, err := signing.NewLocalSigner(privateKey)
@@ -330,7 +330,7 @@ func TestVerifyEmailConvenience(t *testing.T) {
 // TestExtractEmailAddress tests email address extraction from From header
 func TestExtractEmailAddress(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// This is tested implicitly through VerifyEmail
 	// We verify it handles various From header formats

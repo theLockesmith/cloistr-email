@@ -9,16 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/signing"
 	"github.com/nbd-wtf/go-nostr"
 	"go.uber.org/zap"
-)
-
-// Use constants from signing package
-const (
-	headerNostrPubkey        = signing.HeaderNostrPubkey
-	headerNostrSig           = signing.HeaderNostrSig
-	headerNostrSignedHeaders = signing.HeaderNostrSignedHeaders
 )
 
 // VerificationResult contains the result of email signature verification

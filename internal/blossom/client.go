@@ -148,7 +148,7 @@ func (c *Client) uploadTo(ctx context.Context, server string, data []byte, conte
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("upload returned status %d: %s", resp.StatusCode, readReason(resp))
 	}
@@ -193,7 +193,7 @@ func (c *Client) downloadFrom(ctx context.Context, server, hash string) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned status %d", resp.StatusCode)
 	}
@@ -256,7 +256,7 @@ func (c *Client) deleteFrom(ctx context.Context, server, hash, authHeader string
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// 404 means the blob is already gone — treat as success for GC purposes.
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("delete returned status %d: %s", resp.StatusCode, readReason(resp))

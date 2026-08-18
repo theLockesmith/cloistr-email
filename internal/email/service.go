@@ -777,10 +777,6 @@ func (s *Service) bodyAtRest(ctx context.Context, req *SendRequest) (string, str
 	}
 }
 
-func timePtr(t time.Time) *time.Time {
-	return &t
-}
-
 func stringPtr(s string) *string {
 	return &s
 }

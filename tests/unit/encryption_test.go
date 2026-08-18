@@ -63,7 +63,7 @@ func (m *MockKeyResolver) ResolvePubkey(ctx context.Context, email string) (stri
 func TestEmailEncryptor_EncryptEmailBody(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	senderPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	recipientPubkey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
@@ -128,7 +128,7 @@ func TestEmailEncryptor_EncryptEmailBody(t *testing.T) {
 func TestEmailEncryptor_DecryptEmailBody(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	recipientPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	senderPubkey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
@@ -191,7 +191,7 @@ func TestEmailEncryptor_DecryptEmailBody(t *testing.T) {
 func TestEmailEncryptor_PrepareEncryptedEmail(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	senderPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	recipientPubkey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
@@ -512,7 +512,7 @@ SGVsbG8gV29ybGQ=`,
 func TestEmailEncryptor_DecryptEmail(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	recipientPubkey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	senderPubkey := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
@@ -610,7 +610,7 @@ func TestHeaderConstants(t *testing.T) {
 func TestEmailEncryptor_ShortPubkeys(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Test with very short pubkeys (edge case for logging)
 	shortSender := "abc"
