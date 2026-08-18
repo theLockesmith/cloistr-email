@@ -31,7 +31,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Backdrop: mobile only, and only while open. Closes on tap. */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-[var(--cloistr-z-drawer-backdrop,60)] bg-black/50 md:hidden"
           aria-hidden="true"
           onClick={onClose}
         />
@@ -41,7 +41,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         className={[
           'w-64 bg-cloistr-bg shadow',
           // Mobile: off-canvas drawer.
-          'fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 ease-out',
+          // z ABOVE the sticky header (--cloistr-z-header: 50). At z-40 the
+          // header painted over the drawer's top edge on a phone, hiding the
+          // drawer's own close button behind it. Fallback literal so this is
+          // correct even on an older @cloistr/ui that predates the token.
+          'fixed inset-y-0 left-0 z-[var(--cloistr-z-drawer,70)] transform transition-transform duration-200 ease-out',
           isOpen ? 'translate-x-0' : '-translate-x-full',
           // md+: back to a static in-flow column, always visible.
           'md:static md:z-auto md:translate-x-0 md:transform-none md:shrink-0',
