@@ -89,14 +89,44 @@ Port 25 must be reachable from the internet to `mail.<domain>` (LB/NodePort +
 firewall + reverse DNS / PTR on the egress IP for deliverability).
 
 ## 8. Smoke test BEFORE announcing — [you, with Claude]
-1. NIP-46 bunker login via the API; confirm a session.
-2. For EACH domain, send to an external inbox you control (Gmail):
-   `POST /api/v2/email/send` (encryption_mode=server, a recipient pubkey).
-3. Confirm receipt; in Gmail "Show original" check **SPF=pass, DKIM=pass
-   (d=<that domain>), DMARC=pass**.
-4. Send one with an attachment; confirm it arrives + the blob is on Blossom.
-5. Reply inbound to `<you>@<domain>`; confirm it lands.
+
+**Status 2026-08-19: 3 of 5 pass. FIRST FULL ROUND-TRIP ACHIEVED** — a message
+sent from cloistr.xyz to Gmail, replied to, and received back. That single
+exchange exercises outbound SMTP, DKIM signing, inbound acceptance, recipient
+validation, NIP-05 resolution and mailbox delivery end to end.
+
+| # | Check | Status |
+|---|-------|--------|
+| 1 | NIP-46 bunker login via the API; confirm a session | **PASS** |
+| 2 | For EACH domain, send to an external inbox (Gmail) | **PASS for cloistr.xyz.** aegis-hq.xyz and aegisitservices.com untested. coldforge.xyz is OUT OF SCOPE for go-live (operator's personal domain, deliberately held back). |
+| 3 | Gmail "Show original": SPF=pass, DKIM=pass (d=that domain), DMARC=pass | **PASS by inference, not header-read.** cloistr.xyz publishes DMARC `p=reject`, under which an auth failure is REJECTED rather than foldered — so delivery proves authentication passed. Still worth reading the headers to confirm `d=` alignment per domain. |
+| 4 | Send one with an attachment; confirm it arrives + the blob is on Blossom | **UNTESTED** |
+| 5 | Reply inbound to `<you>@<domain>`; confirm it lands | **PASS** |
+
 Optional: send to `check-auth@verifier.port25.com` or mail-tester.com per domain.
+
+### Two bugs this gate caught, both total outages
+
+Neither would have been found by any check short of a real send and a real reply.
+Both had shipped and both looked like something milder than they were.
+
+**Outbound (fixed 2026-08-18, `!48`).** `internal/transport/dkim.go` appended the
+DKIM-Signature with a trailing CRLF that `signer.Signature()` already carries.
+The doubled CRLF terminated the RFC 5322 header block early, pushing From/To/
+Subject into the BODY. Gmail answered `550 5.7.1 'From' header is missing`.
+Outbound mail had never worked for any domain.
+
+**Inbound (fixed 2026-08-19, `!55`).** `cmd/email/main.go` built
+`SMTPServerConfig` as a partial struct literal; `NewSMTPServer` only applied
+defaults when the config was nil, so `MaxMessageSize` stayed 0 and
+`if n > maxSize` rejected EVERY message with `552 5.3.4 Message too large`.
+A one-line reply failed identically to a 30MB attachment, which is why it read
+as a size problem rather than a total inbound outage. `ReadTimeout` and
+`WriteTimeout` were also 0 — no deadlines at all, a slowloris away from
+exhausting the server.
+
+The live server now advertises `SIZE 26214400` in EHLO, which is the direct
+on-the-wire proof that the limit is real.
 
 ## 9. Known gaps shipping with v1 (track, not blockers)
 - Inbound attachment parsing not implemented (`inbound.go:277` TODO).
