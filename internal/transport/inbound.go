@@ -105,16 +105,16 @@ type RecipientValidator interface {
 
 // SMTPServer is an inbound SMTP server using emersion/go-smtp
 type SMTPServer struct {
-	config       *SMTPServerConfig
-	server       *smtp.Server
-	handler      MessageHandler
-	validator    RecipientValidator
-	rateLimiter  *RateLimiter
-	spfValidator *SPFValidator
-	dkimVerifier *DKIMVerifier
+	config        *SMTPServerConfig
+	server        *smtp.Server
+	handler       MessageHandler
+	validator     RecipientValidator
+	rateLimiter   *RateLimiter
+	spfValidator  *SPFValidator
+	dkimVerifier  *DKIMVerifier
 	bounceHandler *BounceHandler
 	fblHandler    *FBLHandler
-	logger       *zap.Logger
+	logger        *zap.Logger
 
 	mu      sync.Mutex
 	running bool
@@ -159,11 +159,64 @@ func WithFBLHandler(h *FBLHandler) SMTPServerOption {
 	}
 }
 
+// withDefaults returns a copy of config with every zero-valued field filled from
+// DefaultSMTPServerConfig.
+//
+// WHY PER-FIELD AND NOT JUST `if config == nil`
+//
+// It previously only substituted defaults for a nil config. cmd/email/main.go
+// passes a NON-nil struct literal that sets five fields — ListenAddr, Domain,
+// AllowedDomains and the two TLS paths — and leaves the rest at Go's zero value.
+// The defaults were therefore never applied in production, and the effects were
+// severe and silent:
+//
+//	MaxMessageSize 0 -> maxSize 0 -> `if n > maxSize` rejects EVERY message with
+//	                    552 5.3.4 "Message too large". Inbound mail has never
+//	                    worked; a one-line reply from Gmail bounced exactly like
+//	                    a 30MB attachment would.
+//	MaxRecipients  0 -> recipient limiting disabled/undefined.
+//	ReadTimeout    0 -> no read deadline: a stalled peer holds a connection and
+//	WriteTimeout   0    its goroutine indefinitely. That is a slowloris away from
+//	                    exhausting the server, and it never announced itself.
+//
+// A partial struct literal is the normal way to configure something in Go, so
+// the constructor must tolerate one. Filling per field means a caller can set
+// only what it cares about and still get safe limits — the failure mode that
+// produced a total inbound outage cannot recur by omission.
+//
+// The config is COPIED rather than mutated: callers do not expect a constructor
+// to rewrite the struct they passed in.
+func withDefaults(config *SMTPServerConfig) *SMTPServerConfig {
+	d := DefaultSMTPServerConfig()
+	if config == nil {
+		return d
+	}
+
+	c := *config // copy; never mutate the caller's struct
+	if c.ListenAddr == "" {
+		c.ListenAddr = d.ListenAddr
+	}
+	if c.Domain == "" {
+		c.Domain = d.Domain
+	}
+	if c.MaxMessageSize <= 0 {
+		c.MaxMessageSize = d.MaxMessageSize
+	}
+	if c.MaxRecipients <= 0 {
+		c.MaxRecipients = d.MaxRecipients
+	}
+	if c.ReadTimeout <= 0 {
+		c.ReadTimeout = d.ReadTimeout
+	}
+	if c.WriteTimeout <= 0 {
+		c.WriteTimeout = d.WriteTimeout
+	}
+	return &c
+}
+
 // NewSMTPServer creates a new inbound SMTP server
 func NewSMTPServer(config *SMTPServerConfig, handler MessageHandler, validator RecipientValidator, logger *zap.Logger, opts ...SMTPServerOption) *SMTPServer {
-	if config == nil {
-		config = DefaultSMTPServerConfig()
-	}
+	config = withDefaults(config)
 
 	s := &SMTPServer{
 		config:    config,
