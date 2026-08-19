@@ -4,10 +4,12 @@ package email
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/mail"
 	"strings"
 	"time"
@@ -23,7 +25,27 @@ type InboundProcessor struct {
 	db       *storage.PostgreSQL
 	verifier *EmailVerifier
 	logger   *zap.Logger
+	uploader AttachmentUploader
 }
+
+// AttachmentUploader offloads inbound attachment bytes to blob storage.
+//
+// Injected rather than constructed here because the processor has no signer:
+// Blossom uploads are authenticated per-user, and only the encryption service
+// can sign on a bunker user's behalf. Optional — a nil uploader means the
+// bytes cannot be stored, which is handled explicitly rather than by panicking.
+type AttachmentUploader interface {
+	// UploadFor stores data owned by recipientPubkey, returning its SHA-256 and
+	// a retrieval URL.
+	UploadFor(ctx context.Context, recipientPubkey string, data []byte, contentType string) (sha256 string, url string, err error)
+}
+
+// SetAttachmentUploader enables inbound attachment storage.
+//
+// A setter rather than a constructor parameter so existing callers and tests
+// keep working, and so a deployment without Blossom configured simply stores
+// attachment METADATA (see storeAttachments) instead of failing to build.
+func (p *InboundProcessor) SetAttachmentUploader(u AttachmentUploader) { p.uploader = u }
 
 // NewInboundProcessor creates a new inbound processor
 func NewInboundProcessor(db *storage.PostgreSQL, nip05Resolver *encryption.NIP05Resolver, logger *zap.Logger) *InboundProcessor {
@@ -204,6 +226,25 @@ type ParsedMessage struct {
 	// References for threading
 	InReplyTo  string
 	References []string
+
+	// Attachments extracted from the MIME tree, in the order encountered.
+	Attachments []ParsedAttachment
+}
+
+// ParsedAttachment is one decoded non-body MIME part.
+//
+// Data is the DECODED bytes. Inbound attachments are almost always
+// base64-encoded, so the raw part bytes are useless — storing them without
+// decoding produces a file that is corrupt on download.
+type ParsedAttachment struct {
+	Filename    string
+	ContentType string
+	// ContentID backs `cid:` references in HTML bodies (inline images).
+	ContentID string
+	// Inline marks `Content-Disposition: inline` parts — real attachments to
+	// store, but ones a client should render in place rather than list.
+	Inline bool
+	Data   []byte
 }
 
 // parseMessage parses a raw email message
@@ -343,20 +384,102 @@ func (p *InboundProcessor) parseMultipart(body io.Reader, boundary string, parse
 			continue
 		}
 
-		data, err := io.ReadAll(part)
+		raw, err := io.ReadAll(part)
 		if err != nil {
 			continue
 		}
 
-		if strings.HasPrefix(mediaType, "text/plain") && parsed.Body == "" {
-			parsed.Body = string(data)
-		} else if strings.HasPrefix(mediaType, "text/html") && parsed.HTMLBody == "" {
-			parsed.HTMLBody = string(data)
+		// Decode Content-Transfer-Encoding. This was previously skipped, so
+		// every quoted-printable body was stored with literal `=20`/`=3D`
+		// sequences in it and every base64 part was stored as base64 text.
+		data := decodeTransferEncoding(raw, part.Header.Get("Content-Transfer-Encoding"))
+
+		disposition, dispParams, _ := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+		filename := dispParams["filename"]
+		if filename == "" {
+			// Some senders omit the disposition filename and only set
+			// Content-Type: application/pdf; name="x.pdf".
+			filename = params["name"]
 		}
-		// TODO: Handle attachments
+
+		// A part is an attachment when it SAYS so, or when it is named, or when
+		// it is not a body media type. Testing the media type alone is what made
+		// an attached .txt file silently overwrite the message body.
+		isAttachment := disposition == "attachment" || filename != "" ||
+			(!strings.HasPrefix(mediaType, "text/plain") && !strings.HasPrefix(mediaType, "text/html"))
+
+		if !isAttachment {
+			if strings.HasPrefix(mediaType, "text/plain") && parsed.Body == "" {
+				parsed.Body = string(data)
+			} else if strings.HasPrefix(mediaType, "text/html") && parsed.HTMLBody == "" {
+				parsed.HTMLBody = string(data)
+			}
+			continue
+		}
+
+		if filename == "" {
+			// Unnamed attachments are legal (inline images usually are). Give it
+			// a stable name so it is downloadable rather than discarded.
+			filename = defaultAttachmentName(mediaType, len(parsed.Attachments)+1)
+		}
+
+		parsed.Attachments = append(parsed.Attachments, ParsedAttachment{
+			Filename:    filename,
+			ContentType: mediaType,
+			ContentID:   strings.Trim(part.Header.Get("Content-ID"), "<>"),
+			Inline:      disposition == "inline",
+			Data:        data,
+		})
 	}
 
 	return nil
+}
+
+// decodeTransferEncoding decodes a MIME part body per its
+// Content-Transfer-Encoding header.
+//
+// Unknown or absent encodings (7bit, 8bit, binary) are returned untouched, and
+// a DECODE FAILURE returns the raw bytes rather than an error: a body that is
+// slightly wrong is better than a message that fails to deliver, and inbound
+// mail from the open internet is routinely malformed.
+func decodeTransferEncoding(raw []byte, encoding string) []byte {
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "base64":
+		// Mail base64 is line-wrapped, and some senders pad incorrectly.
+		// Stripping whitespace first makes the common cases decode.
+		clean := strings.Map(func(r rune) rune {
+			if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
+				return -1
+			}
+			return r
+		}, string(raw))
+		decoded, err := base64.StdEncoding.DecodeString(clean)
+		if err != nil {
+			// Try the lenient raw-encoding variant before giving up.
+			if d2, err2 := base64.RawStdEncoding.DecodeString(strings.TrimRight(clean, "=")); err2 == nil {
+				return d2
+			}
+			return raw
+		}
+		return decoded
+	case "quoted-printable":
+		decoded, err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(raw)))
+		if err != nil {
+			return raw
+		}
+		return decoded
+	default:
+		return raw
+	}
+}
+
+// defaultAttachmentName names a part that arrived without a filename.
+func defaultAttachmentName(mediaType string, n int) string {
+	ext := ""
+	if exts, err := mime.ExtensionsByType(mediaType); err == nil && len(exts) > 0 {
+		ext = exts[0]
+	}
+	return fmt.Sprintf("attachment-%d%s", n, ext)
 }
 
 // storeForRecipient stores the message for a specific recipient
@@ -428,15 +551,63 @@ func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *Parsed
 		return fmt.Errorf("failed to store email: %w", err)
 	}
 
+	p.storeAttachments(ctx, email.ID, pubkey, parsed.Attachments)
+
 	p.logger.Info("Stored inbound email",
 		zap.String("id", email.ID),
 		zap.String("from", parsed.From),
 		zap.String("to", recipient),
 		zap.String("subject", parsed.Subject),
 		zap.Bool("encrypted", parsed.IsEncrypted),
+		zap.Int("attachments", len(parsed.Attachments)),
 		zap.Bool("nostr_verified", email.NostrVerified))
 
 	return nil
+}
+
+// storeAttachments persists each parsed attachment against a stored email.
+//
+// Best-effort by design: the message itself is ALREADY committed, so returning
+// an error here would fail a delivery that in fact succeeded, and the sending
+// server would retry — duplicating the mail in the user's inbox.
+//
+// The row is written even when the blob upload fails or no uploader is
+// configured. A visible attachment that cannot be downloaded is a bad outcome;
+// an attachment the recipient is never told about is a worse one, because the
+// user cannot know to ask the sender to resend.
+func (p *InboundProcessor) storeAttachments(ctx context.Context, emailID, recipientPubkey string, atts []ParsedAttachment) {
+	for _, att := range atts {
+		size := int64(len(att.Data))
+		contentType := att.ContentType
+		record := &storage.Attachment{
+			EmailID:     emailID,
+			Filename:    att.Filename,
+			ContentType: &contentType,
+			SizeBytes:   &size,
+		}
+
+		if p.uploader == nil {
+			p.logger.Warn("No attachment uploader configured; storing metadata only",
+				zap.String("email_id", emailID), zap.String("filename", att.Filename))
+		} else if sha, url, err := p.uploader.UploadFor(ctx, recipientPubkey, att.Data, att.ContentType); err != nil {
+			p.logger.Warn("Failed to store inbound attachment blob",
+				zap.String("email_id", emailID),
+				zap.String("filename", att.Filename),
+				zap.Error(err))
+		} else {
+			record.BlossomSHA256 = &sha
+			if url != "" {
+				record.BlossomURL = &url
+			}
+		}
+
+		if err := p.db.CreateAttachment(ctx, record); err != nil {
+			p.logger.Warn("Failed to record inbound attachment",
+				zap.String("email_id", emailID),
+				zap.String("filename", att.Filename),
+				zap.Error(err))
+		}
+	}
 }
 
 // parseAddressList parses a comma-separated list of email addresses
