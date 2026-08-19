@@ -106,11 +106,72 @@ func (p *InboundProcessor) ValidateRecipient(ctx context.Context, address string
 	return nil
 }
 
+// StripPlusTag removes a `+tag` suffix from the LOCAL part of an address.
+//
+//	alice+newsletter@cloistr.xyz -> alice@cloistr.xyz
+//
+// Plus addressing (RFC 5233 sub-addressing) is something users expect to just
+// work — it is how people filter signups without handing out their real
+// address. Without it every tagged address bounced as "no such recipient",
+// which is worse than not offering the feature: the address looks accepted
+// until mail to it silently fails.
+//
+// Two deliberate edge cases:
+//
+//   - The `+` must be in the local part, never the domain. `a@b+c.com` is a
+//     (strange) domain, not a tag, so only the text before the LAST `@` is
+//     considered.
+//   - A local part that STARTS with `+` is not stripped. `+tag@domain` would
+//     otherwise reduce to `@domain` — an empty mailbox name that must not be
+//     allowed to match anything.
+func StripPlusTag(address string) string {
+	at := strings.LastIndex(address, "@")
+	if at <= 0 {
+		return address // no local part, or no @ at all — nothing to strip
+	}
+	local, domain := address[:at], address[at+1:]
+
+	// A QUOTED local part means the `+` is literal, not a tag: `"a+b"@x` is a
+	// mailbox actually named `a+b` (RFC 5322 quoted-string). Stripping there
+	// would redirect mail to a different mailbox entirely.
+	//
+	// An unquoted `@` in the local part means the address is malformed. Leave it
+	// untouched rather than rewriting it into a DIFFERENT malformed address —
+	// it will not match a real account either way, and quietly reshaping a bad
+	// input is how a lookup ends up hitting the wrong row.
+	if strings.HasPrefix(local, `"`) || strings.Contains(local, "@") {
+		return address
+	}
+
+	if plus := strings.Index(local, "+"); plus > 0 {
+		local = local[:plus]
+	}
+	return local + "@" + domain
+}
+
 // resolveRecipientPubkey maps an inbound recipient address to the owning
 // pubkey via the shared addresses table. Returns ("", nil) when the address
 // is unknown or inactive.
+//
+// The EXACT address is tried first, then the plus-tag-stripped form. Order
+// matters: someone who has literally registered `alice+work@cloistr.xyz` as a
+// distinct address must keep receiving mail at it, rather than having it
+// silently redirected to `alice@`.
 func (p *InboundProcessor) resolveRecipientPubkey(ctx context.Context, address string) (string, error) {
 	addr, err := p.db.GetAddressByEmail(ctx, address)
+	if err != nil {
+		return "", fmt.Errorf("recipient lookup failed: %w", err)
+	}
+	if addr != nil && addr.Active {
+		return addr.Pubkey, nil
+	}
+
+	base := StripPlusTag(address)
+	if base == address {
+		return "", nil // no tag to fall back on
+	}
+
+	addr, err = p.db.GetAddressByEmail(ctx, base)
 	if err != nil {
 		return "", fmt.Errorf("recipient lookup failed: %w", err)
 	}
@@ -320,13 +381,13 @@ func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *Parsed
 	// Build the email record
 	email := &storage.Email{
 		MailboxPubkey: pubkey,
-		FromAddress: parsed.From,
-		ToAddress:   recipient,
-		Subject:     parsed.Subject,
-		Body:        parsed.Body,
-		Direction:   "received",
-		Status:      "active",
-		Folder:      "INBOX",
+		FromAddress:   parsed.From,
+		ToAddress:     recipient,
+		Subject:       parsed.Subject,
+		Body:          parsed.Body,
+		Direction:     "received",
+		Status:        "active",
+		Folder:        "INBOX",
 	}
 
 	if parsed.MessageID != "" {
