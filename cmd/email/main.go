@@ -179,8 +179,12 @@ func main() {
 	encryptionSvc := encryption.NewEncryptionService(signerStore, logger)
 
 	emailSvc := email.NewService(identitySvc, transportMgr, encryptionSvc, db, logger)
+	// Declared out here because the inbound processor needs the same servers to
+	// store attachments arriving over SMTP; it was previously scoped to this
+	// block, which is part of why inbound attachments had nowhere to go.
+	var blossomServers []blossom.Server
 	if len(cfg.BlossomServers) > 0 {
-		blossomServers := make([]blossom.Server, len(cfg.BlossomServers))
+		blossomServers = make([]blossom.Server, len(cfg.BlossomServers))
 		for i, url := range cfg.BlossomServers {
 			blossomServers[i] = blossom.Server{URL: url, Priority: i}
 		}
@@ -424,6 +428,17 @@ func main() {
 	if cfg.SMTPInboundEnabled {
 		// Reuse the NIP-05 resolver constructed for the v2 pipeline.
 		inboundProcessor := email.NewInboundProcessor(db, nip05Resolver, logger)
+
+		// Store attachments that arrive over SMTP. Returns nil when Blossom is
+		// unconfigured, in which case the processor records attachment metadata
+		// so the recipient still SEES that a file was sent.
+		if up := email.NewBlossomAttachmentUploader(encryptionSvc, blossomServers, cfg.BlossomRedundancy, logger); up != nil {
+			inboundProcessor.SetAttachmentUploader(up)
+			logger.Info("Inbound attachment storage enabled",
+				zap.Int("servers", len(blossomServers)))
+		} else {
+			logger.Warn("Inbound attachments will be recorded without content (no Blossom servers configured)")
+		}
 
 		// Create SMTP server config
 		smtpConfig := &transport.SMTPServerConfig{
