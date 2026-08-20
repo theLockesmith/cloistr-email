@@ -3,9 +3,14 @@
  *
  * Unauthenticated users land here. Rather than an opaque login wall, we show a
  * short purpose-conveying hero (normie adoption: a cold visitor should
- * understand what the page is) with a "Sign in with Cloistr" button that opens
- * the shared LoginModal. Signer-session users never reach this page —
+ * understand what the page is). Signer-session users never reach this page —
  * BackendAuthProvider's SSO probe auto-authenticates them first.
+ *
+ * SIGN-IN LIVES IN THE HEADER. This page used to carry its own "Sign in with
+ * Cloistr" button in the body, because the Header suppresses its Sign In button
+ * for backend-auth apps that pass no `onSignIn`. The result was a sign-in
+ * affordance that sat somewhere different in mail than in every other Cloistr
+ * app. Passing `onSignIn` re-enables the standard one; do not add a second.
  *
  * Auth bridge: when LoginModal completes, @cloistr/auth's signer is set;
  * handleClose hands it to loginWithSigner (email backend challenge/verify → JWT
@@ -63,7 +68,17 @@ export default function LoginPage() {
 
   return (
     <>
-      <Header activeServiceId="email" auth={{ authenticated: false }} signerUrl="https://signer.cloistr.xyz" />
+      {/* Sign-in lives in the header, and ONLY in the header.
+          Passing onSignIn is what makes the header render its Sign In button:
+          for backend-auth apps the Header suppresses it when the handler is
+          absent (`externalAuth && !auth?.onSignIn`), which is why this page
+          previously showed no header button and grew a bespoke one in the body
+          instead — the exact inconsistency across apps we are removing. */}
+      <Header
+        activeServiceId="email"
+        auth={{ authenticated: false, onSignIn: () => setModalOpen(true) }}
+        signerUrl={SIGNER_URL}
+      />
     <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 text-center">
       <div className="max-w-2xl">
         <h1 className="text-4xl font-bold mb-3">Cloistr Mail</h1>
@@ -77,13 +92,10 @@ export default function LoginPage() {
           </div>
         )}
 
-        <button
-          onClick={() => setModalOpen(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--cloistr-primary)] px-6 py-3 text-white font-medium hover:bg-[var(--cloistr-primary-hover)] transition-colors"
-        >
-          Sign in with Cloistr
-        </button>
-        <p className="mt-3 text-sm text-[var(--cloistr-text-muted)]">
+        {/* No sign-in button here by design — see the Header above. This stays:
+            it is onboarding for someone with no identity yet, not a second way
+            to sign in. */}
+        <p className="text-sm text-[var(--cloistr-text-muted)]">
           New here? Get a Nostr identity at{' '}
           <a href={SIGNER_URL} className="text-[var(--cloistr-primary)] hover:underline">
             signer.cloistr.xyz
