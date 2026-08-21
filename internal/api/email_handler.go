@@ -383,3 +383,29 @@ func (h *EmailHandler) GetAttachmentV2(w http.ResponseWriter, r *http.Request) {
 	}
 	h.respondJSON(w, http.StatusOK, resp)
 }
+
+// ArchiveEmailV2 moves an email to the archive folder.
+func (h *EmailHandler) ArchiveEmailV2(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug("ArchiveEmailV2: processing request")
+
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	emailID := vars["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
+		return
+	}
+
+	if err := h.emailSvc.ArchiveEmail(r.Context(), userNpub, emailID); err != nil {
+		h.logger.Warn("Failed to archive email", zap.Error(err), zap.String("email_id", emailID))
+		errors.InternalError("INTERNAL_ERROR", "failed to archive email").WriteResponse(w)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+}

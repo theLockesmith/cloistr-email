@@ -1148,6 +1148,59 @@ func (db *PostgreSQL) Migrate(ctx context.Context) error {
 }
 
 // ============================================================================
+// Mailbox Preferences
+// ============================================================================
+
+// GetPreferredEncryptionMode returns the mailbox owner's default encryption
+// mode for new sends, or "" when they have expressed no preference.
+//
+// "" and a mode equal to today's service default are deliberately NOT the same
+// thing: if the default changes, an explicit choice must survive it.
+func (db *PostgreSQL) GetPreferredEncryptionMode(ctx context.Context, pubkey string) (string, error) {
+	var mode sql.NullString
+	err := db.db.QueryRowContext(ctx,
+		`SELECT preferred_encryption_mode FROM email.mailboxes WHERE pubkey = $1`,
+		pubkey,
+	).Scan(&mode)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read encryption preference: %w", err)
+	}
+	if !mode.Valid {
+		return "", nil
+	}
+	return mode.String, nil
+}
+
+// SetPreferredEncryptionMode records the mailbox owner's default encryption
+// mode. The mailbox row is created if this is their first preference, so the
+// setting works before any mail has been sent or received.
+func (db *PostgreSQL) SetPreferredEncryptionMode(ctx context.Context, pubkey, mode string) error {
+	res, err := db.db.ExecContext(ctx,
+		`UPDATE email.mailboxes SET preferred_encryption_mode = $2, updated_at = NOW() WHERE pubkey = $1`,
+		pubkey, mode,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save encryption preference: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		if _, err := db.EnsureMailbox(ctx, pubkey); err != nil {
+			return fmt.Errorf("failed to create mailbox for preference: %w", err)
+		}
+		if _, err := db.db.ExecContext(ctx,
+			`UPDATE email.mailboxes SET preferred_encryption_mode = $2, updated_at = NOW() WHERE pubkey = $1`,
+			pubkey, mode,
+		); err != nil {
+			return fmt.Errorf("failed to save encryption preference: %w", err)
+		}
+	}
+	return nil
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 

@@ -548,6 +548,21 @@ func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) err
 	return s.db.DeleteEmail(ctx, emailID)
 }
 
+// ArchiveEmail moves an email to the archive folder.
+func (s *Service) ArchiveEmail(ctx context.Context, userNpub, emailID string) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	return s.db.MoveEmailToFolder(ctx, emailID, "archive")
+}
+
 // GetAttachmentResult is the decrypted (or client-decryptable) attachment.
 type GetAttachmentResult struct {
 	Filename    string

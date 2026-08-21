@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/nbd-wtf/go-nostr/nip19"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -524,9 +525,79 @@ func (h *Handler) GetMyKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, map[string]string{
-		"pubkey": userID,
-	})
+	// Return BOTH forms. The UI shows an npub (that is what a user recognises
+	// and pastes elsewhere), and previously read res.data.npub from a response
+	// that only ever contained "pubkey" — so "View my public key" rendered
+	// blank. Encoding here rather than in each client keeps one implementation.
+	resp := map[string]string{"pubkey": userID}
+	if npub, err := nip19.EncodePublicKey(userID); err == nil {
+		resp["npub"] = npub
+	} else {
+		// A hex pubkey that will not encode is worth knowing about; the caller
+		// still gets the hex form rather than an error.
+		h.logger.Warn("Failed to encode pubkey as npub",
+			zap.String("pubkey", userID), zap.Error(err))
+	}
+	h.respondJSON(w, http.StatusOK, resp)
+}
+
+// ===== Encryption Preference =====
+
+// validEncryptionModes are the modes a user may choose as their send default.
+// Anything else is rejected rather than stored, so a typo cannot silently
+// disable encryption for every future message.
+var validEncryptionModes = map[string]bool{"e2e": true, "server": true, "none": true}
+
+// GetEncryptionPreference returns the caller's default encryption mode for new
+// sends. An empty mode means no explicit preference.
+func (h *Handler) GetEncryptionPreference(w http.ResponseWriter, r *http.Request) {
+	userID := getUserID(r.Context())
+	if userID == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	mode, err := h.db.GetPreferredEncryptionMode(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("Failed to read encryption preference", zap.Error(err))
+		errors.InternalError("INTERNAL_ERROR", "failed to read encryption preference").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"mode": mode})
+}
+
+// SetEncryptionPreference records the caller's default encryption mode.
+//
+// This endpoint did not exist. The Settings screen has always shown an
+// encryption-mode control and posted it to /api/v1/encryption/preferred-mode,
+// which 404'd silently, so the setting never applied and the user was never
+// told. On a product that sells encryption, a control that pretends to save is
+// worse than no control.
+func (h *Handler) SetEncryptionPreference(w http.ResponseWriter, r *http.Request) {
+	userID := getUserID(r.Context())
+	if userID == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errors.BadRequest("INVALID_REQUEST", "invalid request body").WriteResponse(w)
+		return
+	}
+	if !validEncryptionModes[req.Mode] {
+		errors.BadRequest("INVALID_MODE", "mode must be one of: e2e, server, none").WriteResponse(w)
+		return
+	}
+
+	if err := h.db.SetPreferredEncryptionMode(r.Context(), userID, req.Mode); err != nil {
+		h.logger.Error("Failed to save encryption preference", zap.Error(err))
+		errors.InternalError("INTERNAL_ERROR", "failed to save encryption preference").WriteResponse(w)
+		return
+	}
+	h.logger.Info("Saved encryption preference", zap.String("mode", req.Mode))
+	h.respondJSON(w, http.StatusOK, map[string]string{"mode": req.Mode})
 }
 
 // ===== Contact Endpoints =====
