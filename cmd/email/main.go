@@ -358,6 +358,16 @@ func main() {
 	contactRoutes.HandleFunc("/{id}", apiHandler.GetContact).Methods("GET")
 	contactRoutes.HandleFunc("/{id}", apiHandler.DeleteContact).Methods("DELETE")
 
+	// Encryption preference endpoints.
+	//
+	// The Settings screen posted to /api/v1/encryption/preferred-mode against a
+	// route that did not exist, so every save 404'd silently and the preference
+	// never applied.
+	encRoutes := v1.PathPrefix("/encryption").Subrouter()
+	encRoutes.Use(apiHandler.AuthMiddleware)
+	encRoutes.HandleFunc("/preferred-mode", apiHandler.GetEncryptionPreference).Methods("GET")
+	encRoutes.HandleFunc("/preferred-mode", apiHandler.SetEncryptionPreference).Methods("POST")
+
 	// Relay preferences endpoint (cloistr-common integration)
 	relayRoutes := v1.PathPrefix("/relays").Subrouter()
 	relayRoutes.HandleFunc("/prefs", apiHandler.GetRelayPrefs).Methods("GET")
