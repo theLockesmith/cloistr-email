@@ -187,6 +187,8 @@ export const emailAPI = {
 
   delete: (id: string) => apiV2.delete(`/email/${id}`),
 
+  archive: (id: string) => apiV2.patch(`/email/${id}/archive`, {}),
+
   // Legacy v1 endpoints for backward compatibility
   reply: (id: string, data: any) => api.post(`/emails/${id}/reply`, data),
 }

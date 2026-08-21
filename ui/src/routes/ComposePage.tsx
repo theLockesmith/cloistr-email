@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
-import { emailAPI, keyAPI, type SendEmailRequest } from '../lib/api'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { emailAPI, keyAPI, type SendEmailRequest, type Email } from '../lib/api'
 import {
   hasNostrExtension,
   hasNip44Support,
   encrypt as nip07Encrypt,
   type EncryptionMode,
 } from '../lib/nostr'
+import { quoteBody, forwardBlock, replySubject, forwardSubject } from '../lib/email-compose'
 
 export default function ComposePage() {
+  const [searchParams] = useSearchParams()
+  const replyId = searchParams.get('reply')
+  const forwardId = searchParams.get('forward')
+  const originalId = replyId || forwardId
+
   const [to, setTo] = useState('')
   const [cc, setCc] = useState('')
   const [subject, setSubject] = useState('')
@@ -19,11 +25,59 @@ export default function ComposePage() {
   const [recipientPubkey, setRecipientPubkey] = useState<string | null>(null)
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
+  // Track whether the form has been pre-populated from the original email.
+  // Using a ref-style boolean in state so the useEffect only fires once.
+  const [prefilled, setPrefilled] = useState(false)
+
   const navigate = useNavigate()
 
   // Check available encryption modes
   const hasExtension = hasNostrExtension()
   const hasNip44 = hasNip44Support()
+
+  // Load the original email when replying or forwarding
+  const { data: originalResponse } = useQuery({
+    queryKey: ['email', originalId],
+    queryFn: () => (originalId ? emailAPI.get(originalId) : Promise.reject('No ID')),
+    enabled: !!originalId,
+  })
+
+  const originalEmail = originalResponse?.data as Email | undefined
+
+  // Pre-populate the form once the original email arrives
+  useEffect(() => {
+    if (!originalEmail || prefilled) return
+    setPrefilled(true)
+
+    const signature = localStorage.getItem('email_signature') || ''
+    const sigBlock = signature ? `\n\n-- \n${signature}` : ''
+
+    if (replyId) {
+      setTo(originalEmail.from)
+      setSubject(replySubject(originalEmail.subject))
+      const date = new Date(originalEmail.created_at).toLocaleString()
+      setBody(sigBlock + quoteBody(originalEmail.from, date, originalEmail.body || ''))
+    }
+
+    if (forwardId) {
+      setSubject(forwardSubject(originalEmail.subject))
+      const date = new Date(originalEmail.created_at).toLocaleString()
+      setBody(
+        sigBlock +
+          forwardBlock(originalEmail.from, date, originalEmail.subject, originalEmail.body || ''),
+      )
+    }
+  }, [originalEmail, replyId, forwardId, prefilled])
+
+  // On a fresh compose (no reply/forward), prepend the signature once
+  useEffect(() => {
+    if (originalId) return // reply/forward path handles this above
+    const signature = localStorage.getItem('email_signature') || ''
+    if (signature && !prefilled) {
+      setPrefilled(true)
+      setBody(`\n\n-- \n${signature}`)
+    }
+  }, [originalId, prefilled])
 
   // Discover recipient's pubkey when email changes
   useEffect(() => {
@@ -47,7 +101,7 @@ export default function ComposePage() {
             setDiscoveryError('Recipient has no known Nostr identity for encryption')
           }
         }
-      } catch (err) {
+      } catch {
         setRecipientPubkey(null)
         if (encryptionMode !== 'none') {
           setDiscoveryError('Could not discover recipient key')
@@ -69,11 +123,21 @@ export default function ComposePage() {
         subject,
         body,
         encryption_mode: encryptionMode,
+        // Include threading headers when replying
+        ...(replyId && originalEmail?.message_id
+          ? {
+              in_reply_to: originalEmail.message_id,
+              references: originalEmail.message_id ? [originalEmail.message_id] : [],
+            }
+          : {}),
       }
 
       // Add CC if provided
       if (cc) {
-        sendRequest.cc = cc.split(',').map((e) => e.trim()).filter(Boolean)
+        sendRequest.cc = cc
+          .split(',')
+          .map((e) => e.trim())
+          .filter(Boolean)
       }
 
       // Handle client-side encryption
@@ -126,7 +190,9 @@ export default function ComposePage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold mb-6">Compose Email</h1>
+      <h1 className="text-3xl font-bold mb-6">
+        {replyId ? 'Reply' : forwardId ? 'Forward' : 'Compose Email'}
+      </h1>
 
       <div className="bg-cloistr-bg rounded-lg shadow p-6 max-w-3xl">
         {/* To Field */}
@@ -158,7 +224,7 @@ export default function ComposePage() {
               )}
               {!isDiscovering && recipientPubkey && (
                 <span className="text-cloistr-success">
-                  ✓ Nostr identity found - encryption available
+                  Nostr identity found - encryption available
                 </span>
               )}
               {!isDiscovering && !recipientPubkey && to.includes('@') && (
@@ -315,7 +381,7 @@ export default function ComposePage() {
             {sendMutation.isPending ? 'Sending...' : 'Send'}
           </button>
           <button
-            onClick={() => navigate('/inbox')}
+            onClick={() => navigate(replyId || forwardId ? `/emails/${originalId}` : '/inbox')}
             className="px-6 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover transition"
           >
             Cancel
@@ -324,7 +390,7 @@ export default function ComposePage() {
           {/* Encryption indicator */}
           {encryptionMode !== 'none' && (
             <span className="ml-auto text-sm text-cloistr-text-muted">
-              {encryptionMode === 'client' ? '🔐 Client-encrypted' : '🔒 Server-encrypted'}
+              {encryptionMode === 'client' ? 'Client-encrypted' : 'Server-encrypted'}
             </span>
           )}
         </div>

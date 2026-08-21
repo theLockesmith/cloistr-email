@@ -370,6 +370,7 @@ func main() {
 	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
+	emailV2Routes.HandleFunc("/{id}/archive", emailHandler.ArchiveEmailV2).Methods("PATCH")
 	emailV2Routes.HandleFunc("/{id}/attachments/{attachmentId}", emailHandler.GetAttachmentV2).Methods("GET")
 
 	// API v2 auth routes — Option D signer-as-bunker bootstrap + NIP-46 status

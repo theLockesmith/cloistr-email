@@ -17,6 +17,7 @@ export default function EmailPage() {
   const [decryptedBody, setDecryptedBody] = useState<string | null>(null)
   const [isDecrypting, setIsDecrypting] = useState(false)
   const [decryptError, setDecryptError] = useState<string | null>(null)
+  const [showHtml, setShowHtml] = useState(false)
 
   const hasExtension = hasNostrExtension()
   const hasNip44 = hasNip44Support()
@@ -30,6 +31,15 @@ export default function EmailPage() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: () => (id ? emailAPI.delete(id) : Promise.reject('No ID')),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emails'] })
+      navigate('/inbox')
+    },
+  })
+
+  // Archive mutation
+  const archiveMutation = useMutation({
+    mutationFn: () => (id ? emailAPI.archive(id) : Promise.reject('No ID')),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emails'] })
       navigate('/inbox')
@@ -68,6 +78,10 @@ export default function EmailPage() {
     if (confirm('Are you sure you want to delete this email?')) {
       deleteMutation.mutate()
     }
+  }
+
+  const handleArchive = () => {
+    archiveMutation.mutate()
   }
 
   if (isLoading) {
@@ -110,7 +124,7 @@ export default function EmailPage() {
         onClick={() => navigate('/inbox')}
         className="mb-6 px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover transition"
       >
-        ← Back to Inbox
+        Back to Inbox
       </button>
 
       <div className="bg-cloistr-bg rounded-lg shadow p-6">
@@ -159,15 +173,15 @@ export default function EmailPage() {
                 }`}
               >
                 {decryptedBody
-                  ? '🔓 Decrypted'
+                  ? 'Decrypted'
                   : needsDecryption
-                  ? '🔐 Encrypted (requires decryption)'
-                  : '🔒 Encrypted'}
+                  ? 'Encrypted (requires decryption)'
+                  : 'Encrypted'}
               </span>
             )}
             {email.nostr_verified && (
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-cloistr-info/10 text-cloistr-info">
-                ✓ Verified sender
+                Verified sender
               </span>
             )}
             {email.encryption_mode && (
@@ -249,21 +263,43 @@ export default function EmailPage() {
           )}
         </div>
 
-        {/* HTML body toggle (if available) */}
+        {/* HTML body: rendered in a sandboxed iframe to block script execution.
+            The `sandbox` attribute with no tokens disables scripts, plugins,
+            forms, and same-origin access — providing isolation stronger than
+            any allowlist-based sanitizer. */}
         {email.html_body && !email.is_encrypted && (
-          <details className="mb-6">
+          <details
+            className="mb-6"
+            open={showHtml}
+            onToggle={(e) => setShowHtml((e.currentTarget as HTMLDetailsElement).open)}
+          >
             <summary className="cursor-pointer text-sm text-cloistr-primary hover:text-cloistr-primary-hover">
-              View HTML version
+              {showHtml ? 'Hide HTML version' : 'View HTML version'}
             </summary>
-            <div
-              className="mt-2 p-4 border rounded-lg prose max-w-none"
-              dangerouslySetInnerHTML={{ __html: email.html_body }}
-            />
+            {showHtml && (
+              <iframe
+                className="mt-2 w-full border rounded-lg"
+                style={{ minHeight: '300px', height: 'auto' }}
+                srcDoc={email.html_body}
+                sandbox=""
+                title="HTML email body"
+                onLoad={(e) => {
+                  // Resize iframe to content height to avoid scrollbars
+                  const frame = e.currentTarget
+                  try {
+                    const h = frame.contentDocument?.documentElement.scrollHeight
+                    if (h) frame.style.height = `${h + 16}px`
+                  } catch {
+                    // cross-origin or sandbox restriction - leave default height
+                  }
+                }}
+              />
+            )}
           </details>
         )}
 
         {/* Action buttons */}
-        <div className="flex items-center gap-3 pt-4 border-t">
+        <div className="flex items-center gap-3 pt-4 border-t flex-wrap">
           <button
             onClick={() => navigate(`/compose?reply=${id}`)}
             className="px-4 py-2 bg-cloistr-primary text-white rounded-lg hover:bg-cloistr-primary-hover transition"
@@ -275,6 +311,13 @@ export default function EmailPage() {
             className="px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover transition"
           >
             Forward
+          </button>
+          <button
+            onClick={handleArchive}
+            disabled={archiveMutation.isPending}
+            className="px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover disabled:opacity-50 transition"
+          >
+            {archiveMutation.isPending ? 'Archiving...' : 'Archive'}
           </button>
           <button
             onClick={handleDelete}
