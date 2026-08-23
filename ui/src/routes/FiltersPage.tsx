@@ -4,47 +4,18 @@
  * Filters are stored in localStorage (no backend persistence).
  * Each filter matches incoming email and assigns a folder or label.
  *
- * A filter is evaluated client-side when listing email (in InboxPage)
- * by matching the from/to/subject fields against the rule criteria.
- * This is display-side only: the backend folder is not changed.
+ * Rules are evaluated client-side when listing email (InboxPage applies them
+ * after fetch via applyFilterRules from lib/filters.ts). Actions are
+ * display-only; the backend state is not changed. The 'move' action is a
+ * no-op until backend write support is added (see lib/filters.ts).
  */
 
 import { useState } from 'react'
-
-export interface FilterRule {
-  id: string
-  name: string
-  // Criteria (all set fields must match; empty string = not checked)
-  from: string
-  to: string
-  subject: string
-  hasAttachment: boolean
-  // Action
-  action: 'label' | 'move' | 'star' | 'markRead'
-  actionValue: string  // label name or folder name (for label/move)
-  enabled: boolean
-  createdAt: number
-}
-
-const STORAGE_KEY = 'cloistr-email-filter-rules'
-
-function loadRules(): FilterRule[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    return JSON.parse(raw) as FilterRule[]
-  } catch {
-    return []
-  }
-}
-
-function saveRules(rules: FilterRule[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rules))
-  } catch {
-    // Private-mode Safari; silently skip
-  }
-}
+import {
+  type FilterRule,
+  loadFilterRules,
+  saveFilterRules,
+} from '../lib/filters'
 
 const BLANK_RULE: Omit<FilterRule, 'id' | 'createdAt'> = {
   name: '',
@@ -58,13 +29,13 @@ const BLANK_RULE: Omit<FilterRule, 'id' | 'createdAt'> = {
 }
 
 export default function FiltersPage() {
-  const [rules, setRules] = useState<FilterRule[]>(loadRules)
+  const [rules, setRules] = useState<FilterRule[]>(loadFilterRules)
   const [editing, setEditing] = useState<FilterRule | null>(null)
   const [showForm, setShowForm] = useState(false)
 
   const persist = (next: FilterRule[]) => {
     setRules(next)
-    saveRules(next)
+    saveFilterRules(next)
   }
 
   const handleNew = () => {

@@ -139,6 +139,9 @@ type Email struct {
 	NostrVerificationError *string
 	NostrVerifiedAt        *time.Time
 
+	// Populated by ListEmails via a subquery; not a stored column.
+	HasAttachments bool
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt *time.Time
@@ -586,7 +589,8 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       folder, labels, in_reply_to, references_header, created_at, updated_at, deleted_at
+		       folder, labels, in_reply_to, references_header, created_at, updated_at, deleted_at,
+		       EXISTS (SELECT 1 FROM attachments a WHERE a.email_id = emails.id) AS has_attachments
 		%s
 		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
@@ -610,6 +614,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 			&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 			&email.Direction, &email.Status, &email.ReadAt,
 			&email.Folder, &labels, &email.InReplyTo, &email.References, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
+			&email.HasAttachments,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan email: %w", err)

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { emailAPI, type Email } from '../lib/api'
 import { parseSearchQuery, hasOperators } from '../lib/search-operators'
+import { loadFilterRules, applyFilterRules } from '../lib/filters'
 
 type Folder = 'inbox' | 'sent' | 'drafts' | 'trash' | 'archive' | 'starred'
 
@@ -64,7 +65,8 @@ export default function InboxPage() {
     queryFn: () => emailAPI.list(params),
   })
 
-  const emails = response?.data?.emails || []
+  const rawEmails = response?.data?.emails || []
+  const emails = applyFilterRules(rawEmails, loadFilterRules())
   const total = response?.data?.total || 0
   const totalPages = Math.ceil(total / 25)
 

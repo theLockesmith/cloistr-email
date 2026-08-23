@@ -305,6 +305,11 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 		InReplyTo:   query.Get("in_reply_to"),
 	}
 
+	// Single-label filter: ?label=<value> matches emails that carry that label.
+	if v := query.Get("label"); v != "" {
+		filter.Labels = []string{v}
+	}
+
 	// Boolean filter params
 	if v := query.Get("unread"); v == "true" {
 		t := true
@@ -381,20 +386,21 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 		}
 
 		resp := EmailResponse{
-			ID:            e.ID,
-			MessageID:     messageID,
-			InReplyTo:     inReplyTo,
-			From:          e.FromAddress,
-			To:            e.ToAddress,
-			CC:            cc,
-			Subject:       e.Subject,
-			IsEncrypted:   e.IsEncrypted,
-			SenderNpub:    senderNpub,
-			NostrVerified: e.NostrVerified,
-			CreatedAt:     e.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			Folder:        e.Folder,
-			Labels:        labels,
-			IsStarred:     isStarred,
+			ID:             e.ID,
+			MessageID:      messageID,
+			InReplyTo:      inReplyTo,
+			From:           e.FromAddress,
+			To:             e.ToAddress,
+			CC:             cc,
+			Subject:        e.Subject,
+			IsEncrypted:    e.IsEncrypted,
+			SenderNpub:     senderNpub,
+			NostrVerified:  e.NostrVerified,
+			CreatedAt:      e.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Folder:         e.Folder,
+			Labels:         labels,
+			IsStarred:      isStarred,
+			HasAttachments: e.HasAttachments,
 		}
 		if e.ReadAt != nil {
 			resp.ReadAt = e.ReadAt.Format("2006-01-02T15:04:05Z")

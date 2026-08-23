@@ -200,6 +200,7 @@ export interface EmailListParams {
   search?: string
   from?: string
   to?: string
+  label?: string    // filter by a single label value
   has_attachment?: boolean
   before?: string   // YYYY-MM-DD or RFC3339
   after?: string    // YYYY-MM-DD or RFC3339
