@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import axios from 'axios'
+import { SignerRecovery } from '@cloistr/ui/components'
 import { emailAPI, keyAPI, type SendEmailRequest, type Email, type AttachmentRequest } from '../lib/api'
 import {
   hasNostrExtension,
@@ -518,13 +520,30 @@ export default function ComposePage() {
           </div>
         </div>
 
-        {/* Error Display */}
-        {sendMutation.error && (
-          <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg">
-            {sendMutation.error instanceof Error
-              ? sendMutation.error.message
-              : 'Error sending email'}
-          </div>
+        {/* Error Display
+            Two cases:
+            - AxiosError: a backend/network failure (wrong path, server error, etc.)
+              Show the standard error banner.
+            - Anything else: came from the signer path (nip07Encrypt, or a
+              client-side signing step). Show SignerRecovery so the user sees
+              "you are still signed in" rather than a bare error message that
+              reads like a logout. Retry re-runs the full send; Go back navigates
+              to the inbox without clearing session state. */}
+        {sendMutation.isError && (
+          axios.isAxiosError(sendMutation.error) ? (
+            <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg">
+              {sendMutation.error.message || 'Error sending email'}
+            </div>
+          ) : (
+            <div className="mb-4">
+              <SignerRecovery
+                error={sendMutation.error}
+                onRetry={() => { void sendMutation.mutateAsync() }}
+                onGoBack={() => navigate(replyId || forwardId ? `/emails/${originalId}` : '/inbox')}
+                retrying={sendMutation.isPending}
+              />
+            </div>
+          )
         )}
 
         {/* Action Buttons */}

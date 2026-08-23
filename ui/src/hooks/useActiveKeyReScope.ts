@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNostrAuth } from '@cloistr/auth'
 import type { SignerInterface } from '@cloistr/auth'
+import { withSignerRetry } from '@cloistr/ui'
 import { verifyEvent, type UnsignedEvent, type Event as NostrEvent } from 'nostr-tools'
 
 const API_BASE = '/api/v1'
@@ -31,7 +32,13 @@ interface VerifyResponse {
 }
 
 async function reAuthForKey(signer: SignerInterface): Promise<string> {
-  const pubkey = await signer.getPublicKey()
+  // Both NIP-46 calls are wrapped in withSignerRetry. A transient relay
+  // failure (NO_RELAYS / CONNECTION_FAILED / DISCONNECTED) is retried up to
+  // 3 times over ~10s before throwing. A signer refusal (CANCELLED) is NOT
+  // retried — the user said no. This prevents a relay hiccup from cascading
+  // into a 401 (when the JWT expires before signing recovers), which would
+  // previously cause handleAuthError to wipe the session and redirect to /login.
+  const pubkey = await withSignerRetry(() => signer.getPublicKey())
 
   const challengeRes = await fetch(`${API_BASE}/auth/challenge`)
   if (!challengeRes.ok) throw new Error(`challenge ${challengeRes.status}`)
@@ -48,7 +55,7 @@ async function reAuthForKey(signer: SignerInterface): Promise<string> {
     pubkey,
   }
 
-  const signedEvent: NostrEvent = await signer.signEvent(unsignedEvent)
+  const signedEvent: NostrEvent = await withSignerRetry(() => signer.signEvent(unsignedEvent))
   if (!verifyEvent(signedEvent)) throw new Error('signature verification failed')
 
   const verifyRes = await fetch(`${API_BASE}/auth/verify`, {

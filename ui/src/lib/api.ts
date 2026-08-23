@@ -37,19 +37,33 @@ api.interceptors.request.use(addAuthToken)
 apiV2.interceptors.request.use(addAuthToken)
 
 // Handle auth errors
+//
+// SIGNER-RESILIENCE NOTE (2026-08-23):
+//
+// DO NOT clear localStorage here. The old code cleared all four auth keys on
+// any 401, which caused two separate problems:
+//
+//   1. A relay hiccup could prevent useActiveKeyReScope from refreshing the
+//      JWT. The next API call would then 401, and this handler would wipe the
+//      session — logging the user out for a transient network blip.
+//
+//   2. Partial clears (the previous version) left access_token intact but
+//      removed session_token, causing BackendAuthProvider to think the session
+//      was valid while every API call immediately 401'd again (the redirect
+//      loop the loop-breaker in App.tsx was added to catch).
+//
+// BackendAuthProvider.validateToken() now owns cleanup. When a 401 arrives
+// here we redirect to /login without touching localStorage. On remount,
+// validateToken() runs:
+//   - If access_token is expired by timestamp -> clearAuth() removes it + resets state
+//   - If access_token is present but backend rejects it -> clearAuth() does the same
+//
+// In both cases the user ends up on /login with a clean state.
+// The loop-breaker in App.tsx catches any oscillation if validateToken keeps
+// failing (>3 redirects in 1.5s) and clears everything as a last resort.
 const handleAuthError = (error: AxiosError) => {
   if (error.response?.status === 401) {
-    // Clear ALL auth keys. Previously only session_token and user_pubkey were
-    // removed, leaving access_token and token_expiry intact. On the next page
-    // load BackendAuthProvider.validateToken() found a valid access_token and
-    // set user+token in memory (isAuthenticated()=true), but every API call
-    // immediately 401'd again because session_token was still missing — creating
-    // the login redirect loop the operator reported.
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('token_expiry')
-    localStorage.removeItem('user_pubkey')
-    localStorage.removeItem('session_token')
-    window.location.href = '/login'
+    window.location.replace('/login')
   }
   return Promise.reject(error)
 }

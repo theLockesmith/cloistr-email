@@ -10,6 +10,7 @@ import FiltersPage from './routes/FiltersPage'
 import Layout from './components/Layout'
 import { useSignerBunkerBootstrap } from './hooks/useSignerBunkerBootstrap'
 import { useActiveKeyReScope } from './hooks/useActiveKeyReScope'
+import { useRelayReconnect } from './hooks/useRelayReconnect'
 import { useRef } from 'react'
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,16 @@ function App() {
 
   // Re-scope backend session and flush mailbox cache when the active key changes.
   useActiveKeyReScope()
+
+  // Part 4 of the signer-resilience design: reconnect relay WebSockets when
+  // the page regains visibility (file picker closes, screen unlock) or the
+  // network comes back online. For NIP-46 sessions only — NIP-07 extensions
+  // manage their own sockets. Warms up the connection before the user acts so
+  // the signing call doesn't hit dead sockets and trigger the error path.
+  //
+  // @cloistr/ui will export this directly in 0.27.0. Until that version is
+  // published, the hook lives in src/hooks/useRelayReconnect.ts.
+  useRelayReconnect()
 
   // Per-render log of redirect-to-/login timestamps (module-level so it
   // survives React re-renders but resets on a full hard navigation).
