@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { emailAPI, keyAPI, type SendEmailRequest, type Email } from '../lib/api'
@@ -9,6 +9,7 @@ import {
   type EncryptionMode,
 } from '../lib/nostr'
 import { quoteBody, forwardBlock, replySubject, forwardSubject } from '../lib/email-compose'
+import { composeDraftKey, saveDraft, loadDraft, clearDraft, hasDraftContent } from '../lib/draft-autosave'
 
 export default function ComposePage() {
   const [searchParams] = useSearchParams()
@@ -29,6 +30,14 @@ export default function ComposePage() {
   // Using a ref-style boolean in state so the useEffect only fires once.
   const [prefilled, setPrefilled] = useState(false)
 
+  // Draft autosave state
+  const draftKey = composeDraftKey({ replyId, forwardId })
+  // savedAt timestamp of the restored draft; null means no restoration happened.
+  const [draftRestoredAt, setDraftRestoredAt] = useState<number | null>(null)
+  // True once the initial draft-restore check has completed.
+  // Using a ref (not state) so writing it never triggers a re-render.
+  const hasInitializedDraft = useRef(false)
+
   const navigate = useNavigate()
 
   // Check available encryption modes
@@ -43,6 +52,26 @@ export default function ComposePage() {
   })
 
   const originalEmail = originalResponse?.data as Email | undefined
+
+  // On mount: attempt to restore a previously saved draft.
+  // This runs before any other prefill effect so that a restored draft can set
+  // `prefilled = true` and suppress the signature / reply-prefill effects.
+  useEffect(() => {
+    const draft = loadDraft(draftKey)
+    if (draft && hasDraftContent(draft)) {
+      setTo(draft.to)
+      setCc(draft.cc)
+      setSubject(draft.subject)
+      setBody(draft.body)
+      setEncryptionMode(draft.encryptionMode)
+      setShowCc(draft.showCc)
+      setPrefilled(true)
+      setDraftRestoredAt(draft.savedAt)
+    }
+    hasInitializedDraft.current = true
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Empty deps: run exactly once on mount. draftKey is derived from URL params
+  // which cannot change while the component is mounted.
 
   // Pre-populate the form once the original email arrives
   useEffect(() => {
@@ -78,6 +107,22 @@ export default function ComposePage() {
       setBody(`\n\n-- \n${signature}`)
     }
   }, [originalId, prefilled])
+
+  // Debounced autosave: write the current compose state to localStorage
+  // 1500 ms after the last change. Only fires after the initial draft-restore
+  // check and only when the form has meaningful content.
+  useEffect(() => {
+    if (!hasInitializedDraft.current) return
+
+    const timer = setTimeout(() => {
+      const draft = { to, cc, subject, body, encryptionMode, showCc, savedAt: Date.now() }
+      if (hasDraftContent(draft)) {
+        saveDraft(draftKey, draft)
+      }
+    }, 1500)
+
+    return () => clearTimeout(timer)
+  }, [to, cc, subject, body, encryptionMode, showCc, draftKey])
 
   // Discover recipient's pubkey when email changes
   useEffect(() => {
@@ -167,6 +212,7 @@ export default function ComposePage() {
     },
     onSuccess: (response) => {
       if (response.data.status === 'sent') {
+        clearDraft(draftKey)
         navigate('/inbox')
       }
     },
@@ -193,6 +239,29 @@ export default function ComposePage() {
       <h1 className="text-3xl font-bold mb-6">
         {replyId ? 'Reply' : forwardId ? 'Forward' : 'Compose Email'}
       </h1>
+
+      {/* Draft restored banner */}
+      {draftRestoredAt !== null && (
+        <div className="mb-4 flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-800 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-300">
+          <span className="text-sm font-medium">
+            Draft restored from{' '}
+            {new Date(draftRestoredAt).toLocaleString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss draft restored notice"
+            onClick={() => setDraftRestoredAt(null)}
+            className="text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200 text-lg leading-none"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       <div className="bg-cloistr-bg rounded-lg shadow p-6 max-w-3xl">
         {/* To Field */}
