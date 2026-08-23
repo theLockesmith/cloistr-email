@@ -130,6 +130,10 @@ type Email struct {
 	Folder            string
 	Labels            []string
 
+	// Threading (migration 012)
+	InReplyTo  *string // RFC 2822 In-Reply-To header value
+	References *string // RFC 2822 References header (space-separated)
+
 	// Nostr signature verification (RFC-002)
 	NostrVerified          bool
 	NostrVerificationError *string
@@ -217,7 +221,16 @@ type EmailFilter struct {
 	Folder    string   // INBOX, Sent, Drafts, etc.
 	Labels    []string // Custom labels
 	Unread    *bool    // Filter by read status
-	Search    string   // Search in subject/body
+	Starred   *bool    // Filter by starred status (\\Starred label)
+	Search    string   // Full-text search in subject/body
+
+	// Operator-style search fields (parsed from "from:alice to:bob subject:hello …")
+	FromAddress   string     // match from_address (substring)
+	ToAddress     string     // match to_address (substring)
+	HasAttachment *bool      // emails that have at least one attachment row
+	Before        *time.Time // created_at < Before
+	After         *time.Time // created_at > After
+	InReplyTo     string     // match in_reply_to exactly (thread fetch)
 }
 
 // ============================================================================
@@ -370,9 +383,10 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 		INSERT INTO emails (
 			id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 			subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
-			sender_npub, recipient_npub, direction, status, folder, labels
+			sender_npub, recipient_npub, direction, status, folder, labels,
+			in_reply_to, references_header
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		RETURNING created_at, updated_at
 	`
 
@@ -381,6 +395,7 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 		email.CC, email.BCC, email.Subject, email.Body, email.HTMLBody,
 		email.IsEncrypted, email.EncryptionNonce, email.EncryptionMode, email.SenderNpub, email.RecipientNpub,
 		email.Direction, email.Status, email.Folder, pq.Array(email.Labels),
+		email.InReplyTo, email.References,
 	).Scan(&email.CreatedAt, &email.UpdatedAt)
 
 	if err != nil {
@@ -399,7 +414,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       folder, labels, created_at, updated_at, deleted_at
+		       folder, labels, in_reply_to, references_header, created_at, updated_at, deleted_at
 		FROM emails
 		WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -411,7 +426,7 @@ func (db *PostgreSQL) GetEmail(ctx context.Context, id string) (*Email, error) {
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 		&email.Direction, &email.Status, &email.ReadAt,
-		&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
+		&email.Folder, &labels, &email.InReplyTo, &email.References, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -433,7 +448,7 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, mailboxPubkey, me
 		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       folder, labels, created_at, updated_at, deleted_at
+		       folder, labels, in_reply_to, references_header, created_at, updated_at, deleted_at
 		FROM emails
 		WHERE mailbox_pubkey = $1 AND message_id = $2 AND deleted_at IS NULL
 	`
@@ -445,7 +460,7 @@ func (db *PostgreSQL) GetEmailByMessageID(ctx context.Context, mailboxPubkey, me
 		&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 		&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 		&email.Direction, &email.Status, &email.ReadAt,
-		&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
+		&email.Folder, &labels, &email.InReplyTo, &email.References, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -498,6 +513,13 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 				baseQuery += " AND read_at IS NOT NULL"
 			}
 		}
+		if filter.Starred != nil {
+			if *filter.Starred {
+				baseQuery += " AND labels @> ARRAY['\\\\Starred']"
+			} else {
+				baseQuery += " AND NOT (labels @> ARRAY['\\\\Starred'])"
+			}
+		}
 		if filter.Search != "" {
 			argCount++
 			searchArg := argCount
@@ -508,6 +530,38 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 			argCount++
 			baseQuery += fmt.Sprintf(" AND labels && $%d", argCount)
 			args = append(args, pq.Array(filter.Labels))
+		}
+		if filter.FromAddress != "" {
+			argCount++
+			baseQuery += fmt.Sprintf(" AND from_address ILIKE $%d", argCount)
+			args = append(args, "%"+filter.FromAddress+"%")
+		}
+		if filter.ToAddress != "" {
+			argCount++
+			baseQuery += fmt.Sprintf(" AND to_address ILIKE $%d", argCount)
+			args = append(args, "%"+filter.ToAddress+"%")
+		}
+		if filter.HasAttachment != nil {
+			if *filter.HasAttachment {
+				baseQuery += " AND EXISTS (SELECT 1 FROM email.attachments a WHERE a.email_id = emails.id)"
+			} else {
+				baseQuery += " AND NOT EXISTS (SELECT 1 FROM email.attachments a WHERE a.email_id = emails.id)"
+			}
+		}
+		if filter.Before != nil {
+			argCount++
+			baseQuery += fmt.Sprintf(" AND created_at < $%d", argCount)
+			args = append(args, *filter.Before)
+		}
+		if filter.After != nil {
+			argCount++
+			baseQuery += fmt.Sprintf(" AND created_at > $%d", argCount)
+			args = append(args, *filter.After)
+		}
+		if filter.InReplyTo != "" {
+			argCount++
+			baseQuery += fmt.Sprintf(" AND in_reply_to = $%d", argCount)
+			args = append(args, filter.InReplyTo)
 		}
 	}
 
@@ -532,7 +586,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 		SELECT id, mailbox_pubkey, message_id, from_address, to_address, cc, bcc,
 		       subject, body, html_body, is_encrypted, encryption_nonce, encryption_mode,
 		       sender_npub, recipient_npub, direction, status, read_at,
-		       folder, labels, created_at, updated_at, deleted_at
+		       folder, labels, in_reply_to, references_header, created_at, updated_at, deleted_at
 		%s
 		ORDER BY %s %s
 		LIMIT $%d OFFSET $%d
@@ -555,7 +609,7 @@ func (db *PostgreSQL) ListEmails(ctx context.Context, mailboxPubkey string, filt
 			&email.CC, &email.BCC, &email.Subject, &email.Body, &email.HTMLBody,
 			&email.IsEncrypted, &email.EncryptionNonce, &email.EncryptionMode, &email.SenderNpub, &email.RecipientNpub,
 			&email.Direction, &email.Status, &email.ReadAt,
-			&email.Folder, &labels, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
+			&email.Folder, &labels, &email.InReplyTo, &email.References, &email.CreatedAt, &email.UpdatedAt, &email.DeletedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan email: %w", err)
@@ -607,6 +661,118 @@ func (db *PostgreSQL) MarkEmailAsRead(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to mark email as read: %w", err)
 	}
 
+	return nil
+}
+
+// MarkEmailAsUnread clears the read_at timestamp so an email appears unread.
+func (db *PostgreSQL) MarkEmailAsUnread(ctx context.Context, id string) error {
+	db.logger.Debug("Marking email as unread", zap.String("id", id))
+
+	_, err := db.db.ExecContext(ctx,
+		`UPDATE emails SET read_at = NULL WHERE id = $1 AND deleted_at IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("failed to mark email as unread: %w", err)
+	}
+	return nil
+}
+
+// AddEmailLabel appends a label to an email if it is not already present.
+func (db *PostgreSQL) AddEmailLabel(ctx context.Context, id, label string) error {
+	db.logger.Debug("Adding label to email", zap.String("id", id), zap.String("label", label))
+
+	_, err := db.db.ExecContext(ctx, `
+		UPDATE emails
+		SET labels = array_append(labels, $2)
+		WHERE id = $1 AND deleted_at IS NULL AND NOT (labels @> ARRAY[$2]::TEXT[])
+	`, id, label)
+	if err != nil {
+		return fmt.Errorf("failed to add label: %w", err)
+	}
+	return nil
+}
+
+// RemoveEmailLabel removes a label from an email.
+func (db *PostgreSQL) RemoveEmailLabel(ctx context.Context, id, label string) error {
+	db.logger.Debug("Removing label from email", zap.String("id", id), zap.String("label", label))
+
+	_, err := db.db.ExecContext(ctx, `
+		UPDATE emails
+		SET labels = array_remove(labels, $2)
+		WHERE id = $1 AND deleted_at IS NULL
+	`, id, label)
+	if err != nil {
+		return fmt.Errorf("failed to remove label: %w", err)
+	}
+	return nil
+}
+
+// BulkMarkRead marks a set of emails as read.
+func (db *PostgreSQL) BulkMarkRead(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := db.db.ExecContext(ctx,
+		`UPDATE emails SET read_at = CURRENT_TIMESTAMP WHERE id = ANY($1) AND read_at IS NULL AND deleted_at IS NULL`,
+		pq.Array(ids))
+	if err != nil {
+		return fmt.Errorf("failed to bulk mark read: %w", err)
+	}
+	return nil
+}
+
+// BulkMarkUnread clears read_at for a set of emails.
+func (db *PostgreSQL) BulkMarkUnread(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := db.db.ExecContext(ctx,
+		`UPDATE emails SET read_at = NULL WHERE id = ANY($1) AND deleted_at IS NULL`,
+		pq.Array(ids))
+	if err != nil {
+		return fmt.Errorf("failed to bulk mark unread: %w", err)
+	}
+	return nil
+}
+
+// BulkMoveToFolder moves a set of emails to a folder.
+func (db *PostgreSQL) BulkMoveToFolder(ctx context.Context, ids []string, folder string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := db.db.ExecContext(ctx,
+		`UPDATE emails SET folder = $1 WHERE id = ANY($2) AND deleted_at IS NULL`,
+		folder, pq.Array(ids))
+	if err != nil {
+		return fmt.Errorf("failed to bulk move: %w", err)
+	}
+	return nil
+}
+
+// BulkDelete soft-deletes a set of emails.
+func (db *PostgreSQL) BulkDelete(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := db.db.ExecContext(ctx,
+		`UPDATE emails SET deleted_at = CURRENT_TIMESTAMP, status = 'deleted' WHERE id = ANY($1) AND deleted_at IS NULL`,
+		pq.Array(ids))
+	if err != nil {
+		return fmt.Errorf("failed to bulk delete: %w", err)
+	}
+	return nil
+}
+
+// BulkArchive moves a set of emails to the Archive folder.
+func (db *PostgreSQL) BulkArchive(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := db.db.ExecContext(ctx,
+		`UPDATE emails SET folder = 'Archive', status = 'archived' WHERE id = ANY($1) AND deleted_at IS NULL`,
+		pq.Array(ids))
+	if err != nil {
+		return fmt.Errorf("failed to bulk archive: %w", err)
+	}
 	return nil
 }
 

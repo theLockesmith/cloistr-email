@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
@@ -319,6 +320,13 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 			Folder:         "sent",
 			Status:         "active",
 		}
+		if req.InReplyTo != "" {
+			email.InReplyTo = stringPtr(req.InReplyTo)
+		}
+		if len(req.References) > 0 {
+			refs := strings.Join(req.References, " ")
+			email.References = stringPtr(refs)
+		}
 
 		// The mailbox is keyed by the sender's pubkey; make sure it exists so
 		// the emails FK resolves. Sender eligibility was already validated
@@ -410,15 +418,32 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 		messageID = *email.MessageID
 	}
 
+	inReplyTo := ""
+	if email.InReplyTo != nil {
+		inReplyTo = *email.InReplyTo
+	}
+	references := ""
+	if email.References != nil {
+		references = *email.References
+	}
+	cc := ""
+	if email.CC != nil {
+		cc = *email.CC
+	}
+
 	result := &GetEmailResult{
 		ID:              email.ID,
 		MessageID:       messageID,
+		InReplyTo:       inReplyTo,
+		References:      references,
 		From:            email.FromAddress,
 		To:              email.ToAddress,
+		CC:              cc,
 		Subject:         email.Subject,
 		IsEncrypted:     email.IsEncrypted,
 		SenderPubkey:    senderPubkey,
 		Folder:          email.Folder,
+		Labels:          email.Labels,
 		CreatedAt:       email.CreatedAt,
 		NostrVerified:   email.NostrVerified,
 		NostrVerifiedAt: email.NostrVerifiedAt,
@@ -426,6 +451,16 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 
 	if email.ReadAt != nil {
 		result.ReadAt = email.ReadAt
+	}
+
+	// Fetch attachments (metadata only; no body decryption here)
+	if atts, err := s.db.GetAttachmentsByEmail(ctx, email.ID); err == nil {
+		result.Attachments = make([]storage.Attachment, 0, len(atts))
+		for _, a := range atts {
+			if a != nil {
+				result.Attachments = append(result.Attachments, *a)
+			}
+		}
 	}
 
 	// Handle decryption based on the mode the body was actually stored under.
@@ -497,8 +532,11 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 type GetEmailResult struct {
 	ID             string
 	MessageID      string
+	InReplyTo      string
+	References     string // space-separated
 	From           string
 	To             string
+	CC             string
 	Subject        string
 	Body           string // Plaintext if decrypted or unencrypted
 	EncryptedBody  string // Ciphertext if requires client decryption
@@ -509,8 +547,12 @@ type GetEmailResult struct {
 	SenderPubkey             string
 
 	Folder    string
+	Labels    []string
 	CreatedAt time.Time
 	ReadAt    *time.Time
+
+	// Attachments (lightweight list for the detail view header)
+	Attachments []storage.Attachment
 
 	// Nostr signature verification (RFC-002)
 	NostrVerified   bool
@@ -561,6 +603,157 @@ func (s *Service) ArchiveEmail(ctx context.Context, userNpub, emailID string) er
 		return fmt.Errorf("access denied")
 	}
 	return s.db.MoveEmailToFolder(ctx, emailID, "archive")
+}
+
+// MarkEmailRead marks a single email as read (idempotent).
+func (s *Service) MarkEmailRead(ctx context.Context, userNpub, emailID string) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	return s.db.MarkEmailAsRead(ctx, emailID)
+}
+
+// MarkEmailUnread marks a single email as unread.
+func (s *Service) MarkEmailUnread(ctx context.Context, userNpub, emailID string) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	return s.db.MarkEmailAsUnread(ctx, emailID)
+}
+
+// ToggleStar adds or removes the "\\Starred" label on an email.
+func (s *Service) ToggleStar(ctx context.Context, userNpub, emailID string, star bool) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	const starredLabel = `\Starred`
+	if star {
+		return s.db.AddEmailLabel(ctx, emailID, starredLabel)
+	}
+	return s.db.RemoveEmailLabel(ctx, emailID, starredLabel)
+}
+
+// AddLabel adds a user-defined label to an email.
+func (s *Service) AddLabel(ctx context.Context, userNpub, emailID, label string) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	return s.db.AddEmailLabel(ctx, emailID, label)
+}
+
+// RemoveLabel removes a label from an email.
+func (s *Service) RemoveLabel(ctx context.Context, userNpub, emailID, label string) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	return s.db.RemoveEmailLabel(ctx, emailID, label)
+}
+
+// MoveEmail moves an email to a different folder.
+func (s *Service) MoveEmail(ctx context.Context, userNpub, emailID, folder string) error {
+	email, err := s.db.GetEmail(ctx, emailID)
+	if err != nil {
+		return fmt.Errorf("failed to get email: %w", err)
+	}
+	if email == nil {
+		return fmt.Errorf("email not found")
+	}
+	if email.MailboxPubkey != userNpub {
+		return fmt.Errorf("access denied")
+	}
+	return s.db.MoveEmailToFolder(ctx, emailID, folder)
+}
+
+// BulkActionRequest describes a bulk operation on multiple emails.
+type BulkActionRequest struct {
+	IDs    []string
+	Action string // read, unread, archive, delete, move, star, unstar
+	Folder string // for "move" action
+}
+
+// BulkAction performs a bulk operation, enforcing ownership for each email.
+func (s *Service) BulkAction(ctx context.Context, userNpub string, req *BulkActionRequest) error {
+	if len(req.IDs) == 0 {
+		return fmt.Errorf("no email IDs provided")
+	}
+	// Ownership check: load all emails and verify mailbox matches.
+	// We do this in one pass before any writes.
+	for _, id := range req.IDs {
+		e, err := s.db.GetEmail(ctx, id)
+		if err != nil {
+			return fmt.Errorf("failed to get email %s: %w", id, err)
+		}
+		if e == nil || e.MailboxPubkey != userNpub {
+			return fmt.Errorf("access denied for email %s", id)
+		}
+	}
+
+	switch req.Action {
+	case "read":
+		return s.db.BulkMarkRead(ctx, req.IDs)
+	case "unread":
+		return s.db.BulkMarkUnread(ctx, req.IDs)
+	case "archive":
+		return s.db.BulkArchive(ctx, req.IDs)
+	case "delete":
+		return s.db.BulkDelete(ctx, req.IDs)
+	case "move":
+		if req.Folder == "" {
+			return fmt.Errorf("folder required for move action")
+		}
+		return s.db.BulkMoveToFolder(ctx, req.IDs, req.Folder)
+	case "star":
+		for _, id := range req.IDs {
+			if err := s.db.AddEmailLabel(ctx, id, `\Starred`); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "unstar":
+		for _, id := range req.IDs {
+			if err := s.db.RemoveEmailLabel(ctx, id, `\Starred`); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown bulk action: %s", req.Action)
+	}
 }
 
 // GetAttachmentResult is the decrypted (or client-decryptable) attachment.

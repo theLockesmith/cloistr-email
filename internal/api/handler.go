@@ -295,18 +295,25 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 
 // ===== Email Endpoints =====
 
-// EmailResponse represents an email in API responses
+// EmailResponse represents an email in API responses (list view — no body content).
 type EmailResponse struct {
-	ID             string `json:"id"`
-	From           string `json:"from"`
-	To             string `json:"to"`
-	Subject        string `json:"subject"`
-	Body           string `json:"body"`
-	IsEncrypted    bool   `json:"is_encrypted"`
-	SenderNpub     string `json:"sender_npub,omitempty"`
-	NostrVerified  bool   `json:"nostr_verified"`
-	NostrVerifiedAt string `json:"nostr_verified_at,omitempty"`
-	CreatedAt      string `json:"created_at"`
+	ID              string   `json:"id"`
+	MessageID       string   `json:"message_id,omitempty"`
+	InReplyTo       string   `json:"in_reply_to,omitempty"`
+	From            string   `json:"from"`
+	To              string   `json:"to"`
+	CC              string   `json:"cc,omitempty"`
+	Subject         string   `json:"subject"`
+	IsEncrypted     bool     `json:"is_encrypted"`
+	SenderNpub      string   `json:"sender_npub,omitempty"`
+	NostrVerified   bool     `json:"nostr_verified"`
+	NostrVerifiedAt string   `json:"nostr_verified_at,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+	ReadAt          string   `json:"read_at,omitempty"`
+	Folder          string   `json:"folder"`
+	Labels          []string `json:"labels,omitempty"`
+	IsStarred       bool     `json:"is_starred"`
+	HasAttachments  bool     `json:"has_attachments"`
 }
 
 // ListEmailsResponse is the response for listing emails

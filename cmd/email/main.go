@@ -377,10 +377,17 @@ func main() {
 	emailV2Routes := v2.PathPrefix("/email").Subrouter()
 	emailV2Routes.Use(apiHandler.AuthMiddleware)
 	emailV2Routes.HandleFunc("/send", emailHandler.SendEmailV2).Methods("POST")
+	emailV2Routes.HandleFunc("/bulk", emailHandler.BulkActionV2).Methods("POST")
 	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
 	emailV2Routes.HandleFunc("/{id}/archive", emailHandler.ArchiveEmailV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/read", emailHandler.MarkReadV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/unread", emailHandler.MarkUnreadV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/star", emailHandler.ToggleStarV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/move", emailHandler.MoveEmailV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/labels", emailHandler.AddLabelV2).Methods("POST")
+	emailV2Routes.HandleFunc("/{id}/labels", emailHandler.RemoveLabelV2).Methods("DELETE")
 	emailV2Routes.HandleFunc("/{id}/attachments/{attachmentId}", emailHandler.GetAttachmentV2).Methods("GET")
 
 	// API v2 auth routes — Option D signer-as-bunker bootstrap + NIP-46 status

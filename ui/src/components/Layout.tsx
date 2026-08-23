@@ -27,6 +27,7 @@ const NAV: SidebarItem[] = [
   { id: 'inbox', label: 'Inbox', href: '/inbox', icon: '📥' },
   { id: 'compose', label: 'Compose', href: '/compose', icon: '✍️' },
   { id: 'contacts', label: 'Contacts', href: '/contacts', icon: '👥' },
+  { id: 'filters', label: 'Filters', href: '/filters', icon: '🔍' },
   { id: 'settings', label: 'Settings', href: '/settings', icon: '⚙️' },
 ]
 
@@ -57,7 +58,7 @@ export default function Layout() {
   }, undefined)
 
   return (
-    <div className="flex h-screen bg-cloistr-bg-elevated">
+    <div className="flex bg-cloistr-bg-elevated" style={{height:"100dvh"}}>
       {/* Shared Sidebar, replacing mail's hand-rolled one.
           Mail's version had the mobile drawer but NO desktop collapse, so the
           icons-only rail simply did not exist here. Every app rolling its own

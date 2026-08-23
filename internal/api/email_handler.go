@@ -6,6 +6,7 @@ import (
 	stderrors "errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/email"
@@ -213,6 +214,17 @@ func (h *EmailHandler) GetEmailV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build attachment list (metadata only — content via separate endpoint)
+	var attachments []AttachmentResponseV2
+	for _, a := range result.Attachments {
+		at := AttachmentResponseV2{
+			Filename:     a.Filename,
+			ContentType:  derefString(a.ContentType),
+			AttachmentID: a.ID,
+		}
+		attachments = append(attachments, at)
+	}
+
 	resp := GetEmailResponseV2{
 		ID:                       result.ID,
 		From:                     result.From,
@@ -225,9 +237,16 @@ func (h *EmailHandler) GetEmailV2(w http.ResponseWriter, r *http.Request) {
 		RequiresClientDecryption: result.RequiresClientDecryption,
 		SenderPubkey:             result.SenderPubkey,
 		MessageID:                result.MessageID,
+		InReplyTo:                result.InReplyTo,
+		References:               result.References,
 		Folder:                   result.Folder,
+		Labels:                   result.Labels,
+		Attachments:              attachments,
 		CreatedAt:                result.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		NostrVerified:            result.NostrVerified,
+	}
+	if result.CC != "" {
+		resp.CC = []string{result.CC}
 	}
 
 	if result.ReadAt != nil {
@@ -238,6 +257,14 @@ func (h *EmailHandler) GetEmailV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.respondJSON(w, http.StatusOK, resp)
+}
+
+// helper for nullable string pointers in attachment metadata.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // ListEmailsV2 lists emails for the authenticated user
@@ -267,12 +294,44 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Filter
+	// Filter — base fields
 	filter := &storage.EmailFilter{
-		Direction: query.Get("direction"),
-		Status:    query.Get("status"),
-		Folder:    query.Get("folder"),
-		Search:    query.Get("search"),
+		Direction:   query.Get("direction"),
+		Status:      query.Get("status"),
+		Folder:      query.Get("folder"),
+		Search:      query.Get("search"),
+		FromAddress: query.Get("from"),
+		ToAddress:   query.Get("to"),
+		InReplyTo:   query.Get("in_reply_to"),
+	}
+
+	// Boolean filter params
+	if v := query.Get("unread"); v == "true" {
+		t := true
+		filter.Unread = &t
+	} else if v == "false" {
+		f := false
+		filter.Unread = &f
+	}
+	if v := query.Get("starred"); v == "true" {
+		t := true
+		filter.Starred = &t
+	}
+	if v := query.Get("has_attachment"); v == "true" {
+		t := true
+		filter.HasAttachment = &t
+	}
+
+	// Date-range params (RFC3339 or YYYY-MM-DD)
+	if v := query.Get("before"); v != "" {
+		if t, err := parseDate(v); err == nil {
+			filter.Before = &t
+		}
+	}
+	if v := query.Get("after"); v != "" {
+		if t, err := parseDate(v); err == nil {
+			filter.After = &t
+		}
 	}
 
 	opts := storage.ListOptions{
@@ -294,16 +353,51 @@ func (h *EmailHandler) ListEmailsV2(w http.ResponseWriter, r *http.Request) {
 		if e.SenderNpub != nil {
 			senderNpub = *e.SenderNpub
 		}
+		messageID := ""
+		if e.MessageID != nil {
+			messageID = *e.MessageID
+		}
+		inReplyTo := ""
+		if e.InReplyTo != nil {
+			inReplyTo = *e.InReplyTo
+		}
+		cc := ""
+		if e.CC != nil {
+			cc = *e.CC
+		}
+
+		labels := e.Labels
+		if labels == nil {
+			labels = []string{}
+		}
+
+		// Determine starred from labels
+		isStarred := false
+		for _, l := range labels {
+			if l == `\Starred` {
+				isStarred = true
+				break
+			}
+		}
 
 		resp := EmailResponse{
 			ID:            e.ID,
+			MessageID:     messageID,
+			InReplyTo:     inReplyTo,
 			From:          e.FromAddress,
 			To:            e.ToAddress,
+			CC:            cc,
 			Subject:       e.Subject,
 			IsEncrypted:   e.IsEncrypted,
 			SenderNpub:    senderNpub,
 			NostrVerified: e.NostrVerified,
 			CreatedAt:     e.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Folder:        e.Folder,
+			Labels:        labels,
+			IsStarred:     isStarred,
+		}
+		if e.ReadAt != nil {
+			resp.ReadAt = e.ReadAt.Format("2006-01-02T15:04:05Z")
 		}
 		if e.NostrVerifiedAt != nil {
 			resp.NostrVerifiedAt = e.NostrVerifiedAt.Format("2006-01-02T15:04:05Z")
@@ -408,4 +502,201 @@ func (h *EmailHandler) ArchiveEmailV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.respondJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+}
+
+// MarkReadV2 marks an email as read.
+func (h *EmailHandler) MarkReadV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	emailID := mux.Vars(r)["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id required").WriteResponse(w)
+		return
+	}
+	if err := h.emailSvc.MarkEmailRead(r.Context(), userNpub, emailID); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to mark as read").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "read"})
+}
+
+// MarkUnreadV2 marks an email as unread.
+func (h *EmailHandler) MarkUnreadV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	emailID := mux.Vars(r)["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id required").WriteResponse(w)
+		return
+	}
+	if err := h.emailSvc.MarkEmailUnread(r.Context(), userNpub, emailID); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to mark as unread").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "unread"})
+}
+
+// ToggleStarV2 stars or unstars an email.
+func (h *EmailHandler) ToggleStarV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	emailID := mux.Vars(r)["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id required").WriteResponse(w)
+		return
+	}
+
+	var req struct {
+		Starred bool `json:"starred"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
+		return
+	}
+
+	if err := h.emailSvc.ToggleStar(r.Context(), userNpub, emailID, req.Starred); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to update star").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]bool{"starred": req.Starred})
+}
+
+// AddLabelV2 adds a label to an email.
+func (h *EmailHandler) AddLabelV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	emailID := mux.Vars(r)["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id required").WriteResponse(w)
+		return
+	}
+
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Label == "" {
+		errors.BadRequest("INVALID_INPUT", "label is required").WriteResponse(w)
+		return
+	}
+
+	if err := h.emailSvc.AddLabel(r.Context(), userNpub, emailID, req.Label); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to add label").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// RemoveLabelV2 removes a label from an email.
+func (h *EmailHandler) RemoveLabelV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	emailID := mux.Vars(r)["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id required").WriteResponse(w)
+		return
+	}
+
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Label == "" {
+		errors.BadRequest("INVALID_INPUT", "label is required").WriteResponse(w)
+		return
+	}
+
+	if err := h.emailSvc.RemoveLabel(r.Context(), userNpub, emailID, req.Label); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to remove label").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// MoveEmailV2 moves an email to a specific folder.
+func (h *EmailHandler) MoveEmailV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+	emailID := mux.Vars(r)["id"]
+	if emailID == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email id required").WriteResponse(w)
+		return
+	}
+
+	var req struct {
+		Folder string `json:"folder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Folder == "" {
+		errors.BadRequest("INVALID_INPUT", "folder is required").WriteResponse(w)
+		return
+	}
+
+	if err := h.emailSvc.MoveEmail(r.Context(), userNpub, emailID, req.Folder); err != nil {
+		errors.InternalError("INTERNAL_ERROR", "failed to move email").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "ok", "folder": req.Folder})
+}
+
+// BulkActionV2 performs a bulk action on multiple emails.
+func (h *EmailHandler) BulkActionV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+
+	var req struct {
+		IDs    []string `json:"ids"`
+		Action string   `json:"action"`
+		Folder string   `json:"folder,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
+		return
+	}
+	if len(req.IDs) == 0 {
+		errors.BadRequest("VALIDATION_FAILED", "ids is required").WriteResponse(w)
+		return
+	}
+	if req.Action == "" {
+		errors.BadRequest("VALIDATION_FAILED", "action is required").WriteResponse(w)
+		return
+	}
+
+	bulkReq := &email.BulkActionRequest{
+		IDs:    req.IDs,
+		Action: req.Action,
+		Folder: req.Folder,
+	}
+	if err := h.emailSvc.BulkAction(r.Context(), userNpub, bulkReq); err != nil {
+		h.logger.Warn("Bulk action failed", zap.Error(err))
+		errors.InternalError("INTERNAL_ERROR", err.Error()).WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// parseDate parses RFC3339 or YYYY-MM-DD date strings.
+func parseDate(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02", s)
 }

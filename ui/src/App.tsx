@@ -6,6 +6,7 @@ import ComposePage from './routes/ComposePage'
 import EmailPage from './routes/EmailPage'
 import ContactsPage from './routes/ContactsPage'
 import SettingsPage from './routes/SettingsPage'
+import FiltersPage from './routes/FiltersPage'
 import Layout from './components/Layout'
 import { useSignerBunkerBootstrap } from './hooks/useSignerBunkerBootstrap'
 import { useActiveKeyReScope } from './hooks/useActiveKeyReScope'
@@ -57,7 +58,7 @@ function App() {
   // which resolves long before SSO does.
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center" style={{height:"100dvh"}}>
         <div className="text-lg">Loading...</div>
       </div>
     )
@@ -92,6 +93,7 @@ function App() {
           <Route path="/compose" element={<ComposePage />} />
           <Route path="/emails/:id" element={<EmailPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
+          <Route path="/filters" element={<FiltersPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/" element={<Navigate to="/inbox" replace />} />
         </Route>
