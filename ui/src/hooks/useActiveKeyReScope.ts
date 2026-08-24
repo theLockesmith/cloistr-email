@@ -75,7 +75,6 @@ async function reAuthForKey(signer: SignerInterface): Promise<string> {
   localStorage.setItem('access_token', token)
   localStorage.setItem('token_expiry', result.expires_at)
   localStorage.setItem('user_pubkey', pubkey)
-  localStorage.setItem('session_token', token)
 
   return pubkey
 }
