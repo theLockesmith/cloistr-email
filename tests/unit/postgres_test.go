@@ -316,7 +316,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 				sqlmock.AnyArg(), email.MailboxPubkey, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
 				email.IsEncrypted, nil, nil, nil, nil,
-				"sent", "active", "Sent", pq.Array([]string(nil)),
+				"sent", "active", "Sent", pq.Array([]string(nil)), nil, nil,
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
 				AddRow(now, now))
@@ -344,7 +344,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 				sqlmock.AnyArg(), email.MailboxPubkey, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
 				false, nil, nil, nil, nil,
-				"received", "active", "INBOX", pq.Array([]string(nil)),
+				"received", "active", "INBOX", pq.Array([]string(nil)), nil, nil,
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
 				AddRow(now, now))
@@ -369,7 +369,7 @@ func TestPostgresCreateEmail(t *testing.T) {
 				sqlmock.AnyArg(), email.MailboxPubkey, nil, email.FromAddress, email.ToAddress,
 				nil, nil, email.Subject, email.Body, nil,
 				false, nil, nil, nil, nil,
-				"draft", "active", "Drafts", pq.Array([]string(nil)),
+				"draft", "active", "Drafts", pq.Array([]string(nil)), nil, nil,
 			).
 			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
 				AddRow(now, now))
