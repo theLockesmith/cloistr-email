@@ -24,9 +24,27 @@ export const apiV2 = axios.create({
   },
 })
 
-// Add token to requests if available
+// Add token to requests if available.
+//
+// READS access_token, NOT session_token.
+//
+// BackendAuthProvider's token refresh (POST /api/v1/auth/refresh) rotates the
+// session: the backend atomically deletes the old Redis session and issues a
+// new token. The refresh callback in @cloistr/ui only updates `access_token`
+// (and `token_expiry`) in localStorage — it has no knowledge of the email
+// app's `session_token` alias.
+//
+// If this interceptor reads `session_token`, the first refresh invalidates the
+// old token in Redis while `session_token` still holds the stale value. Every
+// subsequent v2 API call sends the dead token and gets 401 "invalid session
+// token", while `token-info` (which BackendAuthProvider calls with the fresh
+// `access_token`) returns 200 — causing the login-inbox redirect loop and the
+// "Error loading emails" error on mobile.
+//
+// Reading `access_token` directly means the interceptor always tracks whatever
+// BackendAuthProvider has confirmed as the live session token.
 const addAuthToken = (config: any) => {
-  const token = localStorage.getItem('session_token')
+  const token = localStorage.getItem('access_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }

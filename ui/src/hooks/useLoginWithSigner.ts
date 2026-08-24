@@ -10,10 +10,9 @@
  * expect (validated once on next mount via the token-info endpoint).
  *
  * localStorage contract after success:
- *   access_token    → JWT token  (BackendAuthProvider reads this)
+ *   access_token    → JWT token  (BackendAuthProvider reads this; api.ts interceptor reads this)
  *   token_expiry    → ISO-8601 string (BackendAuthProvider scheduleTokenRefresh)
- *   user_pubkey     → hex pubkey (BackendAuthProvider + api.ts)
- *   session_token   → JWT token  (api.ts axios interceptor reads this)
+ *   user_pubkey     → hex pubkey (BackendAuthProvider + useActiveKeyReScope)
  *
  * After storing, the hook triggers a hard navigation to /inbox so
  * BackendAuthProvider re-mounts and calls validateToken with a real Bearer
@@ -93,13 +92,13 @@ export function useLoginWithSigner() {
 
     if (!token) throw new Error('Auth response missing token')
 
-    // Step 4: persist in localStorage using both naming conventions
+    // Step 4: persist in localStorage.
     //   BackendAuthProvider.validateToken reads: access_token, token_expiry
-    //   api.ts axios interceptor reads:          session_token
+    //   api.ts axios interceptor reads:          access_token
+    //   useActiveKeyReScope guard reads:         access_token, token_expiry, user_pubkey
     localStorage.setItem('access_token', token)
     localStorage.setItem('token_expiry', expiresAt)
     localStorage.setItem('user_pubkey', pubkey)
-    localStorage.setItem('session_token', token)
 
     // Step 5: hard-navigate to /inbox so BackendAuthProvider re-mounts,
     // calls validateToken (Bearer now present), sets user+token state,
