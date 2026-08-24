@@ -82,7 +82,11 @@ type AttachmentRequestV2 struct {
 // AttachmentResponseV2 is a fetched attachment. For server-side/unencrypted
 // attachments DataBase64 holds the decrypted bytes; for client-side mode
 // RequiresClientDecryption is set and Ciphertext holds the NIP-44 payload.
+// When returned as part of a GetEmail response (metadata-only), AttachmentID
+// is set and DataBase64/Ciphertext are empty — the client fetches content via
+// GET /email/{id}/attachments/{attachmentId}.
 type AttachmentResponseV2 struct {
+	AttachmentID             string `json:"attachment_id,omitempty"`
 	Filename                 string `json:"filename"`
 	ContentType              string `json:"content_type,omitempty"`
 	DataBase64               string `json:"data_base64,omitempty"`
@@ -125,11 +129,11 @@ type RecipientSendResult struct {
 
 // GetEmailResponseV2 is the enhanced response for retrieving an email
 type GetEmailResponseV2 struct {
-	ID          string `json:"id"`
-	From        string `json:"from"`
+	ID          string   `json:"id"`
+	From        string   `json:"from"`
 	To          []string `json:"to"`
 	CC          []string `json:"cc,omitempty"`
-	Subject     string `json:"subject"`
+	Subject     string   `json:"subject"`
 
 	// Body contains plaintext if:
 	// - Message was not encrypted
@@ -159,14 +163,18 @@ type GetEmailResponseV2 struct {
 	// SenderPubkey for decryption (hex format)
 	SenderPubkey string `json:"sender_pubkey,omitempty"`
 
-	// Metadata
-	MessageID  string   `json:"message_id,omitempty"`
-	InReplyTo  string   `json:"in_reply_to,omitempty"`
-	References []string `json:"references,omitempty"`
+	// Threading metadata (migration 012)
+	MessageID  string `json:"message_id,omitempty"`
+	InReplyTo  string `json:"in_reply_to,omitempty"`
+	References string `json:"references,omitempty"` // space-separated; client splits on whitespace
 
-	CreatedAt string `json:"created_at"`
-	ReadAt    string `json:"read_at,omitempty"`
-	Folder    string `json:"folder"`
+	CreatedAt string   `json:"created_at"`
+	ReadAt    string   `json:"read_at,omitempty"`
+	Folder    string   `json:"folder"`
+	Labels    []string `json:"labels,omitempty"`
+
+	// Attachment metadata list (content fetched separately per attachment)
+	Attachments []AttachmentResponseV2 `json:"attachments,omitempty"`
 
 	// Nostr signature verification (RFC-002)
 	NostrVerified   bool   `json:"nostr_verified"`

@@ -516,6 +516,13 @@ func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *Parsed
 	if parsed.MessageID != "" {
 		email.MessageID = &parsed.MessageID
 	}
+	if parsed.InReplyTo != "" {
+		email.InReplyTo = &parsed.InReplyTo
+	}
+	if len(parsed.References) > 0 {
+		refs := strings.Join(parsed.References, " ")
+		email.References = &refs
+	}
 
 	if parsed.HTMLBody != "" {
 		email.HTMLBody = &parsed.HTMLBody

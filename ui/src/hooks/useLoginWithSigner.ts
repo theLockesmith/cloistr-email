@@ -22,6 +22,7 @@
 
 import { useCallback } from 'react'
 import type { SignerInterface } from '@cloistr/auth'
+import { withSignerRetry } from '@cloistr/ui'
 import { verifyEvent, type UnsignedEvent, type Event as NostrEvent } from 'nostr-tools'
 
 const API_BASE = '/api/v1'
@@ -44,7 +45,11 @@ interface VerifyResponse {
 
 export function useLoginWithSigner() {
   const loginWithSigner = useCallback(async (signer: SignerInterface): Promise<void> => {
-    const pubkey = await signer.getPublicKey()
+    // Wrap both NIP-46 signing calls in withSignerRetry so a transient relay
+    // hiccup (code: NO_RELAYS / CONNECTION_FAILED / DISCONNECTED) is retried
+    // up to 3 times before surfacing. A signer refusal (CANCELLED) is never
+    // retried — the user said no and re-prompting them would be wrong.
+    const pubkey = await withSignerRetry(() => signer.getPublicKey())
 
     // Step 1: fetch challenge from email backend
     const challengeRes = await fetch(`${API_BASE}/auth/challenge`)
@@ -65,7 +70,7 @@ export function useLoginWithSigner() {
       pubkey,
     }
 
-    const signedEvent: NostrEvent = await signer.signEvent(unsignedEvent)
+    const signedEvent: NostrEvent = await withSignerRetry(() => signer.signEvent(unsignedEvent))
 
     if (!verifyEvent(signedEvent)) {
       throw new Error('Local signature verification failed')

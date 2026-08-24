@@ -37,19 +37,33 @@ api.interceptors.request.use(addAuthToken)
 apiV2.interceptors.request.use(addAuthToken)
 
 // Handle auth errors
+//
+// SIGNER-RESILIENCE NOTE (2026-08-23):
+//
+// DO NOT clear localStorage here. The old code cleared all four auth keys on
+// any 401, which caused two separate problems:
+//
+//   1. A relay hiccup could prevent useActiveKeyReScope from refreshing the
+//      JWT. The next API call would then 401, and this handler would wipe the
+//      session — logging the user out for a transient network blip.
+//
+//   2. Partial clears (the previous version) left access_token intact but
+//      removed session_token, causing BackendAuthProvider to think the session
+//      was valid while every API call immediately 401'd again (the redirect
+//      loop the loop-breaker in App.tsx was added to catch).
+//
+// BackendAuthProvider.validateToken() now owns cleanup. When a 401 arrives
+// here we redirect to /login without touching localStorage. On remount,
+// validateToken() runs:
+//   - If access_token is expired by timestamp -> clearAuth() removes it + resets state
+//   - If access_token is present but backend rejects it -> clearAuth() does the same
+//
+// In both cases the user ends up on /login with a clean state.
+// The loop-breaker in App.tsx catches any oscillation if validateToken keeps
+// failing (>3 redirects in 1.5s) and clears everything as a last resort.
 const handleAuthError = (error: AxiosError) => {
   if (error.response?.status === 401) {
-    // Clear ALL auth keys. Previously only session_token and user_pubkey were
-    // removed, leaving access_token and token_expiry intact. On the next page
-    // load BackendAuthProvider.validateToken() found a valid access_token and
-    // set user+token in memory (isAuthenticated()=true), but every API call
-    // immediately 401'd again because session_token was still missing — creating
-    // the login redirect loop the operator reported.
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('token_expiry')
-    localStorage.removeItem('user_pubkey')
-    localStorage.removeItem('session_token')
-    window.location.href = '/login'
+    window.location.replace('/login')
   }
   return Promise.reject(error)
 }
@@ -61,12 +75,23 @@ apiV2.interceptors.response.use((response) => response, handleAuthError)
 // Types
 // ============================================================================
 
+export interface Attachment {
+  attachment_id: string
+  filename: string
+  content_type?: string
+  data_base64?: string       // set when fetched individually
+  ciphertext?: string        // set when client-side encrypted
+  requires_client_decryption?: boolean
+}
+
 export interface Email {
   id: string
   message_id?: string
+  in_reply_to?: string
+  references?: string        // space-separated RFC 2822 References value
   from: string
   to: string | string[]
-  cc?: string[]
+  cc?: string | string[]
   subject: string
   body?: string
   html_body?: string
@@ -77,6 +102,10 @@ export interface Email {
   sender_pubkey?: string
   sender_npub?: string
   folder: string
+  labels?: string[]
+  is_starred?: boolean
+  has_attachments?: boolean
+  attachments?: Attachment[]  // populated in detail view
   created_at: string
   read_at?: string
   // Nostr signature verification (RFC-002)
@@ -91,6 +120,12 @@ export interface EmailListResponse {
   limit: number
 }
 
+export interface AttachmentRequest {
+  filename: string
+  content_type?: string
+  data_base64: string  // standard base64-encoded bytes
+}
+
 export interface SendEmailRequest {
   to: string[]
   cc?: string[]
@@ -103,6 +138,7 @@ export interface SendEmailRequest {
   recipient_pubkeys?: Record<string, string>
   in_reply_to?: string
   references?: string[]
+  attachments?: AttachmentRequest[]
 }
 
 export interface SendEmailResponse {
@@ -169,15 +205,26 @@ export interface AuthVerifyResponse {
 // Email API (v2 - with encryption support)
 // ============================================================================
 
+export interface EmailListParams {
+  page?: number
+  limit?: number
+  direction?: string
+  status?: string
+  folder?: string
+  search?: string
+  from?: string
+  to?: string
+  label?: string    // filter by a single label value
+  has_attachment?: boolean
+  before?: string   // YYYY-MM-DD or RFC3339
+  after?: string    // YYYY-MM-DD or RFC3339
+  starred?: boolean
+  unread?: boolean
+  in_reply_to?: string
+}
+
 export const emailAPI = {
-  list: (params?: {
-    page?: number
-    limit?: number
-    direction?: string
-    status?: string
-    folder?: string
-    search?: string
-  }) => apiV2.get<EmailListResponse>('/email', { params }),
+  list: (params?: EmailListParams) => apiV2.get<EmailListResponse>('/email', { params }),
 
   get: (id: string) => apiV2.get<Email>(`/email/${id}`),
 
@@ -188,6 +235,24 @@ export const emailAPI = {
   delete: (id: string) => apiV2.delete(`/email/${id}`),
 
   archive: (id: string) => apiV2.patch(`/email/${id}/archive`, {}),
+
+  markRead: (id: string) => apiV2.patch(`/email/${id}/read`, {}),
+
+  markUnread: (id: string) => apiV2.patch(`/email/${id}/unread`, {}),
+
+  star: (id: string, starred: boolean) => apiV2.patch(`/email/${id}/star`, { starred }),
+
+  move: (id: string, folder: string) => apiV2.patch(`/email/${id}/move`, { folder }),
+
+  addLabel: (id: string, label: string) => apiV2.post(`/email/${id}/labels`, { label }),
+
+  removeLabel: (id: string, label: string) => apiV2.delete(`/email/${id}/labels`, { data: { label } }),
+
+  getAttachment: (emailId: string, attachmentId: string) =>
+    apiV2.get<Attachment>(`/email/${emailId}/attachments/${attachmentId}`),
+
+  bulk: (ids: string[], action: string, folder?: string) =>
+    apiV2.post('/email/bulk', { ids, action, folder }),
 
   // Legacy v1 endpoints for backward compatibility
   reply: (id: string, data: any) => api.post(`/emails/${id}/reply`, data),
