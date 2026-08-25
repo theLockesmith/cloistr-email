@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { AppShell, Header, Footer, useBackendAuth } from '@cloistr/ui/components'
-import type { MenuSection } from '@cloistr/ui/components'
+import { AppShell, AppShellToggle, Header, Footer, useBackendAuth } from '@cloistr/ui/components'
 
 /**
  * Key for the desktop icons-only preference.
@@ -128,47 +127,22 @@ function MailNav({
   )
 }
 
-/**
- * Email app-level commands as AppShell MenuSection data.
+/*
+ * Mail has NO app menu bar, deliberately.
  *
- * One definition renders as a horizontal bar on desktop (File / Go menus)
- * AND as collapsible drawer sections on mobile — the whole point of the
- * data-not-JSX contract. Passing JSX forced each app to build a second,
- * mobile-only menu; this eliminates that pattern.
+ * The AppShell migration invented a File/Go menu for this app. It never had
+ * one, and every item in it — Compose, Inbox, Contacts, Filters, Settings —
+ * already exists in NAV_ITEMS, i.e. in the sidebar three inches to the left.
+ * That put a second, redundant navigation surface on desktop and cost a row of
+ * vertical space for nothing.
  *
- * Commands verified against the route set: every item with onSelect
- * navigates to a real route. No item is left enabled with a no-op.
+ * Operator: "mail now has a menu bar and it's not supposed to, only the
+ * sidebar."
+ *
+ * Mail declares `nav` and no `menu`. AppShell then renders the rail on desktop
+ * with a collapse toggle, and one drawer on mobile — which is the whole point
+ * of the shell deciding presentation from what the app declares.
  */
-export function buildMailMenu(
-  navigate: ReturnType<typeof useNavigate>,
-  logout: () => void,
-): MenuSection[] {
-  return [
-    {
-      label: 'File',
-      items: [
-        { label: 'Compose', onSelect: () => navigate('/compose'), shortcut: 'C' },
-        { separator: true },
-        {
-          label: 'Sign out',
-          onSelect: () => {
-            logout()
-            navigate('/login')
-          },
-        },
-      ],
-    },
-    {
-      label: 'Go',
-      items: [
-        { label: 'Inbox', onSelect: () => navigate('/inbox') },
-        { label: 'Contacts', onSelect: () => navigate('/contacts') },
-        { label: 'Filters', onSelect: () => navigate('/filters') },
-        { label: 'Settings', onSelect: () => navigate('/settings') },
-      ],
-    },
-  ]
-}
 
 export default function Layout() {
   const { isAuthenticated, user, logout } = useBackendAuth()
@@ -194,8 +168,7 @@ export default function Layout() {
     return item.href.length > (current?.href?.length ?? 0) ? item.id : best
   }, undefined)
 
-  const menuSections = buildMailMenu(navigate, logout)
-
+  
   return (
     <AppShell
       serviceId="email"
@@ -206,8 +179,11 @@ export default function Layout() {
           onCollapsedChange={setCollapsedPersisted}
         />
       }
-      menu={menuSections}
+      toggleInHeader
     >
+      {/* The ONE nav control, portaled into the shared Header. */}
+      <AppShellToggle />
+
       {/*
        * Children render inside `cloistr-appshell-content` (overflow:auto;
        * flex:1). The wrapper div:
