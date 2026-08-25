@@ -41,3 +41,70 @@ input::placeholder,
 textarea::placeholder {
   color: var(--cloistr-text-muted);
 }
+
+/* ============================================================
+   MailNav — in-app navigation content for AppShell's nav prop
+   ============================================================
+   MailNav renders the same cloistr-sidebar-item classes as the shared
+   Sidebar for visual consistency, but carries no mobile-drawer wrapper
+   (no position:fixed, no translateX). AppShell owns the one mobile
+   affordance; MailNav is just content it places inside its own drawer.
+   The breakpoint here is 768px, matching APPSHELL_BREAKPOINT exactly.
+   ============================================================ */
+
+.mail-nav {
+  display: flex;
+  flex-direction: column;
+  width: 16rem; /* matches cloistr-sidebar default */
+  flex-shrink: 0;
+  background: var(--cloistr-bg-elevated);
+  overflow-y: auto;
+  height: 100%;
+}
+
+.mail-nav-header {
+  display: flex;
+  align-items: center;
+  padding: var(--cloistr-space-lg, 1.25rem);
+  min-height: 64px;
+}
+
+.mail-nav-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.mail-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Desktop icons-only collapse — mirrors .cloistr-sidebar--collapsed.
+   Applied at >= 768px only: on mobile the AppShell drawer always shows
+   full labels, so the collapsed state has no effect there. */
+@media (min-width: 768px) {
+  .mail-nav--collapsed {
+    width: 4rem;
+  }
+
+  .mail-nav--collapsed .mail-nav-header {
+    justify-content: center;
+    padding: var(--cloistr-space-md, 0.75rem);
+  }
+
+  .mail-nav--collapsed .mail-nav-wordmark {
+    display: none;
+  }
+
+  .mail-nav--collapsed .cloistr-sidebar-label {
+    display: none;
+  }
+
+  .mail-nav--collapsed .cloistr-sidebar-item {
+    justify-content: center;
+  }
+}
