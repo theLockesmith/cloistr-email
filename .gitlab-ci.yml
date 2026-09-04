@@ -57,3 +57,43 @@ test:unit:
 
 test:lint:
   extends: [.go-lint, .cloistr-rules]
+
+# UI unit tests (vitest, node environment — no browser required).
+# Runs in the same test stage as the Go suite so a failing test blocks build.
+# ui/ has 4 vitest files (signerResilience, draft-autosave, email-compose,
+# search-operators; 72 tests total) that CI never ran — only build:frontend
+# and smoke-test touched this directory before this job existed.
+#
+# extends: .cloistr-rules is REQUIRED, not decorative. An in-repo job with no
+# rules: falls back to the legacy `only: [branches, tags]`; a merge-request
+# pipeline is neither, so the job is not created at all in an MR pipeline, with
+# no error and no skipped badge. Pattern confirmed working in cloistr-signer's
+# test:ui and cloistr-tasks !73's test:frontend.
+#
+# Image and install flags mirror ui/Dockerfile exactly: node:22.23.2-alpine,
+# plain `npm ci` (no --legacy-peer-deps needed here; this lockfile carries its
+# optional peers, unlike the docs/sheets/whiteboard one that deadlocked npm 10).
+# NPM_TOKEN is required even for a bare `npm ci`: ui/.npmrc points the @cloistr
+# scope at the GitLab group registry and interpolates NPM_TOKEN for auth — same
+# token source build:frontend already passes as a Kaniko build-arg.
+#
+# Verified in this exact image before this job was written: npm ci + `npm run
+# test`, 4 files / 72 tests, all green against origin/master.
+test:ui:
+  stage: test
+  extends: .cloistr-rules
+  image: node:22.23.2-alpine
+  variables:
+    NPM_TOKEN: $CI_JOB_TOKEN
+  before_script:
+    - cd ui
+    - npm ci
+  script:
+    - npm run test
+  cache:
+    key:
+      files:
+        - ui/package-lock.json
+    paths:
+      - ui/node_modules/
+    policy: pull-push
