@@ -12,7 +12,7 @@
     "format": "prettier --write '**/*.{ts,tsx,md,json,yml}'"
   },
   "dependencies": {
-    "@cloistr/auth": "^0.6.0",
+    "@cloistr/auth": "^1.0.1",
     "@cloistr/collab-common": "^0.2.15",
     "@cloistr/ui": "^0.42.0",
     "@tanstack/react-query": "^5.104.0",
