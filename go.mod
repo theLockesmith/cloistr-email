@@ -3,7 +3,7 @@ module git.aegis-hq.xyz/coldforge/cloistr-email
 go 1.26.6
 
 require (
-	git.aegis-hq.xyz/coldforge/cloistr-common v0.3.1
+	git.aegis-hq.xyz/coldforge/cloistr-common v0.3.2
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/emersion/go-msgauth v0.7.0
 	github.com/emersion/go-smtp v0.25.0
