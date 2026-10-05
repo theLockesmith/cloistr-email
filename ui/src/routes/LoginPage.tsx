@@ -27,8 +27,9 @@ import { useLocation } from 'react-router-dom'
 import { useNostrAuth } from '@cloistr/auth'
 import { Header, LoginModal } from '@cloistr/ui/components'
 import { useLoginWithSigner } from '../hooks/useLoginWithSigner'
+import { SIGNER_URL } from '../lib/serviceConfig'
 
-const SIGNER_URL = 'https://signer.cloistr.xyz'
+const SIGNER_HOST = new URL(SIGNER_URL).host
 
 const FEATURES = [
   { icon: '🔑', title: 'Your keys, your inbox', body: 'Your Nostr identity is your login. No passwords to leak, no account to lose.' },
@@ -98,7 +99,7 @@ export default function LoginPage() {
         <p className="text-sm text-[var(--cloistr-text-muted)]">
           New here? Get a Nostr identity at{' '}
           <a href={SIGNER_URL} className="text-[var(--cloistr-primary)] hover:underline">
-            signer.cloistr.xyz
+            {SIGNER_HOST}
           </a>
         </p>
 
