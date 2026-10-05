@@ -43,6 +43,7 @@ ENV CLOISTR_RELAY_URL=wss://relay.cloistr.xyz \
     CLOISTR_DISCOVERY_URL=https://discover.cloistr.xyz \
     CLOISTR_APP_URL=https://mail.cloistr.xyz \
     CLOISTR_ENVIRONMENT=production \
+    CLOISTR_BACKEND_URL=http://cloistr-email-backend \
     NGINX_ENVSUBST_FILTER=^CLOISTR_
 
 EXPOSE 8080

@@ -27,9 +27,7 @@ import { useLocation } from 'react-router-dom'
 import { useNostrAuth } from '@cloistr/auth'
 import { Header, LoginModal } from '@cloistr/ui/components'
 import { useLoginWithSigner } from '../hooks/useLoginWithSigner'
-import { SIGNER_URL } from '../lib/serviceConfig'
-
-const SIGNER_HOST = new URL(SIGNER_URL).host
+import { SIGNER_URL, SIGNER_HOST } from '../lib/serviceConfig'
 
 const FEATURES = [
   { icon: '🔑', title: 'Your keys, your inbox', body: 'Your Nostr identity is your login. No passwords to leak, no account to lose.' },

@@ -34,6 +34,20 @@ describe('serviceConfig', () => {
     expect(serviceConfig.environment).toBe('staging')
   })
 
+  it('derives the signer host for display', async () => {
+    const { SIGNER_HOST } = await loadWith({ signerUrl: 'https://signer.staging.cloistr.xyz' })
+    expect(SIGNER_HOST).toBe('signer.staging.cloistr.xyz')
+  })
+
+  it('shows a malformed signer value as given instead of throwing at import', async () => {
+    // The reader passes a bad runtime value through on purpose (a visible
+    // failure beats silently reaching production). Parsing it must not turn
+    // that into a module-load exception, which would blank the whole page.
+    const { SIGNER_URL, SIGNER_HOST } = await loadWith({ signerUrl: 'signer.staging' })
+    expect(SIGNER_URL).toBe('signer.staging')
+    expect(SIGNER_HOST).toBe('signer.staging')
+  })
+
   it('treats an empty substituted value as unset rather than as a host', async () => {
     const { SIGNER_URL } = await loadWith({ signerUrl: '', environment: '' })
     expect(SIGNER_URL).toBe('https://signer.cloistr.xyz')

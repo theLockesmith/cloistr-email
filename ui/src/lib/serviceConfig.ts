@@ -13,3 +13,16 @@ import { getServiceConfig } from '@cloistr/collab-common/config'
 export const serviceConfig = getServiceConfig()
 
 export const SIGNER_URL = serviceConfig.signerUrl
+
+/**
+ * The signer's host, for display. Falls back to the raw value when it does not
+ * parse: the reader passes a malformed runtime value through on purpose, and
+ * throwing here at import would blank the page instead of failing visibly.
+ */
+export const SIGNER_HOST = (() => {
+  try {
+    return new URL(SIGNER_URL).host
+  } catch {
+    return SIGNER_URL
+  }
+})()
