@@ -28,43 +28,38 @@ FROM nginxinc/nginx-unprivileged:1.31-alpine
 # Copy app files
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Create nginx config for SPA with unprivileged port
-USER root
-# email.cloistr.xyz is an ALIAS; mail.cloistr.xyz is canonical. Both Routes
-# pointed at this same frontend, so the app served on two origins at once.
-# That is not cosmetic: cookies and the shared .cloistr.xyz SSO session are
-# per-origin, so a user who landed on email.* had a different browser origin
-# from every other app in the suite and could appear signed out.
-#
-# Redirect here rather than by deleting the Route: the Route keeps its TLS
-# certificate and DNS, and anything already linking to email.* keeps working
-# instead of breaking. Only the UI is redirected — /api is deliberately left
-# alone so existing API clients on email.* are not broken by a 301 they may
-# not follow on non-GET verbs.
-RUN echo 'server { \
-    listen 8080; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    if ($host = email.cloistr.xyz) { \
-        return 301 https://mail.cloistr.xyz$request_uri; \
-    } \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-    location /api { \
-        resolver 127.0.0.11 valid=30s; \
-        set $backend http://cloistr-email-backend; \
-        proxy_pass $backend; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-    } \
-}' > /etc/nginx/conf.d/default.conf && \
-    chown -R nginx:nginx /usr/share/nginx/html
-USER nginx
+# Server config is a template: the base image's entrypoint renders
+# /etc/nginx/templates/*.template into /etc/nginx/conf.d/ at container start,
+# which is what lets /config.js carry per-environment service hosts.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Remove the base image's welcome-page server so a failed render is loud. If
+# the template cannot be rendered into conf.d (e.g. a read-only root
+# filesystem with no writable mount there), the stock default.conf would
+# otherwise let the pod pass its "/" probes while serving the nginx welcome
+# page. Without it the container exits instead (verified with --read-only:
+# exit 1, nothing served). Runs as the image's nginx user, which owns conf.d,
+# so no root step is needed.
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Production values as defaults: a deployment that sets nothing serves exactly
+# what production served before runtime config existed. Staging overrides these
+# at deploy time. The filter is load-bearing: without it envsubst would also
+# replace nginx's own $uri, $host and friends.
+ENV CLOISTR_RELAY_URL=wss://relay.cloistr.xyz \
+    CLOISTR_SIGNER_URL=https://signer.cloistr.xyz \
+    CLOISTR_BLOSSOM_URL=https://files.cloistr.xyz \
+    CLOISTR_DISCOVERY_URL=https://discover.cloistr.xyz \
+    CLOISTR_APP_URL=https://mail.cloistr.xyz \
+    CLOISTR_ENVIRONMENT=production \
+    CLOISTR_BACKEND_URL=http://cloistr-email-backend \
+    NGINX_ENVSUBST_FILTER=^CLOISTR_
 
 EXPOSE 8080
 
+# 127.0.0.1, not localhost: in this image localhost resolves to ::1 and nginx
+# listens on IPv4 only, so a localhost probe is always refused.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8080 || exit 1
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/config.js || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,45 @@
+# Rendered by the nginx-unprivileged image's envsubst step at container start
+# into /etc/nginx/conf.d/default.conf. Only ${CLOISTR_*} names are substituted
+# (NGINX_ENVSUBST_FILTER in the Dockerfile); nginx's own $variables pass through.
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # email.cloistr.xyz is an ALIAS; mail.cloistr.xyz is canonical. Both Routes
+    # pointed at this same frontend, so the app served on two origins at once.
+    # That is not cosmetic: cookies and the shared .cloistr.xyz SSO session are
+    # per-origin, so a user who landed on email.* had a different browser
+    # origin from every other app in the suite and could appear signed out.
+    #
+    # Redirect here rather than by deleting the Route: the Route keeps its TLS
+    # certificate and DNS, and anything already linking to email.* keeps
+    # working instead of breaking. Only the UI is redirected — /api is
+    # deliberately left alone so existing API clients on email.* are not broken
+    # by a 301 they may not follow on non-GET verbs.
+    if ($host = email.cloistr.xyz) {
+        return 301 https://mail.cloistr.xyz$request_uri;
+    }
+
+    # Runtime service config, read by @cloistr/collab-common/config. EXACT
+    # match so it outranks any regex location, and no-store so neither the
+    # browser nor an edge cache serves one environment's hosts to the other.
+    location = /config.js {
+        access_log off;
+        default_type application/javascript;
+        add_header Cache-Control "no-store" always;
+        return 200 'window.__CLOISTR_CONFIG__={"relayUrl":"${CLOISTR_RELAY_URL}","blossomUrl":"${CLOISTR_BLOSSOM_URL}","discoveryUrl":"${CLOISTR_DISCOVERY_URL}","signerUrl":"${CLOISTR_SIGNER_URL}","appUrl":"${CLOISTR_APP_URL}","environment":"${CLOISTR_ENVIRONMENT}"};';
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api {
+        resolver 127.0.0.11 valid=30s;
+        set $backend ${CLOISTR_BACKEND_URL};
+        proxy_pass $backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}

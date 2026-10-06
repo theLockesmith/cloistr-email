@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { AppShell, AppShellToggle, Header, Footer, useBackendAuth } from '@cloistr/ui/components'
+import { SIGNER_URL } from '../lib/serviceConfig'
 
 /**
  * Key for the desktop icons-only preference.
@@ -200,6 +201,7 @@ export default function Layout() {
       <div className="flex flex-col h-full min-h-0">
         <Header
           activeServiceId="email"
+          signerUrl={SIGNER_URL}
           auth={{
             authenticated: isAuthenticated(),
             pubkey: user?.pubkey,

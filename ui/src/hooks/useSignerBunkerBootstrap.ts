@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { isCloistrDomain } from '@cloistr/ui'
 import { apiV2 } from '../lib/api'
-
-const SIGNER_BASE = 'https://signer.cloistr.xyz'
+import { SIGNER_URL as SIGNER_BASE } from '../lib/serviceConfig'
 const POLL_INTERVAL_MS = 1500
 const POLL_TIMEOUT_MS = 60_000
 
