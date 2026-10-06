@@ -7,4 +7,6 @@
 - [x] Display-safe SIGNER_HOST, tested (req 5) (verified serviceConfig.test.ts malformed-value case failed before the fix, passes after; vitest 77/77 (2026-10-05).)
 - [x] Template the /api proxy target (req 6) (verified 2026-10-06: rendered config in the no-env container reads "set $backend http://cloistr-email-backend;", the staging-env container reads the staging service; $host survives envsubst)
 - [x] Rebuild and re-run the two-container proof after the template change (verified 2026-10-06: one image id run twice; no-store on both; Chromium on the staging hostname requested only signer.staging.cloistr.xyz, production run requested signer.cloistr.xyz)
+- [x] Failed render is loud, not a silent welcome page (verified 2026-10-06: --read-only run exits 1 and serves nothing; normal and uid 1001140000:0 runs serve /, /inbox, /config.js with 200)
+- [x] Image healthcheck actually passes (verified 2026-10-06: localhost resolved to ::1 and was refused; 127.0.0.1 probe passes inside the container)
 - [ ] Merge, deploy, confirm live config.js reports production

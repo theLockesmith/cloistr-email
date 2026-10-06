@@ -33,6 +33,15 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # which is what lets /config.js carry per-environment service hosts.
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
+# Remove the base image's welcome-page server so a failed render is loud. If
+# the template cannot be rendered into conf.d (e.g. a read-only root
+# filesystem with no writable mount there), the stock default.conf would
+# otherwise let the pod pass its "/" probes while serving the nginx welcome
+# page. Without it the container exits instead (verified with --read-only:
+# exit 1, nothing served). Runs as the image's nginx user, which owns conf.d,
+# so no root step is needed.
+RUN rm /etc/nginx/conf.d/default.conf
+
 # Production values as defaults: a deployment that sets nothing serves exactly
 # what production served before runtime config existed. Staging overrides these
 # at deploy time. The filter is load-bearing: without it envsubst would also
@@ -48,7 +57,9 @@ ENV CLOISTR_RELAY_URL=wss://relay.cloistr.xyz \
 
 EXPOSE 8080
 
+# 127.0.0.1, not localhost: in this image localhost resolves to ::1 and nginx
+# listens on IPv4 only, so a localhost probe is always refused.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8080 || exit 1
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/config.js || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
