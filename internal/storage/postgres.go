@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-email/configs"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"go.uber.org/zap"
@@ -109,26 +110,26 @@ type Mailbox struct {
 
 // Email represents an email message
 type Email struct {
-	ID                string
-	MailboxPubkey     string
-	MessageID         *string
-	FromAddress       string
-	ToAddress         string
-	CC                *string
-	BCC               *string
-	Subject           string
-	Body              string
-	HTMLBody          *string
-	IsEncrypted       bool
-	EncryptionNonce   *string
-	EncryptionMode    *string // "none", "server", "client" — how Body is encrypted at rest
-	SenderNpub        *string
-	RecipientNpub     *string
-	Direction         string // sent, received, draft
-	Status            string // active, deleted, archived, spam
-	ReadAt            *time.Time
-	Folder            string
-	Labels            []string
+	ID              string
+	MailboxPubkey   string
+	MessageID       *string
+	FromAddress     string
+	ToAddress       string
+	CC              *string
+	BCC             *string
+	Subject         string
+	Body            string
+	HTMLBody        *string
+	IsEncrypted     bool
+	EncryptionNonce *string
+	EncryptionMode  *string // "none", "server", "client" — how Body is encrypted at rest
+	SenderNpub      *string
+	RecipientNpub   *string
+	Direction       string // sent, received, draft
+	Status          string // active, deleted, archived, spam
+	ReadAt          *time.Time
+	Folder          string
+	Labels          []string
 
 	// Threading (migration 012)
 	InReplyTo  *string // RFC 2822 In-Reply-To header value
@@ -188,15 +189,15 @@ type NIP05CacheEntry struct {
 
 // AuditLogEntry represents an audit log record
 type AuditLogEntry struct {
-	ID           string
+	ID            string
 	MailboxPubkey *string
-	Action       string
-	ResourceType *string
-	ResourceID   *string
-	Details      map[string]interface{}
-	IPAddress    *string
-	UserAgent    *string
-	CreatedAt    time.Time
+	Action        string
+	ResourceType  *string
+	ResourceID    *string
+	Details       map[string]interface{}
+	IPAddress     *string
+	UserAgent     *string
+	CreatedAt     time.Time
 }
 
 // ListOptions provides pagination and filtering options
@@ -1284,96 +1285,28 @@ func (db *PostgreSQL) LogAuditEvent(ctx context.Context, entry *AuditLogEntry) e
 // Migrations
 // ============================================================================
 
-// Migrate runs database migrations
+// Migrate applies the service's own schema (see migrate.go): builds it on an
+// empty database, adopts a verified existing one, applies any numbered
+// migration not yet recorded, all in one locked transaction.
+//
+// Until 2026-10 this only CHECKED the schema and migrations were applied by
+// hand. That is how 012_threading.sql shipped alongside code that SELECTs
+// in_reply_to and was never applied: the service started, claimed migrations
+// were complete, and failed every list request in production with
+// `pq: column "in_reply_to" does not exist`. It is also how production ended
+// up without 010 and 011 while running code that uses them. Applying the schema
+// here removes the human step; refusing to adopt an incomplete schema keeps the
+// loud failure for anything the migrator cannot safely fix.
 func (db *PostgreSQL) Migrate(ctx context.Context) error {
 	db.logger.Info("Running database migrations")
-
-	// Read and execute the schema file
-	// In production, you'd use a migration tool like golang-migrate
-	// For now, we'll just check if tables exist
-
-	// Check for a table this service actually owns. Note the schema filter:
-	// cloistr-email shares the database with the platform schema, so an
-	// unqualified table_name lookup would be satisfied by public.users (which
-	// belongs to cloistr-me) and report success even on an uninitialized
-	// email schema.
-	var exists bool
-	err := db.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT FROM information_schema.tables
-			WHERE table_schema = 'email' AND table_name = 'mailboxes'
-		)
-	`).Scan(&exists)
-
+	m, err := NewMigrator(db.db, configs.SQL, db.logger)
 	if err != nil {
-		return fmt.Errorf("failed to check migration status: %w", err)
-	}
-
-	if !exists {
-		db.logger.Warn("email.mailboxes not found - run configs/schema.sql and configs/migrations/*.sql")
-		return fmt.Errorf("database not initialized: missing email.mailboxes (apply configs/migrations/008_mailboxes.sql)")
-	}
-
-	// Verify the columns this build's queries actually SELECT.
-	//
-	// This function applies nothing — migrations are run by hand — so the only
-	// honest thing it can do is check that the schema matches what the code
-	// needs, and refuse to start if it does not.
-	//
-	// It previously checked ONE table and then logged "Database migrations
-	// complete", which is how 012_threading.sql came to be written, shipped
-	// alongside code that SELECTs in_reply_to, and never applied. The service
-	// started cleanly, claimed migrations were complete, and then failed every
-	// single list request in production with:
-	//
-	//   pq: column "in_reply_to" does not exist (42703)
-	//
-	// The user saw "Error loading emails. Please try again." and the startup
-	// logs said everything was fine. Failing loudly at boot turns a silent
-	// production outage into a refused rollout.
-	if err := db.verifyRequiredColumns(ctx); err != nil {
 		return err
 	}
-
+	if err := m.Run(ctx); err != nil {
+		return err
+	}
 	db.logger.Info("Database migrations complete")
-	return nil
-}
-
-// requiredColumns lists schema this build depends on, with the migration that
-// adds each. Add an entry whenever a query starts referencing a new column.
-var requiredColumns = []struct {
-	Schema, Table, Column, Migration string
-}{
-	{"email", "emails", "in_reply_to", "012_threading.sql"},
-	{"email", "emails", "references_header", "012_threading.sql"},
-}
-
-func (db *PostgreSQL) verifyRequiredColumns(ctx context.Context) error {
-	var missing []string
-	for _, rc := range requiredColumns {
-		var ok bool
-		err := db.db.QueryRowContext(ctx, `
-			SELECT EXISTS (
-				SELECT FROM information_schema.columns
-				WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
-			)
-		`, rc.Schema, rc.Table, rc.Column).Scan(&ok)
-		if err != nil {
-			return fmt.Errorf("failed to verify %s.%s.%s: %w", rc.Schema, rc.Table, rc.Column, err)
-		}
-		if !ok {
-			missing = append(missing, fmt.Sprintf("%s.%s.%s (apply configs/migrations/%s)",
-				rc.Schema, rc.Table, rc.Column, rc.Migration))
-			db.logger.Error("required column missing",
-				zap.String("schema", rc.Schema),
-				zap.String("table", rc.Table),
-				zap.String("column", rc.Column),
-				zap.String("migration", rc.Migration))
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("database schema is behind this build; missing: %s", strings.Join(missing, "; "))
-	}
 	return nil
 }
 
@@ -1470,8 +1403,8 @@ type Address struct {
 	Pubkey          string // hex npub
 	Active          bool
 	Verified        bool
-	IsPrimary       bool // the canonical send-from address for this pubkey
-	NIP05Active     bool // whether this address serves NIP-05 for the pubkey
+	IsPrimary       bool    // the canonical send-from address for this pubkey
+	NIP05Active     bool    // whether this address serves NIP-05 for the pubkey
 	DisplayName     *string // nullable, added via migration
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
