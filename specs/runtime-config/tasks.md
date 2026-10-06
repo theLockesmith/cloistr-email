@@ -9,4 +9,4 @@
 - [x] Rebuild and re-run the two-container proof after the template change (verified 2026-10-06: one image id run twice; no-store on both; Chromium on the staging hostname requested only signer.staging.cloistr.xyz, production run requested signer.cloistr.xyz)
 - [x] Failed render is loud, not a silent welcome page (verified 2026-10-06: --read-only run exits 1 and serves nothing; normal and uid 1001140000:0 runs serve /, /inbox, /config.js with 200)
 - [x] Image healthcheck actually passes (verified 2026-10-06: localhost resolved to ::1 and was refused; 127.0.0.1 probe passes inside the container)
-- [ ] Merge, deploy, confirm live config.js reports production
+- [x] Merge, deploy, confirm live config.js reports production (verified 2026-10-06: live mail.cloistr.xyz serves config.js no-store with environment "production"; both pods on frontend@sha256:9e3fbb21, ready, 0 restarts; Chromium on /login reports production signer, no page errors)
