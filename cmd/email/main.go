@@ -92,7 +92,10 @@ func main() {
 	}
 
 	// Initialize relay preferences client (cloistr-common integration)
-	relayClient := relays.NewClient(logger)
+	relayClient, err := relays.NewClient(logger)
+	if err != nil {
+		logger.Fatal("Invalid relay preferences configuration", zap.Error(err))
+	}
 
 	// Initialize API handler
 	apiHandler := api.NewHandler(

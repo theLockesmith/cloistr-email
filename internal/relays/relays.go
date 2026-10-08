@@ -21,15 +21,23 @@ type Client struct {
 //   - DISCOVERY_INTERNAL: URL of self-hosted discovery service
 //   - RELAY_LIST: Comma-separated list of relay URLs
 //   - DISCOVERY_EXTERNAL: URL of third-party discovery service
-//   - USE_CLOISTR_FALLBACK: "true" (default) or "false"
+//   - USE_CLOISTR_FALLBACK: "true" or "false". Required.
+//   - RELAYPREFS_CLOISTR_DISCOVERY: Cloistr discovery URL. Required if fallback is true.
+//   - RELAYPREFS_CLOISTR_RELAY: Cloistr relay URL. Required if fallback is true.
 //   - RELAY_PREFS_CACHE_TTL: Cache duration (e.g., "1h")
-func NewClient(logger *zap.Logger) *Client {
-	client := relayprefs.NewClientFromEnv()
+//
+// It returns an error naming the variable when a required one is missing;
+// the service must refuse to start on it.
+func NewClient(logger *zap.Logger) (*Client, error) {
+	client, err := relayprefs.NewClientFromEnv()
+	if err != nil {
+		return nil, err
+	}
 
 	if err := client.Validate(); err != nil {
 		logger.Warn("Relay preferences client validation warning",
 			zap.Error(err),
-			zap.String("hint", "using Cloistr fallback"))
+			zap.String("hint", "no relay preference sources configured"))
 	}
 
 	cfg := client.Config()
@@ -43,7 +51,7 @@ func NewClient(logger *zap.Logger) *Client {
 	return &Client{
 		client: client,
 		logger: logger,
-	}
+	}, nil
 }
 
 // NewClientWithConfig creates a relay preferences client with explicit configuration.

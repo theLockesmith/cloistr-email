@@ -26,11 +26,50 @@ func skipInCI(t *testing.T) {
 func TestNewClient(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Test creating client from environment (uses defaults)
-	client := NewClient(logger)
+	// cloistr-common v0.4.0 has no defaults for these.
+	t.Setenv("USE_CLOISTR_FALLBACK", "true")
+	t.Setenv("RELAYPREFS_CLOISTR_DISCOVERY", "https://discover.example")
+	t.Setenv("RELAYPREFS_CLOISTR_RELAY", "wss://relay.example")
+
+	client, err := NewClient(logger)
+	require.NoError(t, err)
 	require.NotNil(t, client)
 	assert.NotNil(t, client.client)
 	assert.NotNil(t, client.logger)
+}
+
+func TestNewClient_RequiresVariables(t *testing.T) {
+	logger := zap.NewNop()
+
+	tests := []struct {
+		name    string
+		env     map[string]string
+		wantErr string
+	}{
+		{"fallback unset", map[string]string{"USE_CLOISTR_FALLBACK": ""}, "USE_CLOISTR_FALLBACK"},
+		{"fallback on without discovery", map[string]string{"USE_CLOISTR_FALLBACK": "true", "RELAYPREFS_CLOISTR_DISCOVERY": "", "RELAYPREFS_CLOISTR_RELAY": "wss://relay.example"}, "RELAYPREFS_CLOISTR_DISCOVERY"},
+		{"fallback on without relay", map[string]string{"USE_CLOISTR_FALLBACK": "true", "RELAYPREFS_CLOISTR_DISCOVERY": "https://discover.example", "RELAYPREFS_CLOISTR_RELAY": ""}, "RELAYPREFS_CLOISTR_RELAY"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			client, err := NewClient(logger)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.Nil(t, client)
+		})
+	}
+
+	t.Run("fallback off", func(t *testing.T) {
+		t.Setenv("USE_CLOISTR_FALLBACK", "false")
+		t.Setenv("RELAYPREFS_CLOISTR_DISCOVERY", "")
+		t.Setenv("RELAYPREFS_CLOISTR_RELAY", "")
+		client, err := NewClient(logger)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+	})
 }
 
 func TestNewClientWithConfig(t *testing.T) {
