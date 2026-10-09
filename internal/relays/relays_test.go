@@ -178,12 +178,16 @@ func TestGetRelayPrefsIntegration(t *testing.T) {
 }
 
 func TestGetReadWriteRelays(t *testing.T) {
-	skipInCI(t)
-
 	logger := zap.NewNop()
 
+	// cloistr-common v0.4.0 has no built-in Cloistr URLs, so the fallback
+	// needs them set explicitly. Nothing listens on these, so every lookup
+	// fails fast and the client falls back to CloistrRelay as the default.
+	const fallbackRelay = "ws://127.0.0.1:1"
 	cfg := relayprefs.Config{
 		UseCloistrFallback: true,
+		CloistrDiscovery:   "http://127.0.0.1:1",
+		CloistrRelay:       fallbackRelay,
 		CacheTTL:           1 * time.Minute,
 	}
 
@@ -195,17 +199,12 @@ func TestGetReadWriteRelays(t *testing.T) {
 
 	// Test GetReadRelays
 	readRelays, err := client.GetReadRelays(ctx, pubkey)
-	if err != nil {
-		t.Logf("Network error (expected in isolated environments): %v", err)
-		t.Skip("Skipping: network access required for integration test")
-	}
-	// Should return at least one relay (from fallback)
-	assert.NotNil(t, readRelays)
+	assert.NoError(t, err)
+	// Should return the fallback relay
+	assert.Contains(t, readRelays, fallbackRelay)
 
 	// Test GetWriteRelays
 	writeRelays, err := client.GetWriteRelays(ctx, pubkey)
-	if err != nil {
-		t.Skip("Skipping: network error")
-	}
-	assert.NotNil(t, writeRelays)
+	assert.NoError(t, err)
+	assert.Contains(t, writeRelays, fallbackRelay)
 }
