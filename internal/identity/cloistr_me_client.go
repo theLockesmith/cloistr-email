@@ -26,8 +26,8 @@
 //	// Pass to email service
 //	emailSvc := email.NewService(identitySvc, transportMgr, encryptionSvc, db, logger)
 //
-// When CLOISTR_ME_URL or CLOISTR_ME_SECRET are not configured, verification
-// is skipped for backwards compatibility.
+// CLOISTR_ME_URL is required (the service refuses to start without it). When
+// CLOISTR_ME_SECRET is not configured, verification is skipped.
 package identity
 
 import (

@@ -85,13 +85,13 @@ type Config struct {
 	InternalAPISecret string
 
 	// Unified-auth: Cloistr signer session validation (slice 3 — auth only).
-	// Empty = disabled (skip signer fallback in ValidateSession).
+	// Required (MAIL_SIGNER_URL): there is no built-in production address.
 	SignerURL string
 
 	// NostrConnectRelay is the relay used for the signer-as-bunker bootstrap
 	// (Option D).  The server posts a nostrconnect:// URI to the signer, the
 	// signer publishes a kind-24133 ACK, and the server upgrades the session
-	// to a live bunker connection.  Defaults to wss://relay.cloistr.xyz.
+	// to a live bunker connection.  Required (MAIL_NOSTRCONNECT_RELAY).
 	NostrConnectRelay string
 
 	// Logging
@@ -147,7 +147,7 @@ func Load() (*Config, error) {
 		IdentityServiceURL: getEnv("IDENTITY_SERVICE_URL", "http://localhost:3000"),
 
 		// cloistr-me integration (address verification)
-		CloistrMeURL:      getEnv("CLOISTR_ME_URL", "http://cloistr-me.cloistr.svc.cluster.local:8080"),
+		CloistrMeURL:      getEnvRequired("CLOISTR_ME_URL"),
 		CloistrMeSecret:   getEnv("CLOISTR_ME_SECRET", ""),
 		PlatformMode:      getEnv("CLOISTR_MODE", "standalone"),
 		InternalAPISecret: getEnv("INTERNAL_API_SECRET", ""),
@@ -160,11 +160,12 @@ func Load() (*Config, error) {
 		// Storage quota reconciliation
 		UsageReconcileInterval: getEnvDuration("USAGE_RECONCILE_INTERVAL", 6*time.Hour),
 
-		// Unified-auth signer URL (empty = disabled)
-		SignerURL: getEnv("MAIL_SIGNER_URL", "http://cloistr-signer.cloistr.svc.cluster.local:7777"),
+		// Unified-auth signer URL. Required: an unset value must not silently
+		// point a non-production deployment at the production signer.
+		SignerURL: getEnvRequired("MAIL_SIGNER_URL"),
 
 		// NostrConnect relay for signer-as-bunker bootstrap (Option D)
-		NostrConnectRelay: getEnv("MAIL_NOSTRCONNECT_RELAY", "wss://relay.cloistr.xyz"),
+		NostrConnectRelay: getEnvRequired("MAIL_NOSTRCONNECT_RELAY"),
 
 		// Logging
 		LogLevel: getEnv("LOG_LEVEL", "info"),
