@@ -39,12 +39,7 @@ func (h *Handler) InitNostrConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relayURL := h.config.NostrConnectRelay
-	if relayURL == "" {
-		relayURL = "wss://relay.cloistr.xyz"
-	}
-
-	uri, nonce, err := h.auth.InitiateNostrConnect(r.Context(), userPubkey, relayURL, "Cloistr Mail")
+	uri, nonce, err := h.auth.InitiateNostrConnect(r.Context(), userPubkey, h.config.NostrConnectRelay, "Cloistr Mail")
 	if err != nil {
 		h.logger.Error("InitNostrConnect: failed to initiate", zap.Error(err))
 		errors.InternalError("INTERNAL_ERROR", "failed to initiate nostrconnect bootstrap").WriteResponse(w)

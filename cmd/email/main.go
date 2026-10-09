@@ -80,16 +80,12 @@ func main() {
 		logger.Fatal("Failed to initialize auth handler", zap.Error(err))
 	}
 	// Unified-auth slice 3: fall back to signer session validation when Redis
-	// misses (empty SignerURL disables the branch).
-	if cfg.SignerURL != "" {
-		authHandler.WithSignerURL(cfg.SignerURL)
-		logger.Info("Signer session fallback enabled", zap.String("signer_url", cfg.SignerURL))
-	}
+	// misses. Both URLs are required by config.Load.
+	authHandler.WithSignerURL(cfg.SignerURL)
+	logger.Info("Signer session fallback enabled", zap.String("signer_url", cfg.SignerURL))
 	// Option D: signer-as-bunker bootstrap relay.
-	if cfg.NostrConnectRelay != "" {
-		authHandler.WithNostrConnectRelay(cfg.NostrConnectRelay)
-		logger.Info("NostrConnect relay configured", zap.String("relay", cfg.NostrConnectRelay))
-	}
+	authHandler.WithNostrConnectRelay(cfg.NostrConnectRelay)
+	logger.Info("NostrConnect relay configured", zap.String("relay", cfg.NostrConnectRelay))
 
 	// Initialize relay preferences client (cloistr-common integration)
 	relayClient, err := relays.NewClient(logger)

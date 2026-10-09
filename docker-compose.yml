@@ -50,6 +50,11 @@ services:
       - SMTP_INBOUND_DOMAIN=coldforge.xyz
       - SMTP_INBOUND_DOMAINS=coldforge.xyz
       - NSECBUNKER_RELAY_URL=ws://localhost:4737
+      # Required, no built-in defaults. Local stand-ins; nothing listens on
+      # the signer or cloistr-me addresses unless you run those services.
+      - MAIL_SIGNER_URL=http://cloistr-signer:7777
+      - CLOISTR_ME_URL=http://cloistr-me:8080
+      - MAIL_NOSTRCONNECT_RELAY=ws://localhost:4737
       - IDENTITY_SERVICE_URL=http://localhost:3000
     ports:
       - "8080:8080"   # API

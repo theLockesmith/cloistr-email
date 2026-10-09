@@ -137,6 +137,9 @@ k8s/                        Kubernetes manifests
 |----------|---------|-------------|
 | `NSECBUNKER_URL` | - | Bunker connection URL |
 | `NIP46_TIMEOUT` | `30s` | Auth timeout |
+| `MAIL_SIGNER_URL` | required | Cloistr signer, for session fallback |
+| `MAIL_NOSTRCONNECT_RELAY` | required | Relay for the signer-as-bunker bootstrap |
+| `CLOISTR_ME_URL` | required | cloistr-me internal API, for address verification |
 
 ### Relay Preferences
 

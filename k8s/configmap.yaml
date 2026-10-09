@@ -43,3 +43,8 @@ data:
 
   # Cloistr integration
   USE_CLOISTR_FALLBACK: "true"
+
+  # Required: the service refuses to start without these.
+  MAIL_SIGNER_URL: "http://cloistr-signer.cloistr.svc.cluster.local:7777"
+  CLOISTR_ME_URL: "http://cloistr-me.cloistr.svc.cluster.local:8080"
+  MAIL_NOSTRCONNECT_RELAY: "wss://relay.cloistr.xyz"
