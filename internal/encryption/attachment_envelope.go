@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 )
 
 // EncryptedAttachmentContentType is the content type a client sends for every
@@ -51,19 +52,53 @@ func IsEncryptedAttachment(b []byte) bool {
 	if err := dec.Decode(&env); err != nil || dec.More() {
 		return false
 	}
-	if env.V != 1 || env.ID == "" || len(env.ID) > maxEnvelopeIDLen || !isHexPubkey(env.Sender) {
+	if env.V != 1 || !validKeyEnvelopes(env.ID, env.Sender, env.Keys) {
 		return false
 	}
-	// The sender's own envelope is mandatory, and there must be someone else.
-	if _, ok := env.Keys[env.Sender]; !ok || len(env.Keys) < 2 {
+	return isSealedBlob(env.Meta) && isSealedBlob(env.Data)
+}
+
+// encryptedBodyV1 is the body envelope built by the UI's body-crypto.ts: the
+// same model as an attachment, with the body (and its protected headers) as
+// the only sealed blob.
+type encryptedBodyV1 struct {
+	V      int               `json:"v"`
+	Type   string            `json:"type"`
+	ID     string            `json:"id"`
+	Sender string            `json:"sender"`
+	Keys   map[string]string `json:"keys"`
+	Data   *sealedBlob       `json:"data"`
+}
+
+// IsEncryptedBody reports whether s has the shape of a client-encrypted body
+// envelope. Bodies in the older format (a NIP-44 payload to the recipient)
+// are checked with IsNIP44Payload instead.
+func IsEncryptedBody(s string) bool {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+	var env encryptedBodyV1
+	if err := dec.Decode(&env); err != nil || dec.More() {
 		return false
 	}
-	for pk, wrapped := range env.Keys {
+	return env.V == 1 && env.Type == "body" && validKeyEnvelopes(env.ID, env.Sender, env.Keys) && isSealedBlob(env.Data)
+}
+
+// validKeyEnvelopes checks the key-wrapping half shared by both envelopes: an
+// id (the envelope subject), the sender, the sender's own wrapped key plus at
+// least one other, and every wrapped key a NIP-44 v2 payload.
+func validKeyEnvelopes(id, sender string, keys map[string]string) bool {
+	if id == "" || len(id) > maxEnvelopeIDLen || !isHexPubkey(sender) {
+		return false
+	}
+	if _, ok := keys[sender]; !ok || len(keys) < 2 {
+		return false
+	}
+	for pk, wrapped := range keys {
 		if !isHexPubkey(pk) || !IsNIP44Payload(wrapped) {
 			return false
 		}
 	}
-	return isSealedBlob(env.Meta) && isSealedBlob(env.Data)
+	return true
 }
 
 func isSealedBlob(s *sealedBlob) bool {

@@ -194,6 +194,8 @@ export async function decrypt(senderPubkey: string, ciphertext: string): Promise
   throw new Error('No decryption support found in Nostr extension')
 }
 
+import type { SignedNostrEvent } from './api'
+
 /**
  * The browser extension as an envelope signer (see attachment-crypto.ts).
  * NIP-44 only, with no NIP-04 fallback: NIP-04 has no integrity check, so a
@@ -209,6 +211,8 @@ export function nip07EnvelopeSigner() {
     getPublicKey: () => ext.getPublicKey(),
     nip44Encrypt: (pubkey: string, plaintext: string) => nip44.encrypt(pubkey, plaintext),
     nip44Decrypt: (pubkey: string, ciphertext: string) => nip44.decrypt(pubkey, ciphertext),
+    signEvent: async (event: { kind: number; created_at: number; tags: string[][]; content: string }) =>
+      (await ext.signEvent(event)) as SignedNostrEvent,
   }
 }
 

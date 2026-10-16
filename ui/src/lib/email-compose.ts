@@ -5,6 +5,10 @@
  * Extracted from ComposePage to enable unit testing without a DOM.
  */
 import { ENCRYPTED_SUBJECT_PLACEHOLDER, wrapProtectedHeaders } from './protected-headers'
+import { encryptBody } from './body-crypto'
+import { encryptAttachment, withUploadAuth, type EnvelopeSigner } from './attachment-crypto'
+import type { ClientModeSigner } from './client-signer'
+import type { AttachmentRequest, SendEmailRequest } from './api'
 
 /**
  * Builds a quoted body block for a reply.
@@ -48,12 +52,37 @@ export function forwardSubject(original: string): string {
  */
 export async function buildClientEncryptedSend(
   msg: { subject: string; body: string },
-  recipientPubkey: string,
-  encrypt: (pubkey: string, plaintext: string) => Promise<string>,
+  recipientPubkeys: string[],
+  signer: EnvelopeSigner,
 ): Promise<{ subject: string; body: undefined; pre_encrypted_body: string }> {
   return {
     subject: ENCRYPTED_SUBJECT_PLACEHOLDER,
     body: undefined,
-    pre_encrypted_body: await encrypt(recipientPubkey, wrapProtectedHeaders(msg.subject, msg.body)),
+    pre_encrypted_body: await encryptBody(wrapProtectedHeaders(msg.subject, msg.body), recipientPubkeys, signer),
+  }
+}
+
+/**
+ * Everything a client-side (end-to-end) send carries, built through one
+ * signer (the session's: NIP-46 or NIP-07). The body, with the real subject
+ * inside, and each attachment are encrypted under their own keys wrapped to
+ * the recipient and the sender; each attachment also carries the sender's own
+ * signed Blossom upload authorization.
+ */
+export async function buildClientModeSend(
+  msg: { to: string; subject: string; body: string; attachments: AttachmentRequest[] },
+  recipientPubkey: string,
+  signer: ClientModeSigner,
+): Promise<Pick<SendEmailRequest, 'subject' | 'body' | 'pre_encrypted_body' | 'recipient_pubkeys' | 'attachments'>> {
+  const content = await buildClientEncryptedSend(msg, [recipientPubkey], signer)
+  const attachments: AttachmentRequest[] = []
+  for (const att of msg.attachments) {
+    const sealed = await encryptAttachment(att, [recipientPubkey], signer)
+    attachments.push(await withUploadAuth(sealed, (ev) => signer.signEvent(ev)))
+  }
+  return {
+    ...content,
+    recipient_pubkeys: { [msg.to]: recipientPubkey },
+    ...(attachments.length > 0 ? { attachments } : {}),
   }
 }

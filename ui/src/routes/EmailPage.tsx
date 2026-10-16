@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { emailAPI, type Email } from '../lib/api'
 import { decryptAttachment } from '../lib/attachment-crypto'
+import { openClientBody } from '../lib/body-crypto'
+import { clientModeSigner } from '../lib/client-signer'
+import { useNostrAuth } from '@cloistr/auth'
 import { parseProtectedHeaders, cacheProtectedSubject, cachedProtectedSubject } from '../lib/protected-headers'
 import {
   hasNostrExtension,
-  hasNip44Support,
-  decrypt as nip07Decrypt,
-  nip07EnvelopeSigner,
   truncatePubkey,
 } from '../lib/nostr'
 
@@ -28,7 +28,9 @@ export default function EmailPage() {
   const [showLabelInput, setShowLabelInput] = useState(false)
 
   const hasExtension = hasNostrExtension()
-  const hasNip44 = hasNip44Support()
+  const { signer: sessionSigner } = useNostrAuth()
+  const cmSigner = clientModeSigner(sessionSigner)
+  const hasNip44 = cmSigner !== null
 
   // Fetch email
   const { data: response, isLoading, error } = useQuery({
@@ -115,7 +117,9 @@ export default function EmailPage() {
     setIsDecrypting(true)
     setDecryptError(null)
     try {
-      const plaintext = await nip07Decrypt(email.sender_pubkey, email.encrypted_body)
+      if (!cmSigner) throw new Error('Your signer does not support NIP-44 decryption')
+      // Opens both the envelope format and older NIP-44-to-recipient bodies.
+      const plaintext = await openClientBody(email.encrypted_body, email.sender_pubkey, cmSigner, cmSigner.nip44Decrypt)
       // Client-mode messages carry the real subject inside the ciphertext.
       const opened = parseProtectedHeaders(plaintext)
       setDecryptedBody(opened.body)
@@ -141,7 +145,8 @@ export default function EmailPage() {
       // decrypt them here with the extension, as the body is.
       let downloadName = filename
       if (att.requires_client_decryption && att.ciphertext) {
-        const opened = await decryptAttachment(att.ciphertext, nip07EnvelopeSigner())
+        if (!cmSigner) throw new Error('Your signer does not support NIP-44 decryption')
+        const opened = await decryptAttachment(att.ciphertext, cmSigner)
         att.data_base64 = opened.data_base64
         att.content_type = opened.content_type
         downloadName = opened.filename
@@ -211,7 +216,7 @@ export default function EmailPage() {
 
   const displayBody = decryptedBody || email.body
   const needsDecryption = email.requires_client_decryption && !decryptedBody
-  const canDecrypt = hasExtension && hasNip44 && email.encrypted_body && email.sender_pubkey
+  const canDecrypt = hasNip44 && email.encrypted_body && email.sender_pubkey
 
   return (
     <div className="flex flex-col min-h-0 overflow-y-auto">
@@ -379,7 +384,7 @@ export default function EmailPage() {
                   {decryptError}
                 </div>
               )}
-              {hasExtension ? (
+              {hasExtension || hasNip44 ? (
                 <button
                   onClick={handleDecrypt}
                   disabled={!canDecrypt || isDecrypting}
