@@ -8,6 +8,7 @@ import { ENCRYPTED_SUBJECT_PLACEHOLDER, wrapProtectedHeaders } from './protected
 import { encryptBody } from './body-crypto'
 import { encryptAttachment, withUploadAuth, type EnvelopeSigner } from './attachment-crypto'
 import type { ClientModeSigner } from './client-signer'
+import { pooledSigner, DEFAULT_SIGNER_CONCURRENCY } from './signer-pool'
 import type { AttachmentRequest, SendEmailRequest } from './api'
 
 /**
@@ -72,9 +73,12 @@ export async function buildClientEncryptedSend(
 export async function buildClientModeSend(
   msg: { subject: string; body: string; attachments: AttachmentRequest[] },
   recipients: Record<string, string>,
-  signer: ClientModeSigner,
+  sessionSigner: ClientModeSigner,
+  opts: { signerConcurrency?: number } = {},
 ): Promise<Pick<SendEmailRequest, 'subject' | 'body' | 'pre_encrypted_body' | 'recipient_pubkeys' | 'attachments'>> {
   const pubkeys = [...new Set(Object.values(recipients))]
+  // Concurrent, but never more than a few calls at the shared signer at once.
+  const signer = pooledSigner(sessionSigner, opts.signerConcurrency ?? DEFAULT_SIGNER_CONCURRENCY)
   // The body and every attachment are independent: their key wraps all go to
   // the signer at once. Each attachment's upload authorization has to follow
   // that attachment's encryption (it names the ciphertext's hash), so the

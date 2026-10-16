@@ -3,6 +3,7 @@ import { nip44, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-too
 import type { SignerInterface } from '@cloistr/auth'
 import { buildClientModeSend } from './email-compose'
 import { clientModeSigner } from './client-signer'
+import { DEFAULT_SIGNER_CONCURRENCY } from './signer-pool'
 
 /**
  * A NIP-46-shaped signer where every call costs a fixed delay, standing in for
@@ -39,28 +40,42 @@ function delayedSigner(delayMs: number) {
 
 const DELAY = 100
 
-describe('client-mode send latency through a remote signer', () => {
-  it('5 recipients and 3 attachments take about two round trips, not 27', async () => {
-    const { signer, maxInFlight } = delayedSigner(DELAY)
-    const cms = clientModeSigner(signer)!
-    const recipients = Object.fromEntries([1, 2, 3, 4, 5].map((i) => [`r${i}@example.com`, getPublicKey(generateSecretKey())]))
-    const attachments = [1, 2, 3].map((i) => ({ filename: `f${i}.bin`, data_base64: btoa(`file ${i}`) }))
+const recipients = Object.fromEntries([1, 2, 3, 4, 5].map((i) => [`r${i}@example.com`, getPublicKey(generateSecretKey())]))
+const attachments = [1, 2, 3].map((i) => ({ filename: `f${i}.bin`, data_base64: btoa(`file ${i}`) }))
+const msg = { subject: 's', body: 'b', attachments }
 
-    // Warm up the blob cipher (libsodium initialises once per process) with a
-    // zero-latency signer, so the measurement is signer latency, not setup.
-    await buildClientModeSend({ subject: 's', body: 'b', attachments }, recipients, clientModeSigner(delayedSigner(0).signer)!)
+async function measure(concurrency?: number) {
+  // Warm up the blob cipher (libsodium initialises once per process) with a
+  // zero-latency signer, so the measurement is signer latency, not setup.
+  await buildClientModeSend(msg, recipients, clientModeSigner(delayedSigner(0).signer)!)
+  const { signer, maxInFlight } = delayedSigner(DELAY)
+  const start = performance.now()
+  await buildClientModeSend(msg, recipients, clientModeSigner(signer)!, { signerConcurrency: concurrency })
+  return { ms: performance.now() - start, maxInFlight: maxInFlight() }
+}
 
-    const start = performance.now()
-    await buildClientModeSend({ subject: 's', body: 'b', attachments }, recipients, cms)
-    const ms = performance.now() - start
-    console.info(`wall time, 5 recipients + 3 attachments, ${DELAY} ms per signer call: ${Math.round(ms)} ms; max in flight ${maxInFlight()}`)
+describe('client-mode send latency through a remote signer (5 recipients, 3 attachments)', () => {
+  // Sequential this was (R+1)*(1+A)+A = 27 calls, measured at 2919 ms with
+  // 100 ms per call. 27 calls at 6 in flight is 5 rounds (~500 ms) plus
+  // local crypto. The bound leaves room for slow CI while still failing the
+  // sequential version.
+  it('default pool: a few rounds, not 27', async () => {
+    const { ms, maxInFlight } = await measure()
+    console.info(`default pool (${DEFAULT_SIGNER_CONCURRENCY}): ${Math.round(ms)} ms, max in flight ${maxInFlight}`)
+    expect(ms).toBeLessThan(DELAY * 12)
+  })
 
-    // Sequential this was (R+1)*(1+A)+A = 27 calls, measured at 2919 ms.
-    // The critical path is now one wrap round, then each attachment's upload
-    // signature: two delays plus local crypto (about 330 ms here). The bound
-    // leaves room for slow CI while still failing the sequential version.
-    expect(ms).toBeLessThan(DELAY * 8)
-    // All 24 wraps (6 people x 4 items) are in flight together.
-    expect(maxInFlight()).toBeGreaterThanOrEqual(24)
+  // A big send must not burst the shared signer.
+  it.each([1, 3, DEFAULT_SIGNER_CONCURRENCY])('never has more than %i calls in flight', async (cap) => {
+    const { ms, maxInFlight } = await measure(cap)
+    console.info(`cap ${cap}: ${Math.round(ms)} ms, max in flight ${maxInFlight}`)
+    expect(maxInFlight).toBeLessThanOrEqual(cap)
+    expect(maxInFlight).toBe(cap) // and the pool is actually used
+  })
+
+  it('refuses a nonsensical cap', async () => {
+    await expect(buildClientModeSend(msg, recipients, clientModeSigner(delayedSigner(0).signer)!, { signerConcurrency: 0 })).rejects.toThrow(
+      /positive integer/,
+    )
   })
 })
