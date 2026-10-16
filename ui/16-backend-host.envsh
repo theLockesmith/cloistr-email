@@ -1,0 +1,34 @@
+#!/bin/sh
+# Qualify a bare backend service name with the pod's DNS search domain.
+#
+# The /api proxy target sits in a variable so nginx resolves it per request
+# (the backend can come up after the frontend). Requests resolved that way go
+# through nginx's own resolver, which ignores the search domains in
+# /etc/resolv.conf: a bare name such as "cloistr-email-backend" never resolves
+# under Kubernetes, and every /api call gets a 502. Expanding it to
+# cloistr-email-backend.<namespace>.svc.cluster.local here keeps the same image
+# working in any namespace. Hosts that already contain a dot, and environments
+# with no search line (plain Docker, where the bare name resolves as is), are
+# left alone.
+
+set -eu
+
+[ -n "${CLOISTR_BACKEND_URL:-}" ] || return 0
+
+scheme="${CLOISTR_BACKEND_URL%%://*}"
+rest="${CLOISTR_BACKEND_URL#*://}"
+hostport="${rest%%/*}"
+host="${hostport%%:*}"
+tail="${rest#"$host"}"
+
+case "$host" in
+  *.*) return 0 ;;
+esac
+
+# Docker writes "search ." when it has no domain to add; treat that as none.
+search=$(awk '$1=="search" {print $2; exit}' /etc/resolv.conf)
+search="${search%.}"
+[ -n "$search" ] || return 0
+
+CLOISTR_BACKEND_URL="${scheme}://${host}.${search}${tail}"
+export CLOISTR_BACKEND_URL

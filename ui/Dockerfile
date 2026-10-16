@@ -53,7 +53,11 @@ ENV CLOISTR_RELAY_URL=wss://relay.cloistr.xyz \
     CLOISTR_APP_URL=https://mail.cloistr.xyz \
     CLOISTR_ENVIRONMENT=production \
     CLOISTR_BACKEND_URL=http://cloistr-email-backend \
-    NGINX_ENVSUBST_FILTER=^CLOISTR_
+    NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
+    NGINX_ENVSUBST_FILTER="^(CLOISTR_|NGINX_LOCAL_RESOLVERS$)"
+
+# Runs between the base image's resolver step (15) and template render (20).
+COPY 16-backend-host.envsh /docker-entrypoint.d/16-backend-host.envsh
 
 EXPOSE 8080
 
