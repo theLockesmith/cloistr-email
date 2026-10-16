@@ -913,14 +913,14 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 }
 
 // ErrClientAttachmentNotEncrypted is returned when a client-side (end-to-end)
-// send carries an attachment that is not a NIP-44 payload.
+// send carries an attachment that is not a client-encrypted envelope.
 var ErrClientAttachmentNotEncrypted = errors.New("client-side encryption requires every attachment to be encrypted by the client")
 
 // checkClientAttachmentsEncrypted refuses a client-side send if any attachment
-// is not NIP-44 ciphertext.
+// is not a client-encrypted attachment envelope.
 func checkClientAttachmentsEncrypted(atts []AttachmentInput) error {
 	for _, a := range atts {
-		if !encryption.IsNIP44Payload(string(a.Data)) {
+		if !encryption.IsEncryptedAttachment(a.Data) {
 			return fmt.Errorf("%w: %s", ErrClientAttachmentNotEncrypted, a.Filename)
 		}
 	}
@@ -951,7 +951,7 @@ func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode en
 		// Already ciphertext from the client; Send refuses anything else, and
 		// this re-check keeps a plaintext file off Blossom if a future caller
 		// skips Send.
-		if !encryption.IsNIP44Payload(string(att.Data)) {
+		if !encryption.IsEncryptedAttachment(att.Data) {
 			return nil, fmt.Errorf("%w: %s", ErrClientAttachmentNotEncrypted, att.Filename)
 		}
 		return att.Data, nil

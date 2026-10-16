@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr/nip44"
@@ -23,24 +24,31 @@ func TestAttachmentBlob_NonePlaintext(t *testing.T) {
 	}
 }
 
-// nip44Ciphertext returns a real NIP-44 v2 payload of plaintext, as the
-// browser extension would produce it.
-func nip44Ciphertext(t *testing.T, plaintext string) []byte {
+// clientEnvelope returns a client-encrypted attachment exactly as the
+// browser's attachment-crypto.ts produces it (fixture shared with the
+// encryption package's tests).
+func clientEnvelope(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile("../encryption/testdata/browser_encrypted_attachment.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func bareNIP44(t *testing.T) []byte {
 	t.Helper()
 	var key [32]byte
-	for i := range key {
-		key[i] = byte(i + 1)
-	}
-	ct, err := nip44.Encrypt(plaintext, key)
+	ct, err := nip44.Encrypt(base64.StdEncoding.EncodeToString([]byte("file bytes")), key)
 	if err != nil {
-		t.Fatalf("nip44.Encrypt: %v", err)
+		t.Fatal(err)
 	}
 	return []byte(ct)
 }
 
 func TestAttachmentBlob_ClientPassThrough(t *testing.T) {
 	s := newServiceWithSigner(nil)
-	ciphertext := nip44Ciphertext(t, base64.StdEncoding.EncodeToString([]byte("file bytes")))
+	ciphertext := clientEnvelope(t)
 	blob, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeClientSide, AttachmentInput{Data: ciphertext})
 	if err != nil {
 		t.Fatalf("attachmentBlob: %v", err)
@@ -58,6 +66,9 @@ func TestAttachmentBlob_ClientRefusesPlaintext(t *testing.T) {
 	for name, data := range map[string][]byte{
 		"raw bytes":        {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a},
 		"base64 plaintext": []byte(base64.StdEncoding.EncodeToString([]byte("a plaintext file, base64'd by the browser, long enough to pass a length check on its own............"))),
+		// The earlier stopgap sent the file through NIP-44 directly; that format
+		// is replaced by the envelope and is no longer accepted.
+		"bare NIP-44 payload": bareNIP44(t),
 	} {
 		t.Run(name, func(t *testing.T) {
 			blob, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeClientSide, AttachmentInput{Filename: "f", Data: data})
@@ -72,7 +83,7 @@ func TestAttachmentBlob_ClientRefusesPlaintext(t *testing.T) {
 }
 
 func TestCheckClientAttachmentsEncrypted(t *testing.T) {
-	good := AttachmentInput{Filename: "ok.pdf", Data: nip44Ciphertext(t, "c2VjcmV0")}
+	good := AttachmentInput{Filename: "ok.pdf", Data: clientEnvelope(t)}
 	bad := AttachmentInput{Filename: "leak.pdf", Data: []byte("%PDF-1.7 plaintext")}
 
 	if err := checkClientAttachmentsEncrypted(nil); err != nil {

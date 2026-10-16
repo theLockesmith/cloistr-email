@@ -195,6 +195,24 @@ export async function decrypt(senderPubkey: string, ciphertext: string): Promise
 }
 
 /**
+ * The browser extension as an envelope signer (see attachment-crypto.ts).
+ * NIP-44 only, with no NIP-04 fallback: NIP-04 has no integrity check, so a
+ * tampered key envelope would decrypt to something instead of being refused.
+ */
+export function nip07EnvelopeSigner() {
+  const ext = getNostrExt()
+  if (!ext?.nip44) {
+    throw new Error('Encrypted attachments need a browser extension with NIP-44 support')
+  }
+  const nip44 = ext.nip44
+  return {
+    getPublicKey: () => ext.getPublicKey(),
+    nip44Encrypt: (pubkey: string, plaintext: string) => nip44.encrypt(pubkey, plaintext),
+    nip44Decrypt: (pubkey: string, ciphertext: string) => nip44.decrypt(pubkey, ciphertext),
+  }
+}
+
+/**
  * Encryption mode for email sending
  */
 export type EncryptionMode = 'none' | 'server' | 'client'

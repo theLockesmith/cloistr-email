@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { emailAPI, type Email } from '../lib/api'
-import { decryptAttachmentCiphertext } from '../lib/attachment-crypto'
+import { decryptAttachment } from '../lib/attachment-crypto'
 import {
   hasNostrExtension,
   hasNip44Support,
   decrypt as nip07Decrypt,
+  nip07EnvelopeSigner,
   truncatePubkey,
 } from '../lib/nostr'
 
@@ -130,8 +131,12 @@ export default function EmailPage() {
       const att = res.data
       // Client-mode (end-to-end) attachments come back as NIP-44 ciphertext;
       // decrypt them here with the extension, as the body is.
-      if (att.requires_client_decryption && att.ciphertext && email?.sender_pubkey) {
-        att.data_base64 = await decryptAttachmentCiphertext(att.ciphertext, email.sender_pubkey, nip07Decrypt)
+      let downloadName = filename
+      if (att.requires_client_decryption && att.ciphertext) {
+        const opened = await decryptAttachment(att.ciphertext, nip07EnvelopeSigner())
+        att.data_base64 = opened.data_base64
+        att.content_type = opened.content_type
+        downloadName = opened.filename
       }
       if (!att.data_base64) {
         alert('Attachment content not available')
@@ -145,7 +150,7 @@ export default function EmailPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = filename
+      a.download = downloadName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
