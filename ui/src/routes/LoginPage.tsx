@@ -31,8 +31,8 @@ import { SIGNER_URL, SIGNER_HOST } from '../lib/serviceConfig'
 
 const FEATURES = [
   { icon: '🔑', title: 'Your keys, your inbox', body: 'Your Nostr identity is your login. No passwords to leak, no account to lose.' },
-  { icon: '🔒', title: 'Encrypted by default', body: 'Messages between Cloistr users are end-to-end encrypted — the server never sees plaintext.' },
-  { icon: '✉️', title: 'Real email, too', body: 'Send and receive with the rest of the world over SMTP. One address for Nostr, email, and Lightning.' },
+  { icon: '🔒', title: 'Encrypt when you choose', body: 'Encrypt a message to anyone with a Nostr key. Encrypt it in your browser extension and the server never sees the plaintext.' },
+  { icon: '✉️', title: 'Real email, too', body: 'Send and receive with the rest of the world over SMTP.' },
 ]
 
 export default function LoginPage() {
@@ -82,7 +82,7 @@ export default function LoginPage() {
       <div className="max-w-2xl">
         <h1 className="text-4xl font-bold mb-3">Cloistr Mail</h1>
         <p className="text-xl text-[var(--cloistr-text-muted)] mb-8">
-          Encrypted, Nostr-native email. One address for email, Nostr, and Lightning.
+          Nostr-native email. Sign in with your Nostr key, encrypt when you choose.
         </p>
 
         {displayError && (

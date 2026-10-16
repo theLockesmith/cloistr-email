@@ -110,7 +110,8 @@ One address works everywhere:
 |----------|----------|---------|
 | Email | Receives SMTP mail | alice@cloistr.xyz |
 | NIP-05 | Nostr identity | `user@cloistr.xyz` -> `npub1...` |
-| Lightning | Receives payments | zaps to alice@cloistr.xyz |
+
+Lightning payments to the address are not implemented. Lightning appears only on the roadmap, as spam control.
 
 ## Project Structure
 
