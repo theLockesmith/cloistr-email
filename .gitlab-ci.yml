@@ -57,6 +57,11 @@ test:unit:
 
 test:lint:
   extends: [.go-lint, .cloistr-rules]
+  # The shared .go-lint is advisory (allow_failure: true) until each repo pays
+  # off its lint debt. cloistr-email did (!164, 0 issues), so lint is a real
+  # gate here: a new finding fails the pipeline and, with pipelines-must-succeed
+  # on, blocks the merge.
+  allow_failure: false
 
 # UI unit tests (vitest, node environment — no browser required).
 # Runs in the same test stage as the Go suite so a failing test blocks build.
