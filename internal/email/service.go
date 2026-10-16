@@ -196,6 +196,16 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		}
 	}
 
+	// 1c. Client-side (end-to-end) mode promises the server never sees
+	// plaintext. The body is checked above as required; attachments must be
+	// ciphertext too, or they would be relayed in the outbound MIME and
+	// uploaded to Blossom as readable files.
+	if req.EncryptionMode == encryption.ModeClientSide {
+		if err := checkClientAttachmentsEncrypted(req.Attachments); err != nil {
+			return nil, err
+		}
+	}
+
 	// 2. Resolve recipients for encryption capability
 	allRecipients := make([]string, 0, len(req.To)+len(req.CC)+len(req.BCC))
 	allRecipients = append(allRecipients, req.To...)
@@ -902,6 +912,21 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 	}
 }
 
+// ErrClientAttachmentNotEncrypted is returned when a client-side (end-to-end)
+// send carries an attachment that is not a NIP-44 payload.
+var ErrClientAttachmentNotEncrypted = errors.New("client-side encryption requires every attachment to be encrypted by the client")
+
+// checkClientAttachmentsEncrypted refuses a client-side send if any attachment
+// is not NIP-44 ciphertext.
+func checkClientAttachmentsEncrypted(atts []AttachmentInput) error {
+	for _, a := range atts {
+		if !encryption.IsNIP44Payload(string(a.Data)) {
+			return fmt.Errorf("%w: %s", ErrClientAttachmentNotEncrypted, a.Filename)
+		}
+	}
+	return nil
+}
+
 // toTransportAttachments maps send-request attachments to transport MIME
 // attachments delivered to recipients. The bytes are the caller-provided
 // content (plaintext for server/none mode). Note: attachment MIME parts are
@@ -922,8 +947,16 @@ func toTransportAttachments(atts []AttachmentInput) []transport.Attachment {
 // email's encryption mode. Server-side mode NIP-44 self-encrypts the
 // base64-encoded bytes (NIP-44 operates on text); client/none upload as-is.
 func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, att AttachmentInput) ([]byte, error) {
+	if mode == encryption.ModeClientSide {
+		// Already ciphertext from the client; Send refuses anything else, and
+		// this re-check keeps a plaintext file off Blossom if a future caller
+		// skips Send.
+		if !encryption.IsNIP44Payload(string(att.Data)) {
+			return nil, fmt.Errorf("%w: %s", ErrClientAttachmentNotEncrypted, att.Filename)
+		}
+		return att.Data, nil
+	}
 	if mode != encryption.ModeServerSide {
-		// none: plaintext; client: already ciphertext from the client.
 		return att.Data, nil
 	}
 	res, err := s.encryptionSvc.EncryptForRecipient(ctx, &encryption.EncryptionRequest{
