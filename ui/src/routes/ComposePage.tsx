@@ -11,6 +11,7 @@ import {
   type EncryptionMode,
 } from '../lib/nostr'
 import { quoteBody, forwardBlock, replySubject, forwardSubject } from '../lib/email-compose'
+import { encryptAttachmentsForRecipient } from '../lib/attachment-crypto'
 import { composeDraftKey, saveDraft, loadDraft, clearDraft, hasDraftContent } from '../lib/draft-autosave'
 
 // Max per-file size to accept (20 MiB). Hard limit from Blossom backend.
@@ -237,12 +238,14 @@ export default function ComposePage() {
         }
 
         const encryptedBody = await nip07Encrypt(recipientPubkey, body)
+        const encryptedAttachments = await encryptAttachmentsForRecipient(attachments, recipientPubkey, nip07Encrypt)
 
         sendRequest = {
           ...sendRequest,
           body: undefined,
           pre_encrypted_body: encryptedBody,
           recipient_pubkeys: { [to]: recipientPubkey },
+          ...(encryptedAttachments.length > 0 ? { attachments: encryptedAttachments } : {}),
         }
       } else if (encryptionMode === 'server' && recipientPubkey) {
         sendRequest.recipient_pubkeys = { [to]: recipientPubkey }
