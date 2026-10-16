@@ -1,6 +1,10 @@
 package api
 
-import "git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
+import (
+	"github.com/nbd-wtf/go-nostr"
+
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
+)
 
 // EncryptionModeRequest represents the encryption mode from API requests
 type EncryptionModeRequest string
@@ -77,6 +81,11 @@ type AttachmentRequestV2 struct {
 	// DataBase64 is the standard-base64-encoded attachment bytes. For
 	// client-side mode this should already be NIP-44 ciphertext.
 	DataBase64 string `json:"data_base64"`
+	// UploadAuth is, in client-side mode, a kind-24242 Blossom upload
+	// authorization the sender signed with their own key for exactly these
+	// bytes. The server stores the attachment only under the sender's own
+	// authorization; it never signs for a client-side user.
+	UploadAuth *nostr.Event `json:"upload_auth,omitempty"`
 }
 
 // AttachmentResponseV2 is a fetched attachment. For server-side/unencrypted

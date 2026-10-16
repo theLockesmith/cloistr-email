@@ -63,6 +63,9 @@ type AttachmentInput struct {
 	// at rest before upload; for client-side mode it is treated as already
 	// ciphertext; for no-encryption mode it is uploaded as-is.
 	Data []byte
+	// UploadAuth is the sender's own signed Blossom upload authorization for
+	// Data (client-side mode only).
+	UploadAuth *nostr.Event
 }
 
 // SendResult contains the result of a send operation
@@ -202,6 +205,9 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	// uploaded to Blossom as readable files.
 	if req.EncryptionMode == encryption.ModeClientSide {
 		if err := checkClientAttachmentsEncrypted(req.Attachments); err != nil {
+			return nil, err
+		}
+		if err := checkClientUploadAuth(req.SenderNpub, req.Attachments, time.Now()); err != nil {
 			return nil, err
 		}
 	}
@@ -872,10 +878,9 @@ func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachme
 // so Blossom auth signing fails and uploads are skipped — those clients upload
 // their own attachments.
 func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, emailID string, atts []AttachmentInput) {
-	authSigner := blossom.NewEventAuthSigner(senderNpub, func(ctx context.Context, ev *nostr.Event) error {
+	serverAuth := blossom.NewEventAuthSigner(senderNpub, func(ctx context.Context, ev *nostr.Event) error {
 		return s.encryptionSvc.SignEventForUser(ctx, senderNpub, ev)
 	})
-	client := blossom.NewClient(authSigner, s.logger)
 
 	for _, att := range atts {
 		blob, err := s.attachmentBlob(ctx, senderNpub, mode, att)
@@ -884,6 +889,13 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 				zap.String("filename", att.Filename), zap.Error(err))
 			continue
 		}
+		authSigner, ok := uploadAuthFor(mode, serverAuth, att, blob)
+		if !ok {
+			s.logger.Info("Client did not authorize storing this attachment; delivered by mail only",
+				zap.String("filename", att.Filename))
+			continue
+		}
+		client := blossom.NewClient(authSigner, s.logger)
 		desc, err := client.Upload(ctx, blob, att.ContentType, s.blossomServers, s.blossomRedundancy)
 		if err != nil {
 			s.logger.Warn("Failed to upload attachment to Blossom",
@@ -941,6 +953,40 @@ func checkClientAttachmentsEncrypted(atts []AttachmentInput) error {
 		}
 	}
 	return nil
+}
+
+// ErrInvalidUploadAuth is returned when a client-side send carries a Blossom
+// upload authorization that is not the sender's own, valid one for the bytes.
+var ErrInvalidUploadAuth = errors.New("attachment upload authorization is invalid")
+
+// checkClientUploadAuth validates every client-signed upload authorization a
+// client-side send carries, before anything is delivered, so a bad one is a
+// clear 400 rather than a silently unstored attachment. Attachments without
+// one are allowed: they are delivered by mail and not stored.
+func checkClientUploadAuth(senderPubkey string, atts []AttachmentInput, now time.Time) error {
+	for _, a := range atts {
+		if a.UploadAuth == nil {
+			continue
+		}
+		if err := blossom.ValidateUploadAuth(a.UploadAuth, senderPubkey, blossom.BlobHash(a.Data), now); err != nil {
+			return fmt.Errorf("%w: %s: %v", ErrInvalidUploadAuth, a.Filename, err)
+		}
+	}
+	return nil
+}
+
+// uploadAuthFor picks who authorizes storing an attachment. Client-side mode
+// uses only the sender's own signed authorization (client-side signing: the
+// server never signs for that user); without one the attachment is not
+// stored. Other modes use the server-held signer as before.
+func uploadAuthFor(mode encryption.EncryptionMode, serverAuth blossom.AuthSigner, att AttachmentInput, blob []byte) (blossom.AuthSigner, bool) {
+	if mode != encryption.ModeClientSide {
+		return serverAuth, true
+	}
+	if att.UploadAuth == nil {
+		return nil, false
+	}
+	return blossom.NewPresignedUploadAuth(att.UploadAuth, blossom.BlobHash(blob)), true
 }
 
 // toTransportAttachments maps send-request attachments to transport MIME

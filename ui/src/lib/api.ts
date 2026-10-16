@@ -142,6 +142,20 @@ export interface AttachmentRequest {
   filename: string
   content_type?: string
   data_base64: string  // standard base64-encoded bytes
+  // Client-side mode: the sender's own signed Blossom upload authorization
+  // (kind 24242) for exactly these bytes, so the server can store the
+  // attachment without signing for the user.
+  upload_auth?: SignedNostrEvent
+}
+
+export interface SignedNostrEvent {
+  id: string
+  pubkey: string
+  created_at: number
+  kind: number
+  tags: string[][]
+  content: string
+  sig: string
 }
 
 export interface SendEmailRequest {
