@@ -31,7 +31,7 @@ import { SIGNER_URL, SIGNER_HOST } from '../lib/serviceConfig'
 
 const FEATURES = [
   { icon: '🔑', title: 'Your keys, your inbox', body: 'Your Nostr identity is your login. No passwords to leak, no account to lose.' },
-  { icon: '🔒', title: 'Encrypt when you choose', body: 'Encrypt a message to anyone with a Nostr key. Encrypt it in your browser extension and the server never sees the plaintext.' },
+  { icon: '🔒', title: 'Encrypt when you choose', body: 'Encrypt the message body to any recipient whose address maps to a Nostr identity. With your browser extension, the body is encrypted before it leaves your device. Subject, recipients and attachments are not encrypted.' },
   { icon: '✉️', title: 'Real email, too', body: 'Send and receive with the rest of the world over SMTP.' },
 ]
 

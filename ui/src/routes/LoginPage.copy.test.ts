@@ -10,12 +10,24 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(fileURLToPath(new URL('./LoginPage.tsx', import.meta.url)), 'utf8')
+const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+const source = read('./LoginPage.tsx')
+// Visitors also read the page's meta description (search results, link
+// previews) and the compose screen's encryption option.
+const surfaces = { landing: source, meta: read('../../index.html'), compose: read('./ComposePage.tsx') }
 
 describe('landing page copy', () => {
   it('does not claim encryption is on by default', () => {
     expect(source).not.toMatch(/encrypted by default/i)
     expect(source).not.toMatch(/end-to-end encrypted/i)
+  })
+
+  // Client mode encrypts only the body: subject and recipients travel in the
+  // clear, so no surface may say the server sees nothing.
+  it.each(Object.entries(surfaces))('%s does not claim the server sees no plaintext', (_, text) => {
+    expect(text).not.toMatch(/end-to-end encrypted/i)
+    expect(text).not.toMatch(/never sees (the )?plaintext/i)
+    expect(text).not.toMatch(/zero-knowledge/i)
   })
 
   it('does not claim the address receives Lightning payments', () => {

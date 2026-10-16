@@ -503,14 +503,14 @@ export default function ComposePage() {
                   <span className="font-medium">Client-side encryption (NIP-07)</span>
                   {hasNip44 && (
                     <span className="px-2 py-0.5 bg-cloistr-success/10 text-cloistr-success text-xs rounded">
-                      Zero-knowledge
+                      Body encrypted
                     </span>
                   )}
                 </div>
                 <p className="text-sm text-cloistr-text-muted">
                   {hasExtension
                     ? hasNip44
-                      ? 'Encrypted locally - server never sees plaintext'
+                      ? 'Body encrypted on your device - subject, recipients and attachments are not'
                       : 'Your extension does not support NIP-44 encryption'
                     : 'Requires browser extension with NIP-44 support'}
                   {hasNip44 && !canEncrypt && ' - requires recipient Nostr identity'}
