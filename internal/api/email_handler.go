@@ -106,6 +106,7 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 			Filename:    a.Filename,
 			ContentType: a.ContentType,
 			Data:        data,
+			UploadAuth:  a.UploadAuth,
 		})
 	}
 
@@ -149,6 +150,8 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 			errors.Forbidden("SEND_SUSPENDED", err.Error()).WriteResponse(w)
 		case stderrors.Is(err, email.ErrClientAttachmentNotEncrypted):
 			errors.BadRequest("ATTACHMENT_NOT_ENCRYPTED", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, email.ErrInvalidUploadAuth):
+			errors.BadRequest("INVALID_UPLOAD_AUTH", err.Error()).WriteResponse(w)
 		// Rate limits are transient: 429 + Retry-After so clients back off
 		// instead of hammering.
 		case stderrors.As(err, &rateLimited):

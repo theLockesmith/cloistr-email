@@ -3,16 +3,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { SignerRecovery } from '@cloistr/ui/components'
-import { emailAPI, keyAPI, type SendEmailRequest, type Email, type AttachmentRequest } from '../lib/api'
+import { emailAPI, keyAPI, type SendEmailRequest, type Email, type AttachmentRequest, type SignedNostrEvent } from '../lib/api'
 import {
   hasNostrExtension,
   hasNip44Support,
   encrypt as nip07Encrypt,
   nip07EnvelopeSigner,
+  signEvent as nip07SignEvent,
   type EncryptionMode,
 } from '../lib/nostr'
 import { quoteBody, forwardBlock, replySubject, forwardSubject, buildClientEncryptedSend } from '../lib/email-compose'
-import { encryptAttachmentsForRecipients } from '../lib/attachment-crypto'
+import { encryptAttachmentsForRecipients, withUploadAuth } from '../lib/attachment-crypto'
 import { cachedProtectedSubject } from '../lib/protected-headers'
 import { composeDraftKey, saveDraft, loadDraft, clearDraft, hasDraftContent } from '../lib/draft-autosave'
 
@@ -241,7 +242,11 @@ export default function ComposePage() {
 
         const encryptedContent = await buildClientEncryptedSend({ subject, body }, recipientPubkey, nip07Encrypt)
         const encryptedAttachments = attachments.length > 0
-          ? await encryptAttachmentsForRecipients(attachments, [recipientPubkey], nip07EnvelopeSigner())
+          ? await Promise.all(
+              (await encryptAttachmentsForRecipients(attachments, [recipientPubkey], nip07EnvelopeSigner())).map((a) =>
+                withUploadAuth(a, (ev) => nip07SignEvent(ev) as Promise<SignedNostrEvent>),
+              ),
+            )
           : []
 
         sendRequest = {

@@ -129,3 +129,76 @@ func authorizationHeader(event *nostr.Event) (string, error) {
 	}
 	return "Nostr " + base64.StdEncoding.EncodeToString(raw), nil
 }
+
+// ValidateUploadAuth checks a kind-24242 upload authorization that a client
+// signed with its own key (client-side mode: the server holds no key for the
+// user and must not sign on their behalf). It must be validly signed by
+// pubkey, authorize exactly the "upload" verb for hash, and not be expired.
+func ValidateUploadAuth(ev *nostr.Event, pubkey, hash string, now time.Time) error {
+	if ev == nil {
+		return fmt.Errorf("blossom: no upload authorization")
+	}
+	if ev.Kind != authEventKind {
+		return fmt.Errorf("blossom: upload authorization has kind %d, want %d", ev.Kind, authEventKind)
+	}
+	if ev.PubKey != pubkey {
+		return fmt.Errorf("blossom: upload authorization is signed by another key")
+	}
+	if ok, err := ev.CheckSignature(); err != nil || !ok {
+		return fmt.Errorf("blossom: upload authorization signature is invalid")
+	}
+	var verbOK, hashOK, expOK bool
+	for _, t := range ev.Tags {
+		if len(t) < 2 {
+			continue
+		}
+		switch t[0] {
+		case "t":
+			verbOK = verbOK || t[1] == "upload"
+		case "x":
+			hashOK = hashOK || t[1] == hash
+		case "expiration":
+			var exp int64
+			if _, err := fmt.Sscanf(t[1], "%d", &exp); err == nil && exp > now.Unix() {
+				expOK = true
+			}
+		}
+	}
+	switch {
+	case !verbOK:
+		return fmt.Errorf("blossom: upload authorization is not for upload")
+	case !hashOK:
+		return fmt.Errorf("blossom: upload authorization does not cover this blob")
+	case !expOK:
+		return fmt.Errorf("blossom: upload authorization is expired or has no expiration")
+	}
+	return nil
+}
+
+// presignedAuthSigner replays one client-signed upload authorization. It can
+// authorize only the upload of the blob it was signed for, and nothing else.
+type presignedAuthSigner struct {
+	event *nostr.Event
+	hash  string
+}
+
+// NewPresignedUploadAuth returns an AuthSigner that hands Blossom the client's
+// own signed authorization for uploading hash. Validate it first with
+// ValidateUploadAuth.
+func NewPresignedUploadAuth(event *nostr.Event, hash string) AuthSigner {
+	return &presignedAuthSigner{event: event, hash: hash}
+}
+
+// SignAuth implements AuthSigner.
+func (s *presignedAuthSigner) SignAuth(_ context.Context, verb string, hashes []string, _ time.Time) (*nostr.Event, error) {
+	if verb != "upload" || len(hashes) != 1 || hashes[0] != s.hash {
+		return nil, fmt.Errorf("blossom: client authorization covers only uploading %s", s.hash)
+	}
+	return s.event, nil
+}
+
+// PublicKey implements AuthSigner.
+func (s *presignedAuthSigner) PublicKey() string { return s.event.PubKey }
+
+// BlobHash is the sha256 hex Blossom addresses data by.
+func BlobHash(data []byte) string { return sha256Hex(data) }

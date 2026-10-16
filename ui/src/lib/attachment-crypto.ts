@@ -22,7 +22,7 @@
  */
 import { generateContentKey, wrapKeyForRecipient, unwrapKeyFromSender, type SignerInterface } from '@cloistr/auth'
 import { encryptBlob, decryptBlob } from '@cloistr/collab-common/storage'
-import type { AttachmentRequest } from './api'
+import type { AttachmentRequest, SignedNostrEvent } from './api'
 
 /** Content type the server sees for every client-encrypted attachment. */
 export const ENCRYPTED_ATTACHMENT_TYPE = 'application/vnd.cloistr.encrypted-attachment+json'
@@ -63,7 +63,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(s)
 }
 
-function base64ToBytes(b64: string): Uint8Array {
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64)
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
@@ -127,4 +127,40 @@ export async function decryptAttachment(serialized: string, signer: EnvelopeSign
   const meta = JSON.parse(fromUtf8.decode(await decryptBlob(env.meta, key))) as { filename: string; content_type?: string }
   const data = await decryptBlob(env.data, key)
   return { filename: meta.filename, content_type: meta.content_type, data_base64: bytesToBase64(data) }
+}
+
+/** How long a client-signed upload authorization stays valid. */
+const UPLOAD_AUTH_TTL_SECONDS = 15 * 60
+
+type UnsignedEvent = { kind: number; created_at: number; tags: string[][]; content: string }
+
+async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Signs, with the sender's own key, the Blossom upload authorization (BUD-01
+ * kind 24242) for exactly this attachment's bytes. Client-side signing: the
+ * server stores client-mode attachments only under the sender's authorization
+ * and never signs for them. The authorization names the blob's hash, so it
+ * cannot be used to upload anything else.
+ */
+export async function withUploadAuth(
+  att: AttachmentRequest,
+  sign: (event: UnsignedEvent) => Promise<SignedNostrEvent>,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<AttachmentRequest> {
+  const hash = await sha256Hex(base64ToBytes(att.data_base64))
+  const upload_auth = await sign({
+    kind: 24242,
+    created_at: nowSeconds,
+    tags: [
+      ['t', 'upload'],
+      ['x', hash],
+      ['expiration', String(nowSeconds + UPLOAD_AUTH_TTL_SECONDS)],
+    ],
+    content: 'upload blob',
+  })
+  return { ...att, upload_auth }
 }

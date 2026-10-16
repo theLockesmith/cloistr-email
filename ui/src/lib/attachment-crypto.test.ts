@@ -3,6 +3,7 @@ import { nip44, generateSecretKey, getPublicKey } from 'nostr-tools'
 import {
   encryptAttachmentsForRecipients,
   decryptAttachment,
+  withUploadAuth,
   ENCRYPTED_ATTACHMENT_FILENAME,
   ENCRYPTED_ATTACHMENT_TYPE,
   type EnvelopeSigner,
@@ -109,5 +110,25 @@ describe('encrypted attachments', () => {
       [await r1.getPublicKey(), await r2.getPublicKey(), await sender.getPublicKey()].sort(),
     )
     expect(sender.calls).toBe(3)
+  })
+})
+
+describe('client-signed upload authorization', () => {
+  it('is signed by the sender for exactly the bytes sent, and expires', async () => {
+    const { finalizeEvent, verifyEvent } = await import('nostr-tools')
+    const sk = generateSecretKey()
+    const att = { filename: ENCRYPTED_ATTACHMENT_FILENAME, data_base64: btoa('{"v":1}') }
+    const now = 1_800_000_000
+    const out = await withUploadAuth(att, async (ev) => finalizeEvent(ev, sk), now)
+    const ev = out.upload_auth!
+    expect(verifyEvent(ev)).toBe(true)
+    expect(ev.pubkey).toBe(getPublicKey(sk))
+    expect(ev.kind).toBe(24242)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('{"v":1}')))
+    const hex = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')
+    expect(ev.tags).toContainEqual(['x', hex])
+    expect(ev.tags).toContainEqual(['t', 'upload'])
+    expect(ev.tags).toContainEqual(['expiration', String(now + 900)])
+    expect(out.data_base64).toBe(att.data_base64)
   })
 })
