@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nip44, generateSecretKey, getPublicKey } from 'nostr-tools'
-import { wrapProtectedHeaders, parseProtectedHeaders, ENCRYPTED_SUBJECT_PLACEHOLDER } from './protected-headers'
-import { buildClientEncryptedSend } from './email-compose'
+import { wrapProtectedHeaders, parseProtectedHeaders } from './protected-headers'
 
 describe('protected headers', () => {
   it('round-trips the subject and body', () => {
@@ -23,20 +21,5 @@ describe('protected headers', () => {
     const p = parseProtectedHeaders(wrapProtectedHeaders('one\r\n\r\nX-Evil: 1', 'body'))
     expect(p.subject).toBe('one X-Evil: 1')
     expect(p.body).toBe('body')
-  })
-})
-
-describe('client-mode send', () => {
-  const sk = generateSecretKey()
-  const rpk = getPublicKey(generateSecretKey())
-  const encrypt = async (pk: string, pt: string) => nip44.encrypt(pt, nip44.getConversationKey(sk, pk))
-
-  it('keeps the real subject out of the request and inside the ciphertext', async () => {
-    const req = await buildClientEncryptedSend({ subject: 'Q3 salaries', body: 'numbers' }, rpk, encrypt)
-    expect(req.subject).toBe(ENCRYPTED_SUBJECT_PLACEHOLDER)
-    expect(JSON.stringify(req)).not.toContain('Q3 salaries')
-    expect(req.body).toBeUndefined()
-    const plaintext = nip44.decrypt(req.pre_encrypted_body, nip44.getConversationKey(sk, rpk))
-    expect(parseProtectedHeaders(plaintext)).toEqual({ subject: 'Q3 salaries', body: 'numbers' })
   })
 })

@@ -3,17 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { SignerRecovery } from '@cloistr/ui/components'
-import { emailAPI, keyAPI, type SendEmailRequest, type Email, type AttachmentRequest, type SignedNostrEvent } from '../lib/api'
+import { emailAPI, keyAPI, type SendEmailRequest, type Email, type AttachmentRequest } from '../lib/api'
 import {
   hasNostrExtension,
-  hasNip44Support,
-  encrypt as nip07Encrypt,
-  nip07EnvelopeSigner,
-  signEvent as nip07SignEvent,
   type EncryptionMode,
 } from '../lib/nostr'
-import { quoteBody, forwardBlock, replySubject, forwardSubject, buildClientEncryptedSend } from '../lib/email-compose'
-import { encryptAttachmentsForRecipients, withUploadAuth } from '../lib/attachment-crypto'
+import { quoteBody, forwardBlock, replySubject, forwardSubject, buildClientModeSend } from '../lib/email-compose'
+import { clientModeSigner } from '../lib/client-signer'
+import { useNostrAuth } from '@cloistr/auth'
 import { cachedProtectedSubject } from '../lib/protected-headers'
 import { composeDraftKey, saveDraft, loadDraft, clearDraft, hasDraftContent } from '../lib/draft-autosave'
 
@@ -68,7 +65,10 @@ export default function ComposePage() {
 
   // Check available encryption modes
   const hasExtension = hasNostrExtension()
-  const hasNip44 = hasNip44Support()
+  // Client mode runs on the session's signer (Cloistr signer or extension).
+  const { signer: sessionSigner } = useNostrAuth()
+  const cmSigner = clientModeSigner(sessionSigner)
+  const hasNip44 = cmSigner !== null
 
   // Load the original email when replying or forwarding
   const { data: originalResponse } = useQuery({
@@ -236,24 +236,13 @@ export default function ComposePage() {
         if (!recipientPubkey) {
           throw new Error('Cannot encrypt: recipient public key not found')
         }
-        if (!hasNip44) {
-          throw new Error('Cannot encrypt: browser extension does not support NIP-44')
+        if (!cmSigner) {
+          throw new Error('Cannot encrypt: your signer does not support NIP-44')
         }
-
-        const encryptedContent = await buildClientEncryptedSend({ subject, body }, recipientPubkey, nip07Encrypt)
-        const encryptedAttachments = attachments.length > 0
-          ? await Promise.all(
-              (await encryptAttachmentsForRecipients(attachments, [recipientPubkey], nip07EnvelopeSigner())).map((a) =>
-                withUploadAuth(a, (ev) => nip07SignEvent(ev) as Promise<SignedNostrEvent>),
-              ),
-            )
-          : []
 
         sendRequest = {
           ...sendRequest,
-          ...encryptedContent,
-          recipient_pubkeys: { [to]: recipientPubkey },
-          ...(encryptedAttachments.length > 0 ? { attachments: encryptedAttachments } : {}),
+          ...(await buildClientModeSend({ to, subject, body, attachments }, recipientPubkey, cmSigner)),
         }
       } else if (encryptionMode === 'server' && recipientPubkey) {
         sendRequest.recipient_pubkeys = { [to]: recipientPubkey }
@@ -519,7 +508,7 @@ export default function ComposePage() {
                   )}
                 </div>
                 <p className="text-sm text-cloistr-text-muted">
-                  {hasExtension
+                  {hasExtension || hasNip44
                     ? hasNip44
                       ? 'Encrypted locally - server never sees plaintext'
                       : 'Your extension does not support NIP-44 encryption'

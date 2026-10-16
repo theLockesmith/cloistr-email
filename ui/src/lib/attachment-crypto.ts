@@ -73,6 +73,25 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
 const utf8 = new TextEncoder()
 const fromUtf8 = new TextDecoder()
 
+/**
+ * Wraps a content key to every recipient and to the sender. The sender is
+ * always a recipient of their own key, so they can open their own sent copy;
+ * deduped in case they also sent to themselves.
+ */
+export async function wrapContentKey(
+  key: Uint8Array,
+  subject: string,
+  recipientPubkeys: string[],
+  sender: string,
+  signer: EnvelopeSigner,
+): Promise<Record<string, string>> {
+  const keys: Record<string, string> = {}
+  for (const pk of new Set([...recipientPubkeys, sender])) {
+    keys[pk] = await wrapKeyForRecipient(key, subject, pk, signer as SignerInterface)
+  }
+  return keys
+}
+
 export async function encryptAttachment(
   att: AttachmentRequest,
   recipientPubkeys: string[],
@@ -85,12 +104,7 @@ export async function encryptAttachment(
   const data = await encryptBlob(base64ToBytes(att.data_base64), key)
   const meta = await encryptBlob(utf8.encode(JSON.stringify({ filename: att.filename, content_type: att.content_type })), key)
 
-  // The sender is always a recipient of their own key; dedupe in case they
-  // also sent to themselves.
-  const keys: Record<string, string> = {}
-  for (const pk of new Set([...recipientPubkeys, sender])) {
-    keys[pk] = await wrapKeyForRecipient(key, id, pk, signer as SignerInterface)
-  }
+  const keys = await wrapContentKey(key, id, recipientPubkeys, sender, signer)
 
   const envelope: EncryptedAttachmentV1 = { v: 1, id, sender, keys, meta, data }
   return {

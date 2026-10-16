@@ -110,3 +110,47 @@ func TestIsEncryptedAttachment_BrowserFixture(t *testing.T) {
 		t.Fatal("envelope produced by the browser code was refused")
 	}
 }
+
+func TestIsEncryptedBody(t *testing.T) {
+	b, err := os.ReadFile("testdata/browser_encrypted_body.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := strings.TrimSpace(string(b))
+	if !IsEncryptedBody(fixture) {
+		t.Fatal("body envelope produced by the browser code was refused")
+	}
+
+	var env map[string]any
+	if err := json.Unmarshal([]byte(fixture), &env); err != nil {
+		t.Fatal(err)
+	}
+	mutate := map[string]func(map[string]any){
+		"attachment, not body": func(e map[string]any) { e["type"] = "attachment" },
+		"no type":              func(e map[string]any) { delete(e, "type") },
+		"no data":              func(e map[string]any) { delete(e, "data") },
+		"no sender envelope":   func(e map[string]any) { delete(e["keys"].(map[string]any), e["sender"].(string)) },
+		"plaintext alongside":  func(e map[string]any) { e["text"] = "the body in the clear" },
+	}
+	for name, m := range mutate {
+		t.Run(name, func(t *testing.T) {
+			var e map[string]any
+			_ = json.Unmarshal([]byte(fixture), &e)
+			m(e)
+			if IsEncryptedBody(string(marshal(t, e))) {
+				t.Error("accepted")
+			}
+		})
+	}
+	for name, s := range map[string]string{
+		"plaintext":           "Hi Bob, the numbers are 1, 2, 3",
+		"attachment envelope": string(marshal(t, testEnvelope(t))),
+		"empty":               "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if IsEncryptedBody(s) {
+				t.Error("accepted")
+			}
+		})
+	}
+}

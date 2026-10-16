@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr/nip44"
@@ -121,5 +122,25 @@ func TestAttachmentBlob_ServerEncryptFailurePropagates(t *testing.T) {
 	_, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeServerSide, AttachmentInput{Data: []byte("x")})
 	if err == nil {
 		t.Error("expected encryption failure to propagate (caller skips the attachment)")
+	}
+}
+
+// Client mode refuses a readable body, and accepts both the body envelope and
+// the older NIP-44 payload so older clients keep working.
+func TestCheckClientBodyEncrypted(t *testing.T) {
+	envelope, err := os.ReadFile("../encryption/testdata/browser_encrypted_body.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkClientBodyEncrypted(strings.TrimSpace(string(envelope))); err != nil {
+		t.Errorf("body envelope refused: %v", err)
+	}
+	if err := checkClientBodyEncrypted(string(bareNIP44(t))); err != nil {
+		t.Errorf("older NIP-44 body refused: %v", err)
+	}
+	for _, plain := range []string{"Hi Bob, the numbers are 1, 2, 3", ""} {
+		if err := checkClientBodyEncrypted(plain); !errors.Is(err, ErrClientBodyNotEncrypted) {
+			t.Errorf("plaintext %q: err = %v, want ErrClientBodyNotEncrypted", plain, err)
+		}
 	}
 }

@@ -204,6 +204,9 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	// ciphertext too, or they would be relayed in the outbound MIME and
 	// uploaded to Blossom as readable files.
 	if req.EncryptionMode == encryption.ModeClientSide {
+		if err := checkClientBodyEncrypted(req.PreEncryptedBody); err != nil {
+			return nil, err
+		}
 		if err := checkClientAttachmentsEncrypted(req.Attachments); err != nil {
 			return nil, err
 		}
@@ -953,6 +956,20 @@ func checkClientAttachmentsEncrypted(atts []AttachmentInput) error {
 		}
 	}
 	return nil
+}
+
+// ErrClientBodyNotEncrypted is returned when a client-side send's body is not
+// ciphertext: neither a body envelope nor (older format) a NIP-44 payload.
+var ErrClientBodyNotEncrypted = errors.New("client-side encryption requires the body to be encrypted by the client")
+
+// checkClientBodyEncrypted refuses a client-side body that is not ciphertext.
+// Both the body envelope and the older NIP-44-to-recipient payload are
+// accepted, so older clients keep working.
+func checkClientBodyEncrypted(body string) error {
+	if encryption.IsEncryptedBody(body) || encryption.IsNIP44Payload(body) {
+		return nil
+	}
+	return ErrClientBodyNotEncrypted
 }
 
 // ErrInvalidUploadAuth is returned when a client-side send carries a Blossom

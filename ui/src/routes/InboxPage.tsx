@@ -5,7 +5,9 @@ import { emailAPI, type Email } from '../lib/api'
 import { parseSearchQuery, hasOperators } from '../lib/search-operators'
 import { loadFilterRules, applyFilterRules } from '../lib/filters'
 import { ENCRYPTED_SUBJECT_PLACEHOLDER, parseProtectedHeaders, cacheProtectedSubject, cachedProtectedSubject } from '../lib/protected-headers'
-import { decrypt as nip07Decrypt, hasNip44Support } from '../lib/nostr'
+import { openClientBody } from '../lib/body-crypto'
+import { clientModeSigner } from '../lib/client-signer'
+import { useNostrAuth } from '@cloistr/auth'
 
 type Folder = 'inbox' | 'sent' | 'drafts' | 'trash' | 'archive' | 'starred'
 
@@ -74,6 +76,8 @@ export default function InboxPage() {
   // Client-encrypted messages show a placeholder subject; the real one is inside
   // the ciphertext. Decrypting it is a browser-extension call per message, so
   // it runs only when asked, and results are kept for this tab only.
+  const { signer: sessionSigner } = useNostrAuth()
+  const cmSigner = clientModeSigner(sessionSigner)
   const [, setSubjectsVersion] = useState(0)
   const [decryptingSubjects, setDecryptingSubjects] = useState(false)
   const hiddenSubjects = emails.filter(
@@ -86,10 +90,13 @@ export default function InboxPage() {
         try {
           const full = (await emailAPI.get(e.id)).data
           if (!full.encrypted_body || !full.sender_pubkey) continue
-          const opened = parseProtectedHeaders(await nip07Decrypt(full.sender_pubkey, full.encrypted_body))
+          if (!cmSigner) break
+          const opened = parseProtectedHeaders(
+            await openClientBody(full.encrypted_body, full.sender_pubkey, cmSigner, cmSigner.nip44Decrypt),
+          )
           if (opened.subject !== undefined) cacheProtectedSubject(e.id, opened.subject)
         } catch {
-          // Not decryptable by this key (e.g. a sent copy); keep the placeholder.
+          // Not decryptable by this key; keep the placeholder.
         }
       }
     } finally {
@@ -328,7 +335,7 @@ export default function InboxPage() {
         </div>
       )}
 
-      {hiddenSubjects.length > 0 && hasNip44Support() && (
+      {hiddenSubjects.length > 0 && cmSigner && (
         <div className="mx-4 my-2 flex items-center justify-between gap-2 text-sm text-cloistr-text-muted">
           <span>{hiddenSubjects.length} encrypted subject{hiddenSubjects.length === 1 ? '' : 's'} hidden</span>
           <button
