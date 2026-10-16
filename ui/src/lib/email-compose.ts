@@ -4,6 +4,7 @@
  * Pure utility functions for composing reply and forward emails.
  * Extracted from ComposePage to enable unit testing without a DOM.
  */
+import { ENCRYPTED_SUBJECT_PLACEHOLDER, wrapProtectedHeaders } from './protected-headers'
 
 /**
  * Builds a quoted body block for a reply.
@@ -38,4 +39,21 @@ export function replySubject(original: string): string {
  */
 export function forwardSubject(original: string): string {
   return original.startsWith('Fwd:') ? original : `Fwd: ${original}`
+}
+
+/**
+ * The parts of a client-side (end-to-end) send that carry content: the body
+ * encrypted to the recipient with the real subject sealed inside it as a
+ * protected header, and the placeholder as the only subject in the clear.
+ */
+export async function buildClientEncryptedSend(
+  msg: { subject: string; body: string },
+  recipientPubkey: string,
+  encrypt: (pubkey: string, plaintext: string) => Promise<string>,
+): Promise<{ subject: string; body: undefined; pre_encrypted_body: string }> {
+  return {
+    subject: ENCRYPTED_SUBJECT_PLACEHOLDER,
+    body: undefined,
+    pre_encrypted_body: await encrypt(recipientPubkey, wrapProtectedHeaders(msg.subject, msg.body)),
+  }
 }

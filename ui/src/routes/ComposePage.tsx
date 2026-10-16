@@ -11,8 +11,9 @@ import {
   nip07EnvelopeSigner,
   type EncryptionMode,
 } from '../lib/nostr'
-import { quoteBody, forwardBlock, replySubject, forwardSubject } from '../lib/email-compose'
+import { quoteBody, forwardBlock, replySubject, forwardSubject, buildClientEncryptedSend } from '../lib/email-compose'
 import { encryptAttachmentsForRecipients } from '../lib/attachment-crypto'
+import { cachedProtectedSubject } from '../lib/protected-headers'
 import { composeDraftKey, saveDraft, loadDraft, clearDraft, hasDraftContent } from '../lib/draft-autosave'
 
 // Max per-file size to accept (20 MiB). Hard limit from Blossom backend.
@@ -103,13 +104,13 @@ export default function ComposePage() {
 
     if (replyId) {
       setTo(originalEmail.from)
-      setSubject(replySubject(originalEmail.subject))
+      setSubject(replySubject(cachedProtectedSubject(originalEmail.id) ?? originalEmail.subject))
       const date = new Date(originalEmail.created_at).toLocaleString()
       setBody(sigBlock + quoteBody(originalEmail.from, date, originalEmail.body || ''))
     }
 
     if (forwardId) {
-      setSubject(forwardSubject(originalEmail.subject))
+      setSubject(forwardSubject(cachedProtectedSubject(originalEmail.id) ?? originalEmail.subject))
       const date = new Date(originalEmail.created_at).toLocaleString()
       setBody(
         sigBlock +
@@ -238,15 +239,14 @@ export default function ComposePage() {
           throw new Error('Cannot encrypt: browser extension does not support NIP-44')
         }
 
-        const encryptedBody = await nip07Encrypt(recipientPubkey, body)
+        const encryptedContent = await buildClientEncryptedSend({ subject, body }, recipientPubkey, nip07Encrypt)
         const encryptedAttachments = attachments.length > 0
           ? await encryptAttachmentsForRecipients(attachments, [recipientPubkey], nip07EnvelopeSigner())
           : []
 
         sendRequest = {
           ...sendRequest,
-          body: undefined,
-          pre_encrypted_body: encryptedBody,
+          ...encryptedContent,
           recipient_pubkeys: { [to]: recipientPubkey },
           ...(encryptedAttachments.length > 0 ? { attachments: encryptedAttachments } : {}),
         }

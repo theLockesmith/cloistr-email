@@ -261,7 +261,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		BCCAddresses:        req.BCC,
 		SenderPubkey:        req.SenderNpub,
 		RecipientPubkeys:    recipientPubkeys,
-		Subject:             req.Subject,
+		Subject:             outerSubject(req),
 		Body:                body,
 		HTMLBody:            req.HTMLBody,
 		IsPreEncrypted:      isPreEncrypted,
@@ -321,7 +321,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 			MessageID:      stringPtr(deliveryResult.MessageID),
 			FromAddress:    senderAddr.Email,
 			ToAddress:      req.To[0], // Primary recipient
-			Subject:        req.Subject,
+			Subject:        outerSubject(req),
 			Body:           storedBody,
 			IsEncrypted:    storedMode != string(encryption.ModeNone),
 			EncryptionMode: stringPtr(storedMode),
@@ -910,6 +910,22 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 				zap.String("filename", att.Filename), zap.Error(err))
 		}
 	}
+}
+
+// EncryptedSubjectPlaceholder is the only subject a client-side (end-to-end)
+// message carries outside its ciphertext. The real subject travels inside the
+// encrypted body as a protected header (see ui/src/lib/protected-headers.ts).
+const EncryptedSubjectPlaceholder = "Encrypted message"
+
+// outerSubject is the subject that goes on the wire and into storage. In
+// client-side mode it is always the placeholder, whatever the client sent, so
+// a client that still puts the real subject in the request cannot leak it into
+// the outbound headers or the stored copy.
+func outerSubject(req *SendRequest) string {
+	if req.EncryptionMode == encryption.ModeClientSide {
+		return EncryptedSubjectPlaceholder
+	}
+	return req.Subject
 }
 
 // ErrClientAttachmentNotEncrypted is returned when a client-side (end-to-end)
