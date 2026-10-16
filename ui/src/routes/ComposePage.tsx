@@ -242,7 +242,7 @@ export default function ComposePage() {
 
         sendRequest = {
           ...sendRequest,
-          ...(await buildClientModeSend({ to, subject, body, attachments }, recipientPubkey, cmSigner)),
+          ...(await buildClientModeSend({ subject, body, attachments }, { [to]: recipientPubkey }, cmSigner)),
         }
       } else if (encryptionMode === 'server' && recipientPubkey) {
         sendRequest.recipient_pubkeys = { [to]: recipientPubkey }

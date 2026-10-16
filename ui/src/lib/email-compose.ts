@@ -70,19 +70,26 @@ export async function buildClientEncryptedSend(
  * signed Blossom upload authorization.
  */
 export async function buildClientModeSend(
-  msg: { to: string; subject: string; body: string; attachments: AttachmentRequest[] },
-  recipientPubkey: string,
+  msg: { subject: string; body: string; attachments: AttachmentRequest[] },
+  recipients: Record<string, string>,
   signer: ClientModeSigner,
 ): Promise<Pick<SendEmailRequest, 'subject' | 'body' | 'pre_encrypted_body' | 'recipient_pubkeys' | 'attachments'>> {
-  const content = await buildClientEncryptedSend(msg, [recipientPubkey], signer)
-  const attachments: AttachmentRequest[] = []
-  for (const att of msg.attachments) {
-    const sealed = await encryptAttachment(att, [recipientPubkey], signer)
-    attachments.push(await withUploadAuth(sealed, (ev) => signer.signEvent(ev)))
-  }
+  const pubkeys = [...new Set(Object.values(recipients))]
+  // The body and every attachment are independent: their key wraps all go to
+  // the signer at once. Each attachment's upload authorization has to follow
+  // that attachment's encryption (it names the ciphertext's hash), so the
+  // critical path is one wrap round plus one signature, whatever R and A are.
+  const [content, attachments] = await Promise.all([
+    buildClientEncryptedSend(msg, pubkeys, signer),
+    Promise.all(
+      msg.attachments.map(async (att) =>
+        withUploadAuth(await encryptAttachment(att, pubkeys, signer), (ev) => signer.signEvent(ev)),
+      ),
+    ),
+  ])
   return {
     ...content,
-    recipient_pubkeys: { [msg.to]: recipientPubkey },
+    recipient_pubkeys: recipients,
     ...(attachments.length > 0 ? { attachments } : {}),
   }
 }
