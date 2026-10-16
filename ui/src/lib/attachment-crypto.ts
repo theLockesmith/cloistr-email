@@ -1,49 +1,130 @@
 /**
  * attachment-crypto.ts
  *
- * Client-side (end-to-end) encryption of attachments, using the same NIP-44
- * scheme as the message body. Client mode promises the server never sees
- * plaintext; before this, only the body was encrypted and attachments went to
- * the server, the outbound mail and Blossom as readable files.
+ * Client-side (end-to-end) encryption of attachments. Client mode promises the
+ * server never sees attachment contents; each file is encrypted on the device
+ * before it is sent.
  *
- * The encrypted text is the NIP-44 payload of the file's base64. It travels in
- * the request's data_base64 field base64-encoded once more, because that field
- * is decoded to bytes on the server. The server refuses any client-mode
- * attachment that is not a NIP-44 payload.
+ * HYBRID, NOT A NEW FORMAT. Each attachment gets its own random content key.
+ * The file and its name/type are encrypted under that key with the shared
+ * blob cipher (@cloistr/collab-common/storage, XChaCha20-Poly1305), and the key
+ * is wrapped to each recipient AND to the sender with the shared envelope
+ * primitive (@cloistr/auth envelope, NIP-44 v2). See
+ * architecture/key-wrapping-and-collection-keys.md: wrap keys, never derive,
+ * and every key is also wrapped to its owner, so the sender can open their
+ * own sent copy. This replaces sending the file through NIP-44 directly, which
+ * capped attachments at ~48 KB.
+ *
+ * What travels: the attachment's bytes are the JSON of EncryptedAttachmentV1,
+ * with an opaque filename and content type, so the server sees neither the
+ * contents nor the real name or type. The server refuses any client-mode
+ * attachment that is not this shape.
  */
+import { generateContentKey, wrapKeyForRecipient, unwrapKeyFromSender, type SignerInterface } from '@cloistr/auth'
+import { encryptBlob, decryptBlob } from '@cloistr/collab-common/storage'
 import type { AttachmentRequest } from './api'
 
-/** NIP-44 encrypts at most 65535 bytes of text in one message. */
-const NIP44_MAX_PLAINTEXT = 65535
+/** Content type the server sees for every client-encrypted attachment. */
+export const ENCRYPTED_ATTACHMENT_TYPE = 'application/vnd.cloistr.encrypted-attachment+json'
+/** Filename the server sees; the real one is inside `meta`. */
+export const ENCRYPTED_ATTACHMENT_FILENAME = 'encrypted-attachment'
 
-/**
- * Largest file that fits one NIP-44 message once base64-encoded (4 chars per
- * 3 bytes). Bigger files need a chunked or hybrid scheme, which is not built
- * yet, so they are refused rather than sent unencrypted.
- */
-export const MAX_CLIENT_ENCRYPTED_ATTACHMENT_BYTES = Math.floor(NIP44_MAX_PLAINTEXT / 4) * 3
+type EncryptedBlob = Awaited<ReturnType<typeof encryptBlob>>
 
-type Encrypt = (pubkey: string, plaintext: string) => Promise<string>
-type Decrypt = (pubkey: string, ciphertext: string) => Promise<string>
+export interface EncryptedAttachmentV1 {
+  v: 1
+  /** Random id. The envelope subject, so an envelope moved between attachments is refused. */
+  id: string
+  /** Hex pubkey every envelope's ECDH is against: the sender's. */
+  sender: string
+  /** Hex pubkey -> the content key wrapped to that person. Recipients and the sender. */
+  keys: Record<string, string>
+  /** JSON {filename, content_type}, encrypted under the content key. */
+  meta: EncryptedBlob
+  /** The file bytes, encrypted under the content key. */
+  data: EncryptedBlob
+}
 
-export async function encryptAttachmentsForRecipient(
+/** The parts of a signer this needs: NIP-44 only, never NIP-04. */
+export type EnvelopeSigner = Pick<SignerInterface, 'getPublicKey' | 'nip44Encrypt' | 'nip44Decrypt'>
+
+export interface DecryptedAttachment {
+  filename: string
+  content_type?: string
+  data_base64: string
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let s = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    s += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(s)
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+const utf8 = new TextEncoder()
+const fromUtf8 = new TextDecoder()
+
+export async function encryptAttachment(
+  att: AttachmentRequest,
+  recipientPubkeys: string[],
+  signer: EnvelopeSigner,
+): Promise<AttachmentRequest> {
+  const sender = await signer.getPublicKey()
+  const key = generateContentKey()
+  const id = crypto.randomUUID()
+
+  const data = await encryptBlob(base64ToBytes(att.data_base64), key)
+  const meta = await encryptBlob(utf8.encode(JSON.stringify({ filename: att.filename, content_type: att.content_type })), key)
+
+  // The sender is always a recipient of their own key; dedupe in case they
+  // also sent to themselves.
+  const keys: Record<string, string> = {}
+  for (const pk of new Set([...recipientPubkeys, sender])) {
+    keys[pk] = await wrapKeyForRecipient(key, id, pk, signer as SignerInterface)
+  }
+
+  const envelope: EncryptedAttachmentV1 = { v: 1, id, sender, keys, meta, data }
+  return {
+    filename: ENCRYPTED_ATTACHMENT_FILENAME,
+    content_type: ENCRYPTED_ATTACHMENT_TYPE,
+    data_base64: bytesToBase64(utf8.encode(JSON.stringify(envelope))),
+  }
+}
+
+export async function encryptAttachmentsForRecipients(
   attachments: AttachmentRequest[],
-  recipientPubkey: string,
-  encrypt: Encrypt,
+  recipientPubkeys: string[],
+  signer: EnvelopeSigner,
 ): Promise<AttachmentRequest[]> {
   const out: AttachmentRequest[] = []
   for (const att of attachments) {
-    if (att.data_base64.length > NIP44_MAX_PLAINTEXT) {
-      const kb = Math.floor(MAX_CLIENT_ENCRYPTED_ATTACHMENT_BYTES / 1024)
-      throw new Error(`${att.filename} is too large to encrypt (encrypted attachments are limited to ${kb} KB for now)`)
-    }
-    const ciphertext = await encrypt(recipientPubkey, att.data_base64)
-    out.push({ ...att, data_base64: btoa(ciphertext) })
+    out.push(await encryptAttachment(att, recipientPubkeys, signer))
   }
   return out
 }
 
-/** Decrypts a client-mode attachment to the file's base64. */
-export function decryptAttachmentCiphertext(ciphertext: string, peerPubkey: string, decrypt: Decrypt): Promise<string> {
-  return decrypt(peerPubkey, ciphertext)
+/**
+ * Opens a client-encrypted attachment, given the bytes the server returned as
+ * text. Throws if this viewer holds no key for it or anything fails to verify.
+ */
+export async function decryptAttachment(serialized: string, signer: EnvelopeSigner): Promise<DecryptedAttachment> {
+  const env = JSON.parse(serialized) as EncryptedAttachmentV1
+  if (env.v !== 1) throw new Error(`Unsupported encrypted attachment version: ${String(env.v)}`)
+  const me = await signer.getPublicKey()
+  const wrapped = env.keys[me]
+  if (!wrapped) throw new Error('This attachment was not encrypted to your key')
+
+  const key = await unwrapKeyFromSender(wrapped, env.id, env.sender, signer as SignerInterface)
+  const meta = JSON.parse(fromUtf8.decode(await decryptBlob(env.meta, key))) as { filename: string; content_type?: string }
+  const data = await decryptBlob(env.data, key)
+  return { filename: meta.filename, content_type: meta.content_type, data_base64: bytesToBase64(data) }
 }
