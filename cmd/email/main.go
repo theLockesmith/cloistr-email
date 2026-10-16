@@ -646,7 +646,7 @@ func isIDSegment(seg string) bool {
 	if len(seg) >= 16 && len(seg) <= 64 {
 		allHex := true
 		for _, c := range seg {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 				allHex = false
 				break
 			}

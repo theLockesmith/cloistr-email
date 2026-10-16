@@ -374,11 +374,12 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 		email.Status = "active"
 	}
 	if email.Folder == "" {
-		if email.Direction == "sent" {
+		switch email.Direction {
+		case "sent":
 			email.Folder = "Sent"
-		} else if email.Direction == "draft" {
+		case "draft":
 			email.Folder = "Drafts"
-		} else {
+		default:
 			email.Folder = "INBOX"
 		}
 	}

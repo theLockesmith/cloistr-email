@@ -146,18 +146,18 @@ func (e *EncryptedEmail) FormatEncryptedEmailHeaders() map[string]string {
 func (e *EncryptedEmail) FormatRawEmail() string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("From: %s\r\n", e.From))
-	sb.WriteString(fmt.Sprintf("To: %s\r\n", e.To))
-	sb.WriteString(fmt.Sprintf("Subject: %s\r\n", e.Subject))
+	fmt.Fprintf(&sb, "From: %s\r\n", e.From)
+	fmt.Fprintf(&sb, "To: %s\r\n", e.To)
+	fmt.Fprintf(&sb, "Subject: %s\r\n", e.Subject)
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 	sb.WriteString("Content-Transfer-Encoding: base64\r\n")
 
 	if e.IsEncrypted {
-		sb.WriteString(fmt.Sprintf("%s: true\r\n", HeaderNostrEncrypted))
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", HeaderNostrSender, e.SenderPubkey))
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", HeaderNostrRecipient, e.RecipientPubkey))
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", HeaderNostrAlgorithm, e.Algorithm))
+		fmt.Fprintf(&sb, "%s: true\r\n", HeaderNostrEncrypted)
+		fmt.Fprintf(&sb, "%s: %s\r\n", HeaderNostrSender, e.SenderPubkey)
+		fmt.Fprintf(&sb, "%s: %s\r\n", HeaderNostrRecipient, e.RecipientPubkey)
+		fmt.Fprintf(&sb, "%s: %s\r\n", HeaderNostrAlgorithm, e.Algorithm)
 	}
 
 	sb.WriteString("\r\n")
