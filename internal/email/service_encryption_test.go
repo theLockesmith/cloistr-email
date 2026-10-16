@@ -144,3 +144,23 @@ func TestBodyAtRest_ServerNoEncryptionService(t *testing.T) {
 		t.Errorf("got (%q,%q), want (\"\", server) — no plaintext when svc missing", body, mode)
 	}
 }
+
+// Client-side mode hides the subject: the real one rides inside the encrypted
+// body, and the outer one is the placeholder even if the client sent the real
+// subject in the request.
+func TestOuterSubject(t *testing.T) {
+	cases := []struct {
+		mode encryption.EncryptionMode
+		want string
+	}{
+		{encryption.ModeClientSide, EncryptedSubjectPlaceholder},
+		{encryption.ModeServerSide, "Q3 salaries"},
+		{encryption.ModeNone, "Q3 salaries"},
+	}
+	for _, c := range cases {
+		got := outerSubject(&SendRequest{Subject: "Q3 salaries", EncryptionMode: c.mode})
+		if got != c.want {
+			t.Errorf("%s: outer subject = %q, want %q", c.mode, got, c.want)
+		}
+	}
+}

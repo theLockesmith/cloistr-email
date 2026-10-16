@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { emailAPI, type Email } from '../lib/api'
 import { parseSearchQuery, hasOperators } from '../lib/search-operators'
 import { loadFilterRules, applyFilterRules } from '../lib/filters'
+import { ENCRYPTED_SUBJECT_PLACEHOLDER, parseProtectedHeaders, cacheProtectedSubject, cachedProtectedSubject } from '../lib/protected-headers'
+import { decrypt as nip07Decrypt, hasNip44Support } from '../lib/nostr'
 
 type Folder = 'inbox' | 'sent' | 'drafts' | 'trash' | 'archive' | 'starred'
 
@@ -68,6 +70,33 @@ export default function InboxPage() {
   const rawEmails = response?.data?.emails || []
   const emails = applyFilterRules(rawEmails, loadFilterRules())
   const total = response?.data?.total || 0
+
+  // Client-encrypted messages show a placeholder subject; the real one is inside
+  // the ciphertext. Decrypting it is a browser-extension call per message, so
+  // it runs only when asked, and results are kept for this tab only.
+  const [, setSubjectsVersion] = useState(0)
+  const [decryptingSubjects, setDecryptingSubjects] = useState(false)
+  const hiddenSubjects = emails.filter(
+    (e: Email) => e.is_encrypted && e.subject === ENCRYPTED_SUBJECT_PLACEHOLDER && cachedProtectedSubject(e.id) === undefined,
+  )
+  const showSubjects = async () => {
+    setDecryptingSubjects(true)
+    try {
+      for (const e of hiddenSubjects) {
+        try {
+          const full = (await emailAPI.get(e.id)).data
+          if (!full.encrypted_body || !full.sender_pubkey) continue
+          const opened = parseProtectedHeaders(await nip07Decrypt(full.sender_pubkey, full.encrypted_body))
+          if (opened.subject !== undefined) cacheProtectedSubject(e.id, opened.subject)
+        } catch {
+          // Not decryptable by this key (e.g. a sent copy); keep the placeholder.
+        }
+      }
+    } finally {
+      setDecryptingSubjects(false)
+      setSubjectsVersion((v) => v + 1)
+    }
+  }
   const totalPages = Math.ceil(total / 25)
 
   // Mutations
@@ -299,6 +328,19 @@ export default function InboxPage() {
         </div>
       )}
 
+      {hiddenSubjects.length > 0 && hasNip44Support() && (
+        <div className="mx-4 my-2 flex items-center justify-between gap-2 text-sm text-cloistr-text-muted">
+          <span>{hiddenSubjects.length} encrypted subject{hiddenSubjects.length === 1 ? '' : 's'} hidden</span>
+          <button
+            onClick={showSubjects}
+            disabled={decryptingSubjects}
+            className="px-3 py-1 rounded border border-cloistr-border hover:bg-cloistr-bg-hover disabled:opacity-50"
+          >
+            {decryptingSubjects ? 'Decrypting…' : 'Show subjects'}
+          </button>
+        </div>
+      )}
+
       {/* Error state */}
       {error && (
         <div className="mx-4 my-2 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg p-4 text-sm">
@@ -387,7 +429,7 @@ export default function InboxPage() {
                   </div>
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className={`truncate text-sm ${isUnread ? 'font-medium' : ''} text-cloistr-text`}>
-                      {email.subject || '(No subject)'}
+                      {cachedProtectedSubject(email.id) ?? (email.subject || '(No subject)')}
                     </span>
                     {email.is_encrypted && (
                       <span className="flex-shrink-0 text-xs text-cloistr-success" title="Encrypted">🔒</span>

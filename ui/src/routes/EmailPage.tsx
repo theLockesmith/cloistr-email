@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { emailAPI, type Email } from '../lib/api'
 import { decryptAttachment } from '../lib/attachment-crypto'
+import { parseProtectedHeaders, cacheProtectedSubject, cachedProtectedSubject } from '../lib/protected-headers'
 import {
   hasNostrExtension,
   hasNip44Support,
@@ -19,6 +20,7 @@ export default function EmailPage() {
   const queryClient = useQueryClient()
 
   const [decryptedBody, setDecryptedBody] = useState<string | null>(null)
+  const [decryptedSubject, setDecryptedSubject] = useState<string | null>(null)
   const [isDecrypting, setIsDecrypting] = useState(false)
   const [decryptError, setDecryptError] = useState<string | null>(null)
   const [showHtml, setShowHtml] = useState(false)
@@ -114,7 +116,13 @@ export default function EmailPage() {
     setDecryptError(null)
     try {
       const plaintext = await nip07Decrypt(email.sender_pubkey, email.encrypted_body)
-      setDecryptedBody(plaintext)
+      // Client-mode messages carry the real subject inside the ciphertext.
+      const opened = parseProtectedHeaders(plaintext)
+      setDecryptedBody(opened.body)
+      if (opened.subject !== undefined && id) {
+        setDecryptedSubject(opened.subject)
+        cacheProtectedSubject(id, opened.subject)
+      }
     } catch (err) {
       console.error('Decryption error:', err)
       setDecryptError(err instanceof Error ? err.message : 'Decryption failed')
@@ -248,7 +256,7 @@ export default function EmailPage() {
       <div className="p-4">
         <div className="bg-cloistr-bg rounded-lg shadow p-4 md:p-6">
           {/* Subject */}
-          <h1 className="text-xl md:text-2xl font-bold mb-4 break-words">{email.subject}</h1>
+          <h1 className="text-xl md:text-2xl font-bold mb-4 break-words">{decryptedSubject ?? cachedProtectedSubject(email.id) ?? email.subject}</h1>
 
           {/* Email metadata */}
           <div className="border-b pb-4 mb-4">
