@@ -270,34 +270,34 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 	}
 
 	// Standard headers
-	sb.WriteString(fmt.Sprintf("Message-ID: <%s>\r\n", messageID))
-	sb.WriteString(fmt.Sprintf("Date: %s\r\n", dateStr))
-	sb.WriteString(fmt.Sprintf("From: %s\r\n", msg.FromAddress))
-	sb.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(msg.ToAddresses, ", ")))
+	fmt.Fprintf(&sb, "Message-ID: <%s>\r\n", messageID)
+	fmt.Fprintf(&sb, "Date: %s\r\n", dateStr)
+	fmt.Fprintf(&sb, "From: %s\r\n", msg.FromAddress)
+	fmt.Fprintf(&sb, "To: %s\r\n", strings.Join(msg.ToAddresses, ", "))
 
 	if len(msg.CCAddresses) > 0 {
-		sb.WriteString(fmt.Sprintf("Cc: %s\r\n", strings.Join(msg.CCAddresses, ", ")))
+		fmt.Fprintf(&sb, "Cc: %s\r\n", strings.Join(msg.CCAddresses, ", "))
 	}
 
 	// Note: BCC recipients are not included in headers (that's how BCC works)
 
-	sb.WriteString(fmt.Sprintf("Subject: %s\r\n", msg.Subject))
+	fmt.Fprintf(&sb, "Subject: %s\r\n", msg.Subject)
 
 	// Threading headers
 	if msg.InReplyTo != "" {
-		sb.WriteString(fmt.Sprintf("In-Reply-To: <%s>\r\n", msg.InReplyTo))
+		fmt.Fprintf(&sb, "In-Reply-To: <%s>\r\n", msg.InReplyTo)
 	}
 	if len(msg.References) > 0 {
 		refs := make([]string, len(msg.References))
 		for i, ref := range msg.References {
 			refs[i] = "<" + ref + ">"
 		}
-		sb.WriteString(fmt.Sprintf("References: %s\r\n", strings.Join(refs, " ")))
+		fmt.Fprintf(&sb, "References: %s\r\n", strings.Join(refs, " "))
 	}
 
 	// Custom headers
 	for k, v := range msg.Headers {
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+		fmt.Fprintf(&sb, "%s: %s\r\n", k, v)
 	}
 
 	// MIME headers
@@ -324,27 +324,27 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 				isEncrypted = true
 
 				// Add encryption headers
-				sb.WriteString(fmt.Sprintf("%s: true\r\n", encryption.HeaderNostrEncrypted))
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrSender, msg.SenderPubkey))
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrRecipient, pubkey))
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44))
+				fmt.Fprintf(&sb, "%s: true\r\n", encryption.HeaderNostrEncrypted)
+				fmt.Fprintf(&sb, "%s: %s\r\n", encryption.HeaderNostrSender, msg.SenderPubkey)
+				fmt.Fprintf(&sb, "%s: %s\r\n", encryption.HeaderNostrRecipient, pubkey)
+				fmt.Fprintf(&sb, "%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44)
 				break
 			}
 		}
 	} else if msg.IsPreEncrypted {
 		// Pre-encrypted (NIP-07 client-side encryption)
-		sb.WriteString(fmt.Sprintf("%s: true\r\n", encryption.HeaderNostrEncrypted))
+		fmt.Fprintf(&sb, "%s: true\r\n", encryption.HeaderNostrEncrypted)
 		if msg.SenderPubkey != "" {
-			sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrSender, msg.SenderPubkey))
+			fmt.Fprintf(&sb, "%s: %s\r\n", encryption.HeaderNostrSender, msg.SenderPubkey)
 		}
 		// For pre-encrypted, recipient pubkeys should be in the message
 		for _, addr := range msg.ToAddresses {
 			if pubkey, ok := msg.RecipientPubkeys[addr]; ok && pubkey != "" {
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrRecipient, pubkey))
+				fmt.Fprintf(&sb, "%s: %s\r\n", encryption.HeaderNostrRecipient, pubkey)
 				break
 			}
 		}
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44))
+		fmt.Fprintf(&sb, "%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44)
 	}
 
 	// Sign the email if a signer is provided (RFC-002)
@@ -356,7 +356,7 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 		} else {
 			// No nil check: ranging a nil map is a no-op in Go.
 			for k, v := range sigHeaders {
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+				fmt.Fprintf(&sb, "%s: %s\r\n", k, v)
 			}
 		}
 	}
@@ -366,16 +366,16 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 		t.writeBodyContent(&sb, msg, body, isEncrypted)
 	} else {
 		boundary := t.generateBoundary()
-		sb.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n", boundary))
+		fmt.Fprintf(&sb, "Content-Type: multipart/mixed; boundary=\"%s\"\r\n", boundary)
 		sb.WriteString("\r\n")
-		sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+		fmt.Fprintf(&sb, "--%s\r\n", boundary)
 		t.writeBodyContent(&sb, msg, body, isEncrypted)
 		sb.WriteString("\r\n")
 		for _, att := range msg.Attachments {
-			sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+			fmt.Fprintf(&sb, "--%s\r\n", boundary)
 			writeAttachmentPart(&sb, att)
 		}
-		sb.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+		fmt.Fprintf(&sb, "--%s--\r\n", boundary)
 	}
 
 	return []byte(sb.String()), nil
@@ -388,24 +388,24 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 func (t *SMTPTransport) writeBodyContent(sb *strings.Builder, msg *Message, body string, isEncrypted bool) {
 	if msg.HTMLBody != "" && !isEncrypted {
 		boundary := t.generateBoundary()
-		sb.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary))
+		fmt.Fprintf(sb, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary)
 		sb.WriteString("\r\n")
 
-		sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+		fmt.Fprintf(sb, "--%s\r\n", boundary)
 		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 		sb.WriteString("\r\n")
 		sb.WriteString(body)
 		sb.WriteString("\r\n")
 
-		sb.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+		fmt.Fprintf(sb, "--%s\r\n", boundary)
 		sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 		sb.WriteString("\r\n")
 		sb.WriteString(msg.HTMLBody)
 		sb.WriteString("\r\n")
 
-		sb.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+		fmt.Fprintf(sb, "--%s--\r\n", boundary)
 	} else {
 		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: base64\r\n")
@@ -421,9 +421,9 @@ func writeAttachmentPart(sb *strings.Builder, att Attachment) {
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
-	sb.WriteString(fmt.Sprintf("Content-Type: %s; name=\"%s\"\r\n", ct, att.Filename))
+	fmt.Fprintf(sb, "Content-Type: %s; name=\"%s\"\r\n", ct, att.Filename)
 	sb.WriteString("Content-Transfer-Encoding: base64\r\n")
-	sb.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n", att.Filename))
+	fmt.Fprintf(sb, "Content-Disposition: attachment; filename=\"%s\"\r\n", att.Filename)
 	sb.WriteString("\r\n")
 	enc := base64.StdEncoding.EncodeToString(att.Data)
 	for i := 0; i < len(enc); i += 76 {
