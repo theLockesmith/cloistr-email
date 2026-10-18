@@ -17,13 +17,22 @@ function limiter(max: number) {
   let active = 0
   const queue: Array<() => void> = []
   return async function run<T>(task: () => Promise<T>): Promise<T> {
-    if (active >= max) await new Promise<void>((resolve) => queue.push(resolve))
-    active++
+    if (active >= max) {
+      // Wait for a finishing call to hand over its slot. The slot is already
+      // counted in `active`, so a waiter does not count itself again.
+      await new Promise<void>((resolve) => queue.push(resolve))
+    } else {
+      active++
+    }
     try {
       return await task()
     } finally {
-      active--
-      queue.shift()?.()
+      // Hand the slot straight to the next waiter rather than freeing it:
+      // freeing first let a call arriving before the waiter resumed take the
+      // same slot, running cap + 1 (review on !172).
+      const next = queue.shift()
+      if (next) next()
+      else active--
     }
   }
 }
