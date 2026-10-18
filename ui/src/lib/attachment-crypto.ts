@@ -85,11 +85,11 @@ export async function wrapContentKey(
   sender: string,
   signer: EnvelopeSigner,
 ): Promise<Record<string, string>> {
-  const keys: Record<string, string> = {}
-  for (const pk of new Set([...recipientPubkeys, sender])) {
-    keys[pk] = await wrapKeyForRecipient(key, subject, pk, signer as SignerInterface)
-  }
-  return keys
+  // Each wrap is an independent signer round trip; run them concurrently so a
+  // remote (NIP-46) signer costs one round of latency, not one per person.
+  const people = [...new Set([...recipientPubkeys, sender])]
+  const wrapped = await Promise.all(people.map((pk) => wrapKeyForRecipient(key, subject, pk, signer as SignerInterface)))
+  return Object.fromEntries(people.map((pk, i) => [pk, wrapped[i]]))
 }
 
 export async function encryptAttachment(
@@ -119,11 +119,7 @@ export async function encryptAttachmentsForRecipients(
   recipientPubkeys: string[],
   signer: EnvelopeSigner,
 ): Promise<AttachmentRequest[]> {
-  const out: AttachmentRequest[] = []
-  for (const att of attachments) {
-    out.push(await encryptAttachment(att, recipientPubkeys, signer))
-  }
-  return out
+  return Promise.all(attachments.map((att) => encryptAttachment(att, recipientPubkeys, signer)))
 }
 
 /**

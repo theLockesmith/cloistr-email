@@ -49,12 +49,11 @@ describe('client-mode send through the session signer (NIP-46, no extension)', (
 
     const req = await buildClientModeSend(
       {
-        to: 'bob@example.com',
         subject: 'Q3 salaries',
         body: 'see attached',
         attachments: [{ filename: 'q3.pdf', content_type: 'application/pdf', data_base64: btoa(FILE) }],
       },
-      recipient.pk,
+      { 'bob@example.com': recipient.pk },
       cms,
     )
 
