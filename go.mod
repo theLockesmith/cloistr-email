@@ -16,6 +16,7 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.28.0
+	golang.org/x/text v0.42.0
 )
 
 require (
