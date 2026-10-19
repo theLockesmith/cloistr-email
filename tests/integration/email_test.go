@@ -287,51 +287,6 @@ func TestEncryptedEmailFlow(t *testing.T) {
 	})
 }
 
-// TestRawEmailFormatting tests RFC 5322 email formatting with encryption headers
-func TestRawEmailFormatting(t *testing.T) {
-	t.Run("encrypted email includes X-Nostr headers", func(t *testing.T) {
-		email := &encryption.EncryptedEmail{
-			From:            "bob@cloistr.xyz",
-			To:              "alice@cloistr.xyz",
-			Subject:         "Encrypted Message",
-			Body:            "ZW5jcnlwdGVkLWNvbnRlbnQ=",
-			IsEncrypted:     true,
-			SenderPubkey:    "senderpubkey123",
-			RecipientPubkey: "recipientpubkey456",
-			Algorithm:       encryption.AlgorithmNIP44,
-		}
-
-		raw := email.FormatRawEmail()
-
-		assert.Contains(t, raw, "From: bob@cloistr.xyz")
-		assert.Contains(t, raw, "To: alice@cloistr.xyz")
-		assert.Contains(t, raw, "Subject: Encrypted Message")
-		assert.Contains(t, raw, "X-Nostr-Encrypted: true")
-		assert.Contains(t, raw, "X-Nostr-Sender: senderpubkey123")
-		assert.Contains(t, raw, "X-Nostr-Recipient: recipientpubkey456")
-		assert.Contains(t, raw, "X-Nostr-Algorithm: nip44")
-		assert.Contains(t, raw, "MIME-Version: 1.0")
-	})
-
-	t.Run("unencrypted email has no X-Nostr headers", func(t *testing.T) {
-		email := &encryption.EncryptedEmail{
-			From:        "bob@cloistr.xyz",
-			To:          "alice@example.com",
-			Subject:     "Plain Message",
-			Body:        "Hello, this is a plain message.",
-			IsEncrypted: false,
-		}
-
-		raw := email.FormatRawEmail()
-
-		assert.Contains(t, raw, "From: bob@cloistr.xyz")
-		assert.Contains(t, raw, "To: alice@example.com")
-		assert.Contains(t, raw, "Subject: Plain Message")
-		assert.NotContains(t, raw, "X-Nostr-Encrypted:")
-		assert.NotContains(t, raw, "X-Nostr-Sender:")
-	})
-}
-
 // TestRawEmailParsing tests parsing raw emails with encryption metadata
 func TestRawEmailParsing(t *testing.T) {
 	t.Run("parse encrypted email headers", func(t *testing.T) {

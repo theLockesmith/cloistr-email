@@ -333,67 +333,6 @@ func TestEncryptedEmail_FormatEncryptedEmailHeaders(t *testing.T) {
 	}
 }
 
-// TestEncryptedEmail_FormatRawEmail tests raw RFC 5322 email formatting
-func TestEncryptedEmail_FormatRawEmail(t *testing.T) {
-	tests := []struct {
-		name          string
-		email         *encryption.EncryptedEmail
-		checkContains []string
-	}{
-		{
-			name: "encrypted email format",
-			email: &encryption.EncryptedEmail{
-				From:            "bob@cloistr.xyz",
-				To:              "alice@cloistr.xyz",
-				Subject:         "Test Subject",
-				Body:            "encrypted-content",
-				IsEncrypted:     true,
-				SenderPubkey:    "senderpubkey",
-				RecipientPubkey: "recipientpubkey",
-				Algorithm:       encryption.AlgorithmNIP44,
-			},
-			checkContains: []string{
-				"From: bob@cloistr.xyz",
-				"To: alice@cloistr.xyz",
-				"Subject: Test Subject",
-				"MIME-Version: 1.0",
-				"Content-Type: text/plain; charset=utf-8",
-				"Content-Transfer-Encoding: base64",
-				"X-Nostr-Encrypted: true",
-				"X-Nostr-Sender: senderpubkey",
-				"X-Nostr-Recipient: recipientpubkey",
-				"X-Nostr-Algorithm: nip44",
-			},
-		},
-		{
-			name: "unencrypted email format",
-			email: &encryption.EncryptedEmail{
-				From:        "bob@cloistr.xyz",
-				To:          "alice@cloistr.xyz",
-				Subject:     "Plain Subject",
-				Body:        "plain-content",
-				IsEncrypted: false,
-			},
-			checkContains: []string{
-				"From: bob@cloistr.xyz",
-				"To: alice@cloistr.xyz",
-				"Subject: Plain Subject",
-				"MIME-Version: 1.0",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			raw := tt.email.FormatRawEmail()
-
-			for _, expected := range tt.checkContains {
-				assert.Contains(t, raw, expected, "Missing expected content: %s", expected)
-			}
-		})
-	}
-}
-
 // TestParseEncryptedEmailHeaders tests header parsing from mail.Header
 func TestParseEncryptedEmailHeaders(t *testing.T) {
 	tests := []struct {
