@@ -142,34 +142,6 @@ func (e *EncryptedEmail) FormatEncryptedEmailHeaders() map[string]string {
 	}
 }
 
-// FormatRawEmail formats the encrypted email as raw RFC 5322 format
-func (e *EncryptedEmail) FormatRawEmail() string {
-	var sb strings.Builder
-
-	fmt.Fprintf(&sb, "From: %s\r\n", e.From)
-	fmt.Fprintf(&sb, "To: %s\r\n", e.To)
-	fmt.Fprintf(&sb, "Subject: %s\r\n", e.Subject)
-	sb.WriteString("MIME-Version: 1.0\r\n")
-	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
-	sb.WriteString("Content-Transfer-Encoding: base64\r\n")
-
-	if e.IsEncrypted {
-		fmt.Fprintf(&sb, "%s: true\r\n", HeaderNostrEncrypted)
-		fmt.Fprintf(&sb, "%s: %s\r\n", HeaderNostrSender, e.SenderPubkey)
-		fmt.Fprintf(&sb, "%s: %s\r\n", HeaderNostrRecipient, e.RecipientPubkey)
-		fmt.Fprintf(&sb, "%s: %s\r\n", HeaderNostrAlgorithm, e.Algorithm)
-	}
-
-	sb.WriteString("\r\n")
-
-	// Encode body as base64 for transport (RFC 2045)
-	// Note: if encrypted, Body contains the NIP-44 ciphertext which is already base64-like,
-	// but we encode again for RFC compliance and consistency
-	sb.WriteString(base64.StdEncoding.EncodeToString([]byte(e.Body)))
-
-	return sb.String()
-}
-
 // EncryptionMetadata holds parsed encryption info from email headers
 type EncryptionMetadata struct {
 	IsEncrypted     bool

@@ -344,51 +344,6 @@ func (h *Handler) ListEmails(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SendEmailRequest is the request body for sending email
-type SendEmailRequest struct {
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
-	Encrypt bool   `json:"encrypt"`
-}
-
-// SendEmail sends an encrypted or plain email
-func (h *Handler) SendEmail(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Sending email")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
-	}
-
-	var req SendEmailRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
-		return
-	}
-
-	if req.To == "" || req.Subject == "" {
-		errors.BadRequest("VALIDATION_FAILED", "to and subject are required").WriteResponse(w)
-		return
-	}
-
-	// TODO: Implement email sending
-	// 1. If encrypt=true, lookup recipient's npub
-	// 2. Encrypt body with NIP-44 via bunker
-	// 3. Submit to Stalwart
-	// 4. Save to database
-
-	h.logger.Info("Email sent",
-		zap.String("to", req.To),
-		zap.Bool("encrypted", req.Encrypt))
-
-	h.respondJSON(w, http.StatusOK, map[string]string{
-		"status":  "sent",
-		"message": "Email queued for delivery",
-	})
-}
-
 // GetEmail retrieves a single email by ID
 func (h *Handler) GetEmail(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("Getting email")

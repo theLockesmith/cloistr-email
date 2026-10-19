@@ -337,7 +337,8 @@ func main() {
 	emailRoutes := v1.PathPrefix("/emails").Subrouter()
 	emailRoutes.Use(apiHandler.AuthMiddleware)
 	emailRoutes.HandleFunc("", apiHandler.ListEmails).Methods("GET")
-	emailRoutes.HandleFunc("", apiHandler.SendEmail).Methods("POST")
+	// No v1 send: it was an unimplemented stub with no input checks. Sending
+	// is POST /api/v2/email/send.
 	emailRoutes.HandleFunc("/{id}", apiHandler.GetEmail).Methods("GET")
 	emailRoutes.HandleFunc("/{id}/reply", apiHandler.ReplyEmail).Methods("POST")
 	emailRoutes.HandleFunc("/{id}", apiHandler.DeleteEmail).Methods("DELETE")

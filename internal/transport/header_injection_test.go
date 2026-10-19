@@ -91,3 +91,13 @@ func TestBuildRawEmail_AttachmentHeaderInjectionNeutralised(t *testing.T) {
 		}
 	}
 }
+
+// BCC addresses never reach a header line, and net/smtp refuses CR/LF in
+// RCPT TO, but the backstop covers every address list so no caller has to
+// know which ones are written where.
+func TestHeaderSafeMessage_BCC(t *testing.T) {
+	m := headerSafeMessage(&Message{BCCAddresses: []string{"d@example.com\r\nX-Bcc-Injected: 1"}})
+	if strings.ContainsAny(m.BCCAddresses[0], "\r\n") {
+		t.Errorf("BCC kept a line break: %q", m.BCCAddresses[0])
+	}
+}

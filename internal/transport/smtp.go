@@ -445,6 +445,7 @@ func headerSafeMessage(msg *Message) *Message {
 	m.FromAddress = headerSafe(m.FromAddress)
 	m.ToAddresses = headerSafeList(m.ToAddresses)
 	m.CCAddresses = headerSafeList(m.CCAddresses)
+	m.BCCAddresses = headerSafeList(m.BCCAddresses)
 	m.Subject = headerSafe(m.Subject)
 	m.InReplyTo = headerSafe(m.InReplyTo)
 	m.References = headerSafeList(m.References)
