@@ -199,6 +199,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		}
 	}
 
+	var clientEncryptedFor map[string]bool
 	// 1c. Client-side (end-to-end) mode promises the server never sees
 	// plaintext. The body is checked above as required; attachments must be
 	// ciphertext too, or they would be relayed in the outbound MIME and
@@ -213,6 +214,14 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		if err := checkClientUploadAuth(req.SenderNpub, req.Attachments, time.Now()); err != nil {
 			return nil, err
 		}
+		if err := checkClientNoBCC(req); err != nil {
+			return nil, err
+		}
+		covered, err := checkClientRecipientsCovered(req)
+		if err != nil {
+			return nil, err
+		}
+		clientEncryptedFor = covered
 	}
 
 	// 2. Resolve recipients for encryption capability
@@ -223,6 +232,20 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 	resolvedRecipients, err := s.identitySvc.ResolveRecipients(ctx, allRecipients)
 	if err != nil {
 		return nil, fmt.Errorf("recipient resolution failed: %w", err)
+	}
+
+	// Client mode: the key the client wrapped to must be the key this server
+	// resolves for the address, or "encrypted" would be the client's word.
+	if req.EncryptionMode == encryption.ModeClientSide {
+		resolvedKeys := make(map[string]string, len(resolvedRecipients))
+		for addr, r := range resolvedRecipients {
+			if r != nil {
+				resolvedKeys[addr] = r.Npub
+			}
+		}
+		if err := checkClientKeysMatchResolved(req, resolvedKeys); err != nil {
+			return nil, err
+		}
 	}
 
 	// Merge resolved pubkeys with provided ones
@@ -274,6 +297,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		Body:                body,
 		HTMLBody:            req.HTMLBody,
 		IsPreEncrypted:      isPreEncrypted,
+		EncryptedRecipients: clientEncryptedFor,
 		EncryptionRequested: req.EncryptionMode == encryption.ModeServerSide,
 		InReplyTo:           req.InReplyTo,
 		References:          req.References,
@@ -970,6 +994,115 @@ func checkClientBodyEncrypted(body string) error {
 		return nil
 	}
 	return ErrClientBodyNotEncrypted
+}
+
+// ErrClientRecipientNotEncrypted is returned when a client-side send leaves a
+// recipient (To, CC or BCC) without a wrapped key: every recipient gets the
+// same message, and one with no key could not open it.
+var ErrClientRecipientNotEncrypted = errors.New("client-side encryption needs a key for every recipient")
+
+// checkClientRecipientsCovered refuses a client-side send unless every
+// recipient's pubkey (req.RecipientPubkeys) holds a wrapped key in the body
+// envelope and in every attachment envelope, naming the recipients who do
+// not. It returns the covered addresses, which is who can decrypt.
+//
+// The older NIP-44 body format is encrypted to a single recipient and does
+// not say to whom, so it is accepted only for a single recipient with a key.
+func checkClientRecipientsCovered(req *SendRequest) (map[string]bool, error) {
+	var all []string
+	seen := map[string]bool{}
+	for _, list := range [][]string{req.To, req.CC, req.BCC} {
+		for _, a := range list {
+			if !seen[a] {
+				seen[a] = true
+				all = append(all, a)
+			}
+		}
+	}
+	// Addresses compare case-insensitively: "Bob@x" in To and "bob@x" in
+	// RecipientPubkeys are the same mailbox for this check.
+	keyByAddr := make(map[string]string, len(req.RecipientPubkeys))
+	for a, pk := range req.RecipientPubkeys {
+		keyByAddr[strings.ToLower(strings.TrimSpace(a))] = strings.ToLower(pk)
+	}
+	pubkey := func(addr string) string { return keyByAddr[strings.ToLower(strings.TrimSpace(addr))] }
+
+	bodyHolders, isEnvelope := encryption.BodyKeyHolders(req.PreEncryptedBody)
+	if !isEnvelope {
+		if len(all) != 1 || pubkey(all[0]) == "" {
+			return nil, fmt.Errorf("%w: the older single-recipient body format cannot be read by %s",
+				ErrClientRecipientNotEncrypted, strings.Join(all, ", "))
+		}
+		// Trust the one recipient's key for the body; attachments still say.
+		bodyHolders = map[string]bool{pubkey(all[0]): true}
+	}
+	attHolders := make([]map[string]bool, 0, len(req.Attachments))
+	for _, a := range req.Attachments {
+		h, _ := encryption.AttachmentKeyHolders(a.Data) // shape already checked
+		attHolders = append(attHolders, h)
+	}
+
+	covered := make(map[string]bool, len(all))
+	var missing []string
+	for _, addr := range all {
+		pk := pubkey(addr)
+		ok := pk != "" && bodyHolders[pk]
+		for _, h := range attHolders {
+			ok = ok && h[pk]
+		}
+		if ok {
+			covered[addr] = true
+		} else {
+			missing = append(missing, addr)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("%w: no key for %s", ErrClientRecipientNotEncrypted, strings.Join(missing, ", "))
+	}
+	return covered, nil
+}
+
+// ErrClientBCCUnsupported is returned for a client-side send with BCC
+// recipients. Every recipient opens the same body envelope, whose key map is
+// keyed by recipient pubkey, so wrapping to a BCC would show To and CC who was
+// BCC'd. Refused until each BCC gets its own envelope.
+var ErrClientBCCUnsupported = errors.New("BCC is not supported with end-to-end encryption yet: every recipient could see who was BCC'd")
+
+func checkClientNoBCC(req *SendRequest) error {
+	if len(req.BCC) > 0 {
+		return ErrClientBCCUnsupported
+	}
+	return nil
+}
+
+// ErrClientRecipientKeyMismatch is returned when a client-side send names a
+// recipient key the server cannot confirm is that recipient's.
+var ErrClientRecipientKeyMismatch = errors.New("client-side encryption used a key that is not the recipient's")
+
+// checkClientKeysMatchResolved refuses a client-side send unless the pubkey
+// the client supplied for every To and CC address equals the one the server
+// resolves for it (resolved: address -> hex pubkey, "" or absent if none),
+// naming every recipient that does not. Without it a client could wrap to any
+// key and still have the recipient reported as encrypted.
+func checkClientKeysMatchResolved(req *SendRequest, resolved map[string]string) error {
+	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	claimed := make(map[string]string, len(req.RecipientPubkeys))
+	for a, pk := range req.RecipientPubkeys {
+		claimed[norm(a)] = norm(pk)
+	}
+	var bad []string
+	for _, list := range [][]string{req.To, req.CC} {
+		for _, addr := range list {
+			want := norm(resolved[addr])
+			if want == "" || claimed[norm(addr)] != want {
+				bad = append(bad, addr)
+			}
+		}
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("%w: %s", ErrClientRecipientKeyMismatch, strings.Join(bad, ", "))
+	}
+	return nil
 }
 
 // ErrInvalidUploadAuth is returned when a client-side send carries a Blossom

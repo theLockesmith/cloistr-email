@@ -8,7 +8,15 @@ import {
   hasNostrExtension,
   type EncryptionMode,
 } from '../lib/nostr'
-import { quoteBody, forwardBlock, replySubject, forwardSubject, buildClientModeSend } from '../lib/email-compose'
+import {
+  quoteBody,
+  forwardBlock,
+  replySubject,
+  forwardSubject,
+  buildClientModeSend,
+  resolveClientRecipients,
+  RecipientKeyError,
+} from '../lib/email-compose'
 import { clientModeSigner } from '../lib/client-signer'
 import { useNostrAuth } from '@cloistr/auth'
 import { cachedProtectedSubject } from '../lib/protected-headers'
@@ -240,9 +248,19 @@ export default function ComposePage() {
           throw new Error('Cannot encrypt: your signer does not support NIP-44')
         }
 
+        // Everyone gets the same message, so it is encrypted for To AND every
+        // CC; anyone without a key stops the send by name.
+        const recipients = await resolveClientRecipients(
+          [to, ...(sendRequest.cc ?? [])],
+          { [to.trim()]: recipientPubkey },
+          async (email) => {
+            const res = await keyAPI.discover(email)
+            return res.data.found && res.data.pubkey ? res.data.pubkey : null
+          },
+        )
         sendRequest = {
           ...sendRequest,
-          ...(await buildClientModeSend({ subject, body, attachments }, { [to]: recipientPubkey }, cmSigner)),
+          ...(await buildClientModeSend({ subject, body, attachments }, recipients, cmSigner)),
         }
       } else if (encryptionMode === 'server' && recipientPubkey) {
         sendRequest.recipient_pubkeys = { [to]: recipientPubkey }
@@ -269,7 +287,9 @@ export default function ComposePage() {
       return
     }
 
-    await sendMutation.mutateAsync()
+    // mutate, not mutateAsync: a failed send is shown from the mutation's
+    // error state, and an awaited rejection here went unhandled.
+    sendMutation.mutate()
   }
 
   const canEncrypt = recipientPubkey !== null
@@ -530,9 +550,14 @@ export default function ComposePage() {
               reads like a logout. Retry re-runs the full send; Go back navigates
               to the inbox without clearing session state. */}
         {sendMutation.isError && (
-          axios.isAxiosError(sendMutation.error) ? (
+          axios.isAxiosError(sendMutation.error) || sendMutation.error instanceof RecipientKeyError ? (
             <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg">
-              {sendMutation.error.message || 'Error sending email'}
+              {/* The server's reason (e.g. a refused end-to-end send) beats
+                  axios's generic "Request failed with status code 400". */}
+              {(axios.isAxiosError(sendMutation.error) &&
+                (sendMutation.error.response?.data as { message?: string } | undefined)?.message) ||
+                sendMutation.error.message ||
+                'Error sending email'}
             </div>
           ) : (
             <div className="mb-4">
