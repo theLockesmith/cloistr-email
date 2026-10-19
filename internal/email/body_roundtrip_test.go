@@ -83,6 +83,10 @@ func TestInboundSinglePart_Decoded(t *testing.T) {
 	cases := []struct{ name, raw, want string }{
 		{"base64", string(msg("Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n", "R3LDvMOfZSDinJM=\r\n")), "Grüße ✓"},
 		{"quoted-printable", string(msg("Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n", "Gr=C3=BC=C3=9Fe a=3Db soft=\r\nbreak\r\n")), "Grüße a=b softbreak"},
+		// cloistr-pr: 0x80-0x9F are printable in Windows-1252 (smart quotes,
+		// euro, dashes) and are what Outlook-era mail actually sends.
+		{"windows-1252 quoted-printable", string(msg("Content-Type: text/plain; charset=windows-1252\r\nContent-Transfer-Encoding: quoted-printable\r\n", "=93quoted=94 =80 5 =96 ok\r\n")), "\u201cquoted\u201d \u20ac 5 \u2013 ok"},
+		{"cp1252 8bit", string(msg("Content-Type: text/plain; charset=cp1252\r\nContent-Transfer-Encoding: 8bit\r\n", "it\x92s\r\n")), "it\u2019s"},
 		{"latin-1 quoted-printable", string(msg("Content-Type: text/plain; charset=ISO-8859-1\r\nContent-Transfer-Encoding: quoted-printable\r\n", "caf=E9\r\n")), "café"},
 	}
 	for _, c := range cases {
