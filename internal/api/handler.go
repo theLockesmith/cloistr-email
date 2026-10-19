@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/ratelimit"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"net/http"
 	"strings"
@@ -35,7 +36,11 @@ type Handler struct {
 	logger      *zap.Logger
 	relayClient *relays.Client
 	recipients  RecipientResolver
+	discoverRL  *ratelimit.Limiter
 }
+
+// SetDiscoverLimiter rate-limits key discovery per account.
+func (h *Handler) SetDiscoverLimiter(l *ratelimit.Limiter) { h.discoverRL = l }
 
 // RecipientResolver looks up a recipient's Nostr key: the identity service,
 // the same lookup the send path uses (internal addresses, then NIP-05).
@@ -465,7 +470,11 @@ func (h *Handler) DeleteEmail(w http.ResponseWriter, r *http.Request) {
 
 // ===== Keys & Discovery Endpoints =====
 
-// DiscoverKeyResponse is the response for key discovery
+// DiscoverKeyResponse is the response for key discovery.
+//
+// Pubkey is the 64-character lowercase hex key: it is what the UI reads and
+// sends back in recipient_pubkeys, and what the send path compares against.
+// Npub is the same key in bech32, for display only.
 type DiscoverKeyResponse struct {
 	Email  string `json:"email"`
 	Npub   string `json:"npub,omitempty"`
@@ -488,6 +497,27 @@ func (h *Handler) DiscoverKey(w http.ResponseWriter, r *http.Request) {
 	if email == "" {
 		errors.BadRequest("VALIDATION_FAILED", "email query parameter is required").WriteResponse(w)
 		return
+	}
+
+	// Refuse a malformed address before it can become an outbound lookup.
+	if err := identity.ValidateEmailFormat(email); err != nil {
+		errors.BadRequest("INVALID_EMAIL", err.Error()).WriteResponse(w)
+		return
+	}
+	if h.discoverRL != nil {
+		d, err := h.discoverRL.Allow(r.Context(), ratelimit.Send{Pubkey: userID, Recipients: 1})
+		if err != nil {
+			// A limiter outage must not break compose; the lookup itself is
+			// SSRF-safe, so failing open here costs only rate.
+			h.logger.Warn("key discovery rate limit unavailable", zap.Error(err))
+		} else if !d.Allowed {
+			retry := int(d.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			errors.TooManyRequests(string(d.Reason), "too many key lookups; try again shortly", retry).WriteResponse(w)
+			return
+		}
 	}
 
 	resp := DiscoverKeyResponse{Email: email}
