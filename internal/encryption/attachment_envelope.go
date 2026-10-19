@@ -83,6 +83,40 @@ func IsEncryptedBody(s string) bool {
 	return env.V == 1 && env.Type == "body" && validKeyEnvelopes(env.ID, env.Sender, env.Keys) && isSealedBlob(env.Data)
 }
 
+// BodyKeyHolders returns the pubkeys a client-encrypted body envelope's content
+// key is wrapped to (the sender included), and false if s is not a body
+// envelope. A recipient missing from this set receives a body they cannot open.
+func BodyKeyHolders(s string) (map[string]bool, bool) {
+	if !IsEncryptedBody(s) {
+		return nil, false
+	}
+	var env encryptedBodyV1
+	if err := json.Unmarshal([]byte(s), &env); err != nil {
+		return nil, false
+	}
+	return keyHolders(env.Keys), true
+}
+
+// AttachmentKeyHolders is BodyKeyHolders for an attachment envelope.
+func AttachmentKeyHolders(b []byte) (map[string]bool, bool) {
+	if !IsEncryptedAttachment(b) {
+		return nil, false
+	}
+	var env encryptedAttachmentV1
+	if err := json.Unmarshal(b, &env); err != nil {
+		return nil, false
+	}
+	return keyHolders(env.Keys), true
+}
+
+func keyHolders(keys map[string]string) map[string]bool {
+	out := make(map[string]bool, len(keys))
+	for pk := range keys {
+		out[strings.ToLower(pk)] = true
+	}
+	return out
+}
+
 // validKeyEnvelopes checks the key-wrapping half shared by both envelopes: an
 // id (the envelope subject), the sender, the sender's own wrapped key plus at
 // least one other, and every wrapped key a NIP-44 v2 payload.

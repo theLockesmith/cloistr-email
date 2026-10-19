@@ -160,7 +160,7 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 	}
 
 	// Build the raw email message
-	rawEmail, err := t.buildRawEmail(ctx, msg)
+	rawEmail, serverEncryptedTo, err := t.buildRawEmailReport(ctx, msg)
 	if err != nil {
 		result.Error = err
 		return result, err
@@ -209,7 +209,7 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 	result.Success = true
 	result.MessageID = msg.MessageID
 	for _, addr := range allRecipients {
-		encrypted := msg.IsPreEncrypted || (msg.EncryptionRequested && msg.RecipientPubkeys[addr] != "")
+		encrypted := deliveredEncrypted(msg, serverEncryptedTo, addr)
 		result.Recipients = append(result.Recipients, RecipientResult{
 			Address:   addr,
 			Success:   true,
@@ -224,14 +224,33 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 	return result, nil
 }
 
+// deliveredEncrypted reports whether addr received a body it can decrypt. All
+// recipients share one message, so being encrypted "for the message" is not
+// enough: a pre-encrypted body counts only for the recipients its key is
+// wrapped to, and a server-encrypted body only for the one recipient it was
+// encrypted to.
+func deliveredEncrypted(msg *Message, serverEncryptedTo, addr string) bool {
+	if msg.IsPreEncrypted {
+		return msg.EncryptedRecipients[addr]
+	}
+	return serverEncryptedTo != "" && addr == serverEncryptedTo
+}
+
 // buildRawEmail constructs the RFC 5322 formatted email
 func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte, error) {
+	raw, _, err := t.buildRawEmailReport(ctx, msg)
+	return raw, err
+}
+
+// buildRawEmailReport is buildRawEmail plus the address the server encrypted
+// the body to, if it did (server-side mode encrypts for one recipient only).
+func (t *SMTPTransport) buildRawEmailReport(ctx context.Context, msg *Message) ([]byte, string, error) {
 	// A blank From produces "From: \r\n", which receiving MTAs treat as a
 	// MISSING header — Gmail answers 550 5.7.1 "'From' header is missing" and
 	// every MX refuses the message. Fail here, where the cause is obvious,
 	// rather than emitting mail that cannot be delivered anywhere.
 	if strings.TrimSpace(msg.FromAddress) == "" {
-		return nil, fmt.Errorf("cannot build message: FromAddress is empty")
+		return nil, "", fmt.Errorf("cannot build message: FromAddress is empty")
 	}
 
 	var sb strings.Builder
@@ -306,6 +325,7 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 	// Determine body content and encryption
 	body := msg.Body
 	isEncrypted := msg.IsPreEncrypted
+	serverEncryptedTo := ""
 
 	// Handle server-side encryption if requested and not pre-encrypted
 	if msg.EncryptionRequested && !msg.IsPreEncrypted && t.encryptor != nil {
@@ -322,6 +342,7 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 				}
 				body = encryptedBody
 				isEncrypted = true
+				serverEncryptedTo = addr
 
 				// Add encryption headers
 				fmt.Fprintf(&sb, "%s: true\r\n", encryption.HeaderNostrEncrypted)
@@ -378,7 +399,7 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 		fmt.Fprintf(&sb, "--%s--\r\n", boundary)
 	}
 
-	return []byte(sb.String()), nil
+	return []byte(sb.String()), serverEncryptedTo, nil
 }
 
 // writeBodyContent writes a self-contained MIME entity (Content-Type + encoding

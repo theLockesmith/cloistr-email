@@ -97,3 +97,47 @@ export async function buildClientModeSend(
     ...(attachments.length > 0 ? { attachments } : {}),
   }
 }
+
+/**
+ * A client-side send that cannot be encrypted for everyone it is addressed to.
+ * Every recipient gets the same message, so one without a key would receive
+ * ciphertext they cannot open. The send stops and names them instead.
+ */
+export class RecipientKeyError extends Error {
+  readonly missing: string[]
+  constructor(missing: string[]) {
+    super(
+      `Cannot encrypt for ${missing.join(', ')}: no Nostr key found. ` +
+        'Remove them, or send without end-to-end encryption.',
+    )
+    this.name = 'RecipientKeyError'
+    this.missing = missing
+  }
+}
+
+/**
+ * Every recipient's pubkey for a client-side send (To and every CC), using
+ * keys already known and discovering the rest in parallel. Throws
+ * RecipientKeyError naming everyone without a key, before anything is
+ * encrypted or sent.
+ */
+export async function resolveClientRecipients(
+  addresses: string[],
+  known: Record<string, string>,
+  discover: (email: string) => Promise<string | null>,
+): Promise<Record<string, string>> {
+  const unique = [...new Set(addresses.map((a) => a.trim()).filter(Boolean))]
+  const resolved = await Promise.all(
+    unique.map(async (addr) => {
+      if (known[addr]) return [addr, known[addr]] as const
+      try {
+        return [addr, await discover(addr)] as const
+      } catch {
+        return [addr, null] as const
+      }
+    }),
+  )
+  const missing = resolved.filter(([, pk]) => !pk).map(([addr]) => addr)
+  if (missing.length > 0) throw new RecipientKeyError(missing)
+  return Object.fromEntries(resolved) as Record<string, string>
+}

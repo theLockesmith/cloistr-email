@@ -152,6 +152,8 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 			errors.BadRequest("ATTACHMENT_NOT_ENCRYPTED", err.Error()).WriteResponse(w)
 		case stderrors.Is(err, email.ErrClientBodyNotEncrypted):
 			errors.BadRequest("BODY_NOT_ENCRYPTED", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, email.ErrClientRecipientNotEncrypted):
+			errors.BadRequest("RECIPIENT_NOT_ENCRYPTED", err.Error()).WriteResponse(w)
 		case stderrors.Is(err, email.ErrInvalidUploadAuth):
 			errors.BadRequest("INVALID_UPLOAD_AUTH", err.Error()).WriteResponse(w)
 		// Rate limits are transient: 429 + Retry-After so clients back off

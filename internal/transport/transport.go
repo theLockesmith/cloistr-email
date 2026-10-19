@@ -48,6 +48,11 @@ type Message struct {
 	// This supports NIP-07 client-side encryption
 	IsPreEncrypted bool
 
+	// EncryptedRecipients lists the addresses a pre-encrypted body (and its
+	// attachments) are wrapped to, i.e. who can actually decrypt. Set by the
+	// caller for client-side mode; delivery reports Encrypted only for these.
+	EncryptedRecipients map[string]bool
+
 	// If EncryptionRequested is true and IsPreEncrypted is false,
 	// the transport layer should encrypt using the sender's signer
 	EncryptionRequested bool
