@@ -252,6 +252,7 @@ func (h *EmailHandler) GetEmailV2(w http.ResponseWriter, r *http.Request) {
 		To:                       []string{result.To},
 		Subject:                  result.Subject,
 		Body:                     result.Body,
+		HTMLBody:                 result.HTMLBody,
 		EncryptedBody:            result.EncryptedBody,
 		IsEncrypted:              result.IsEncrypted,
 		EncryptionMode:           result.EncryptionMode,
