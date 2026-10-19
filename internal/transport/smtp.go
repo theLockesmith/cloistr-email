@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
 	"sort"
@@ -236,6 +237,12 @@ func deliveredEncrypted(msg *Message, serverEncryptedTo, addr string) bool {
 	return serverEncryptedTo != "" && addr == serverEncryptedTo
 }
 
+// BuildRawEmail returns the RFC 5322 message Send would deliver for msg,
+// without sending it. For tests that check what a recipient receives.
+func (t *SMTPTransport) BuildRawEmail(ctx context.Context, msg *Message) ([]byte, error) {
+	return t.buildRawEmail(ctx, msg)
+}
+
 // buildRawEmail constructs the RFC 5322 formatted email
 func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte, error) {
 	raw, _, err := t.buildRawEmailReport(ctx, msg)
@@ -422,14 +429,14 @@ func (t *SMTPTransport) writeBodyContent(sb *strings.Builder, msg *Message, body
 		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 		sb.WriteString("\r\n")
-		sb.WriteString(body)
+		sb.WriteString(quotedPrintable(body))
 		sb.WriteString("\r\n")
 
 		fmt.Fprintf(sb, "--%s\r\n", boundary)
 		sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 		sb.WriteString("\r\n")
-		sb.WriteString(msg.HTMLBody)
+		sb.WriteString(quotedPrintable(msg.HTMLBody))
 		sb.WriteString("\r\n")
 
 		fmt.Fprintf(sb, "--%s--\r\n", boundary)
@@ -437,8 +444,34 @@ func (t *SMTPTransport) writeBodyContent(sb *strings.Builder, msg *Message, body
 		sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 		sb.WriteString("Content-Transfer-Encoding: base64\r\n")
 		sb.WriteString("\r\n")
-		sb.WriteString(base64.StdEncoding.EncodeToString([]byte(body)))
+		sb.WriteString(wrappedBase64([]byte(body)))
 	}
+}
+
+// quotedPrintable encodes s as the quoted-printable these parts declare. They
+// were written raw, so a literal "=3D" or "=20" decoded into something else at
+// the recipient, and long lines broke RFC 5322's 998-byte limit.
+func quotedPrintable(s string) string {
+	var b strings.Builder
+	w := quotedprintable.NewWriter(&b)
+	_, _ = w.Write([]byte(s)) // strings.Builder writes never fail
+	_ = w.Close()
+	return b.String()
+}
+
+// wrappedBase64 is base64 broken into 76-character CRLF lines (RFC 2045). A
+// single unbroken line exceeded the 998-byte line limit for any body over
+// about 750 bytes.
+func wrappedBase64(b []byte) string {
+	enc := base64.StdEncoding.EncodeToString(b)
+	var sb strings.Builder
+	for len(enc) > 76 {
+		sb.WriteString(enc[:76])
+		sb.WriteString("\r\n")
+		enc = enc[76:]
+	}
+	sb.WriteString(enc)
+	return sb.String()
 }
 
 // headerBreaks turns every line break into a space so a value cannot leave
