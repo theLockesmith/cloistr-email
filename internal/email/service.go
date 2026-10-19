@@ -469,6 +469,7 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 	// mode (which would feed possibly-plaintext bytes to the bunker).
 	mode := storedMode(email)
 	result.EncryptionMode = mode
+	result.HTMLBody = htmlBodyFor(email, mode)
 
 	switch mode {
 	case encryption.ModeNone:
@@ -528,6 +529,16 @@ func (s *Service) GetEmail(ctx context.Context, userNpub, emailID string) (*GetE
 	return result, nil
 }
 
+// htmlBodyFor returns the stored HTML version of an unencrypted message, or
+// "" (encrypted messages never hand out stored HTML: it is not ciphertext the
+// client can open, and nothing encrypted should be rendered unasked).
+func htmlBodyFor(email *storage.Email, mode encryption.EncryptionMode) string {
+	if email.HTMLBody == nil || email.IsEncrypted || mode != encryption.ModeNone {
+		return ""
+	}
+	return *email.HTMLBody
+}
+
 // GetEmailResult contains the result of retrieving an email
 type GetEmailResult struct {
 	ID             string
@@ -539,6 +550,7 @@ type GetEmailResult struct {
 	CC             string
 	Subject        string
 	Body           string // Plaintext if decrypted or unencrypted
+	HTMLBody       string // HTML version, unencrypted messages only
 	EncryptedBody  string // Ciphertext if requires client decryption
 	IsEncrypted    bool
 	EncryptionMode encryption.EncryptionMode

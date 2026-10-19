@@ -509,26 +509,10 @@ func defaultAttachmentName(mediaType string, n int) string {
 	return fmt.Sprintf("attachment-%d%s", n, ext)
 }
 
-// storeForRecipient stores the message for a specific recipient
-func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *ParsedMessage, recipient string, verifyResult *VerificationResult) error {
-	// Resolve the recipient address to its owning pubkey, then land the message
-	// in that pubkey's single mailbox. Aliases converge here: every active
-	// address for a pubkey delivers to the same mailbox.
-	pubkey, err := p.resolveRecipientPubkey(ctx, recipient)
-	if err != nil {
-		return err
-	}
-	if pubkey == "" {
-		return fmt.Errorf("no such recipient: %s", recipient)
-	}
-
-	// The mailbox is created on first delivery — the addresses table already
-	// authorized this recipient, so no prior login is required.
-	if _, err := p.db.EnsureMailbox(ctx, pubkey); err != nil {
-		return fmt.Errorf("failed to ensure mailbox: %w", err)
-	}
-
-	// Build the email record
+// receivedRecord builds the stored row for an inbound message delivered to
+// recipient's mailbox (pubkey). Split out of storeForRecipient so what is kept
+// from a parsed message can be tested without a database.
+func receivedRecord(parsed *ParsedMessage, recipient, pubkey string, verifyResult *VerificationResult) *storage.Email {
 	email := &storage.Email{
 		MailboxPubkey: pubkey,
 		FromAddress:   parsed.From,
@@ -579,6 +563,29 @@ func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *Parsed
 			email.NostrVerifiedAt = &now
 		}
 	}
+	return email
+}
+
+// storeForRecipient stores the message for a specific recipient
+func (p *InboundProcessor) storeForRecipient(ctx context.Context, parsed *ParsedMessage, recipient string, verifyResult *VerificationResult) error {
+	// Resolve the recipient address to its owning pubkey, then land the message
+	// in that pubkey's single mailbox. Aliases converge here: every active
+	// address for a pubkey delivers to the same mailbox.
+	pubkey, err := p.resolveRecipientPubkey(ctx, recipient)
+	if err != nil {
+		return err
+	}
+	if pubkey == "" {
+		return fmt.Errorf("no such recipient: %s", recipient)
+	}
+
+	// The mailbox is created on first delivery — the addresses table already
+	// authorized this recipient, so no prior login is required.
+	if _, err := p.db.EnsureMailbox(ctx, pubkey); err != nil {
+		return fmt.Errorf("failed to ensure mailbox: %w", err)
+	}
+
+	email := receivedRecord(parsed, recipient, pubkey, verifyResult)
 
 	// Create the email
 	if err := p.db.CreateEmail(ctx, email); err != nil {
