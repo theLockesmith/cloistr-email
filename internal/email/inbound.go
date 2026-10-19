@@ -18,6 +18,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
 	"go.uber.org/zap"
+	"golang.org/x/text/encoding/charmap"
 )
 
 // InboundProcessor handles incoming email messages
@@ -441,20 +442,24 @@ func (p *InboundProcessor) parseMultipart(body io.Reader, boundary string, parse
 }
 
 // decodeCharset converts a decoded text body to UTF-8. Bodies are stored and
-// shown as UTF-8; ISO-8859-1 (Latin-1, and US-ASCII as its subset) maps byte
-// for byte to the first 256 code points, so it converts without a charset
-// library. Anything else is returned as is.
+// shown as UTF-8. ISO-8859-1 and Windows-1252 (which Outlook-era mail labels
+// itself, with smart quotes, dashes and the euro in 0x80-0x9F) are converted;
+// anything else is returned as is.
 func decodeCharset(b []byte, charset string) []byte {
+	var cm *charmap.Charmap
 	switch strings.ToLower(strings.TrimSpace(charset)) {
 	case "iso-8859-1", "iso8859-1", "latin1", "latin-1", "l1":
-		r := make([]rune, len(b))
-		for i, c := range b {
-			r[i] = rune(c)
-		}
-		return []byte(string(r))
+		cm = charmap.ISO8859_1
+	case "windows-1252", "cp1252", "x-cp1252":
+		cm = charmap.Windows1252
 	default:
 		return b
 	}
+	out, err := cm.NewDecoder().Bytes(b)
+	if err != nil {
+		return b
+	}
+	return out
 }
 
 // decodeTransferEncoding decodes a MIME part body per its
