@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +22,8 @@ import (
 const (
 	nip05HTTPTimeout     = 5 * time.Second
 	nip05DefaultCacheTTL = 24 * time.Hour
-	nip05MaxResponseSize = 1 << 20 // 1MB limit on response body
+	nip05MaxResponseSize = 256 << 10 // 256KB limit on response body
+	nip05MaxCacheEntries = 10000
 )
 
 // NIP05Response represents the JSON response from .well-known/nostr.json
@@ -35,6 +39,16 @@ type NIP05Resolver struct {
 	cacheMu  sync.RWMutex
 	cacheTTL time.Duration
 	logger   *zap.Logger
+
+	// maxCacheEntries bounds the cache: every distinct address a stranger
+	// can make us look up would otherwise stay in memory for cacheTTL.
+	maxCacheEntries int
+
+	// Seams for tests; production uses the system resolver, public
+	// addresses only, and the URL's own port.
+	lookupIP  func(ctx context.Context, host string) ([]net.IP, error)
+	allowAddr func(ip net.IP, port string) bool
+	port      string
 }
 
 type cacheEntry struct {
@@ -44,14 +58,33 @@ type cacheEntry struct {
 
 // NewNIP05Resolver creates a new NIP-05 resolver
 func NewNIP05Resolver(logger *zap.Logger) *NIP05Resolver {
-	return &NIP05Resolver{
-		client: &http.Client{
-			Timeout: nip05HTTPTimeout,
-		},
-		cache:    make(map[string]*cacheEntry),
-		cacheTTL: nip05DefaultCacheTTL,
-		logger:   logger,
+	r := &NIP05Resolver{
+		cache:           make(map[string]*cacheEntry),
+		cacheTTL:        nip05DefaultCacheTTL,
+		logger:          logger,
+		maxCacheEntries: nip05MaxCacheEntries,
+		lookupIP:        defaultLookupIP,
+		allowAddr:       defaultAllowAddr,
 	}
+	r.client = &http.Client{
+		Timeout: nip05HTTPTimeout,
+		Transport: &http.Transport{
+			// Every connection goes through dialPublic; no proxy, so the
+			// address checked is the address connected to.
+			Proxy:               nil,
+			DialContext:         r.dialPublic,
+			TLSHandshakeTimeout: nip05HTTPTimeout,
+			MaxIdleConns:        10,
+			IdleConnTimeout:     30 * time.Second,
+		},
+		// NIP-05 says clients MUST ignore redirects from this endpoint, and
+		// following one is how an https lookup becomes an http request to an
+		// internal host.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("NIP-05 endpoint redirected; redirects are not followed")
+		},
+	}
+	return r
 }
 
 // ResolvePubkey looks up the npub for an email address using NIP-05
@@ -66,6 +99,10 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 
 	name := parts[0]
 	domain := parts[1]
+	if err := checkNIP05Domain(domain); err != nil {
+		metrics.NIP05LookupsTotal.WithLabelValues("failure").Inc()
+		return "", err
+	}
 
 	// Normalize: use "_" for root domain identifiers
 	if name == "" {
@@ -88,11 +125,18 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 	lookupStart := time.Now()
 
 	// Query the .well-known/nostr.json endpoint
-	url := fmt.Sprintf("https://%s/.well-known/nostr.json?name=%s", domain, name)
+	// The domain was checked above; the name is query-escaped so it cannot
+	// add parameters or change the path.
+	lookupURL := (&url.URL{
+		Scheme:   "https",
+		Host:     domain,
+		Path:     "/.well-known/nostr.json",
+		RawQuery: url.Values{"name": {name}}.Encode(),
+	}).String()
 
-	r.logger.Debug("Querying NIP-05", zap.String("url", url))
+	r.logger.Debug("Querying NIP-05", zap.String("url", lookupURL))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, lookupURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -160,6 +204,9 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 
 	// Cache the result
 	r.cacheMu.Lock()
+	if len(r.cache) >= r.maxCacheEntries {
+		r.evictLocked()
+	}
 	r.cache[cacheKey] = &cacheEntry{
 		pubkey:    pubkey,
 		expiresAt: time.Now().Add(r.cacheTTL),
@@ -172,6 +219,21 @@ func (r *NIP05Resolver) ResolvePubkey(ctx context.Context, email string) (string
 		zap.String("pubkey", truncatePubkey(pubkey)))
 
 	return pubkey, nil
+}
+
+// evictLocked makes room in a full cache: expired entries first, and if none
+// have expired, the whole cache (a refill costs one lookup per address).
+// Caller holds cacheMu.
+func (r *NIP05Resolver) evictLocked() {
+	now := time.Now()
+	for k, e := range r.cache {
+		if now.After(e.expiresAt) {
+			delete(r.cache, k)
+		}
+	}
+	if len(r.cache) >= r.maxCacheEntries {
+		r.cache = make(map[string]*cacheEntry)
+	}
 }
 
 // ClearCache clears the NIP-05 cache
