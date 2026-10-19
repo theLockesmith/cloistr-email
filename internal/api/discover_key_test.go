@@ -6,10 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/ratelimit"
 	"go.uber.org/zap"
 )
 
@@ -67,5 +69,53 @@ func TestDiscoverKey_FindsKeyedRecipient(t *testing.T) {
 	}
 	if got := discover(t, h, "broken@example.com"); got.Found {
 		t.Errorf("lookup error reported found: %+v", got)
+	}
+}
+
+type countingResolver struct {
+	fakeResolver
+	calls int
+}
+
+func (c *countingResolver) ResolveRecipient(ctx context.Context, email string) (*identity.ExternalRecipient, error) {
+	c.calls++
+	return c.fakeResolver.ResolveRecipient(ctx, email)
+}
+
+func discoverStatus(h *Handler, email string) int {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/keys/discover?email="+url.QueryEscape(email), nil)
+	req = req.WithContext(context.WithValue(req.Context(), contextKeyUserID, "npub-test"))
+	rec := httptest.NewRecorder()
+	h.DiscoverKey(rec, req)
+	return rec.Code
+}
+
+// Each discovery is an outbound NIP-05 fetch on the caller's behalf, so it is
+// rate-limited per account, and a malformed address is refused before any
+// lookup happens.
+func TestDiscoverKey_ValidatesAndRateLimits(t *testing.T) {
+	res := &countingResolver{fakeResolver: fakeResolver{}}
+	h := &Handler{logger: zap.NewNop()}
+	h.SetRecipientResolver(res)
+	h.SetDiscoverLimiter(ratelimit.NewDiscoverLimiter(ratelimit.NewMemoryStore(), 2, 0, 0))
+
+	for _, bad := range []string{"not-an-address", "a@", "@b.com", "a b@c.com"} {
+		if code := discoverStatus(h, bad); code != http.StatusBadRequest {
+			t.Errorf("%q: status %d, want 400", bad, code)
+		}
+	}
+	if res.calls != 0 {
+		t.Fatalf("resolver called %d times for malformed addresses", res.calls)
+	}
+	for i := 0; i < 2; i++ {
+		if code := discoverStatus(h, "x@example.com"); code != http.StatusOK {
+			t.Fatalf("lookup %d: status %d", i+1, code)
+		}
+	}
+	if code := discoverStatus(h, "x@example.com"); code != http.StatusTooManyRequests {
+		t.Errorf("third lookup in a minute: status %d, want 429", code)
+	}
+	if res.calls != 2 {
+		t.Errorf("resolver called %d times, want 2 (the limited request must not resolve)", res.calls)
 	}
 }
