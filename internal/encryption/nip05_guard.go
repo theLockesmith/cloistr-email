@@ -123,3 +123,26 @@ func defaultLookupIP(ctx context.Context, host string) ([]net.IP, error) {
 }
 
 func defaultAllowAddr(ip net.IP, _ string) bool { return isPublicIP(ip) }
+
+// CheckPublicHostname applies the NIP-05 domain rule to any hostname the
+// backend would connect to on a user's say-so (e.g. a bunker:// relay): no IP
+// literals, single-label names or internal suffixes. It is a name check; use
+// ResolvesPublic as well before dialling.
+func CheckPublicHostname(host string) error { return checkNIP05Domain(host) }
+
+// ResolvesPublic resolves host and refuses it unless every address is public.
+func ResolvesPublic(ctx context.Context, host string) error {
+	ips, err := defaultLookupIP(ctx, host)
+	if err != nil {
+		return err
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("%w: %s has no addresses", errNIP05Internal, host)
+	}
+	for _, ip := range ips {
+		if !isPublicIP(ip) {
+			return fmt.Errorf("%w: %s resolves to %s", errNIP05Internal, host, ip)
+		}
+	}
+	return nil
+}

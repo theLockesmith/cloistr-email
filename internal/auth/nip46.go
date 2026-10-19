@@ -194,12 +194,40 @@ func ParseBunkerURL(bunkerURL string) (*BunkerURL, error) {
 	if relayURL == "" {
 		return nil, fmt.Errorf("invalid bunker URL: missing relay parameter")
 	}
+	// The relay is a server-side connection target chosen by the user: wss
+	// only, and never an internal host (same rule as NIP-05 lookups).
+	if err := checkRelayURL(relayURL); err != nil {
+		return nil, fmt.Errorf("invalid bunker URL: %w", err)
+	}
 
 	return &BunkerURL{
 		BunkerPubkey: bunkerPubkey,
 		RelayURL:     relayURL,
 		Secret:       query.Get("secret"),
 	}, nil
+}
+
+// checkRelayURL accepts only a wss:// URL whose host passes the public
+// hostname rule.
+func checkRelayURL(relayURL string) error {
+	u, err := url.Parse(relayURL)
+	if err != nil || u.Scheme != "wss" || u.Hostname() == "" {
+		return fmt.Errorf("relay must be a wss:// URL")
+	}
+	if err := encryption.CheckPublicHostname(u.Hostname()); err != nil {
+		return fmt.Errorf("relay host refused: %w", err)
+	}
+	return nil
+}
+
+// dialableRelay re-checks a user-chosen relay at connect time: its name may
+// have been stored before the rule existed, and DNS may now point it inward.
+func dialableRelay(ctx context.Context, relayURL string) error {
+	if err := checkRelayURL(relayURL); err != nil {
+		return err
+	}
+	u, _ := url.Parse(relayURL)
+	return encryption.ResolvesPublic(ctx, u.Hostname())
 }
 
 // AuthChallenge represents a NIP-46 authentication challenge
@@ -270,6 +298,9 @@ func (h *NIP46Handler) ConnectToBunker(ctx context.Context, challengeID string) 
 	}
 
 	// Connect to the relay
+	if err := dialableRelay(ctx, challengeData.RelayURL); err != nil {
+		return nil, fmt.Errorf("bunker relay refused: %w", err)
+	}
 	relay, err := nostr.RelayConnect(ctx, challengeData.RelayURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to relay: %w", err)
@@ -458,6 +489,9 @@ func (h *NIP46Handler) handleConnectResponse(
 
 // getUserPubkeyFromBunker requests the user's public key from the bunker
 func (h *NIP46Handler) getUserPubkeyFromBunker(ctx context.Context, challengeData *ChallengeData) (string, error) {
+	if err := dialableRelay(ctx, challengeData.RelayURL); err != nil {
+		return "", fmt.Errorf("bunker relay refused: %w", err)
+	}
 	relay, err := nostr.RelayConnect(ctx, challengeData.RelayURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to relay: %w", err)
