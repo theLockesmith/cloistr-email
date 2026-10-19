@@ -24,11 +24,13 @@ server {
     # Runtime service config, read by @cloistr/collab-common/config. EXACT
     # match so it outranks any regex location, and no-store so neither the
     # browser nor an edge cache serves one environment's hosts to the other.
+    # baseDomain is read by @cloistr/ui: the shared header's NIP-05 lookup and
+    # service menu. Without it staging asked production cloistr.xyz.
     location = /config.js {
         access_log off;
         default_type application/javascript;
         add_header Cache-Control "no-store" always;
-        return 200 'window.__CLOISTR_CONFIG__={"relayUrl":"${CLOISTR_RELAY_URL}","blossomUrl":"${CLOISTR_BLOSSOM_URL}","discoveryUrl":"${CLOISTR_DISCOVERY_URL}","signerUrl":"${CLOISTR_SIGNER_URL}","appUrl":"${CLOISTR_APP_URL}","environment":"${CLOISTR_ENVIRONMENT}"};';
+        return 200 'window.__CLOISTR_CONFIG__={"relayUrl":"${CLOISTR_RELAY_URL}","blossomUrl":"${CLOISTR_BLOSSOM_URL}","discoveryUrl":"${CLOISTR_DISCOVERY_URL}","signerUrl":"${CLOISTR_SIGNER_URL}","appUrl":"${CLOISTR_APP_URL}","environment":"${CLOISTR_ENVIRONMENT}","baseDomain":"${CLOISTR_BASE_DOMAIN}"};';
     }
 
     location / {
