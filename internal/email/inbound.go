@@ -345,11 +345,15 @@ func (p *InboundProcessor) parseBody(msg *mail.Message, parsed *ParsedMessage) e
 		return p.parseMultipart(msg.Body, params["boundary"], parsed)
 	}
 
-	// Simple message
-	body, err := io.ReadAll(msg.Body)
+	// Simple message. Decoded like a multipart part: a single-part body is
+	// just as likely to be base64 or quoted-printable (Cloistr's own
+	// plaintext sends are base64), and storing it undecoded showed the
+	// recipient the encoded text.
+	raw, err := io.ReadAll(msg.Body)
 	if err != nil {
 		return err
 	}
+	body := decodeCharset(decodeTransferEncoding(raw, msg.Header.Get("Content-Transfer-Encoding")), params["charset"])
 
 	if strings.HasPrefix(mediaType, "text/html") {
 		parsed.HTMLBody = string(body)
@@ -409,10 +413,11 @@ func (p *InboundProcessor) parseMultipart(body io.Reader, boundary string, parse
 			(!strings.HasPrefix(mediaType, "text/plain") && !strings.HasPrefix(mediaType, "text/html"))
 
 		if !isAttachment {
+			text := string(decodeCharset(data, params["charset"]))
 			if strings.HasPrefix(mediaType, "text/plain") && parsed.Body == "" {
-				parsed.Body = string(data)
+				parsed.Body = text
 			} else if strings.HasPrefix(mediaType, "text/html") && parsed.HTMLBody == "" {
-				parsed.HTMLBody = string(data)
+				parsed.HTMLBody = text
 			}
 			continue
 		}
@@ -433,6 +438,23 @@ func (p *InboundProcessor) parseMultipart(body io.Reader, boundary string, parse
 	}
 
 	return nil
+}
+
+// decodeCharset converts a decoded text body to UTF-8. Bodies are stored and
+// shown as UTF-8; ISO-8859-1 (Latin-1, and US-ASCII as its subset) maps byte
+// for byte to the first 256 code points, so it converts without a charset
+// library. Anything else is returned as is.
+func decodeCharset(b []byte, charset string) []byte {
+	switch strings.ToLower(strings.TrimSpace(charset)) {
+	case "iso-8859-1", "iso8859-1", "latin1", "latin-1", "l1":
+		r := make([]rune, len(b))
+		for i, c := range b {
+			r[i] = rune(c)
+		}
+		return []byte(string(r))
+	default:
+		return b
+	}
 }
 
 // decodeTransferEncoding decodes a MIME part body per its
