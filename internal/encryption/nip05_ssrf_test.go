@@ -29,7 +29,7 @@ func TestNIP05_RefusesInternalNamesAndIPLiterals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	var conns atomic.Int32
 	go func() {
 		for {

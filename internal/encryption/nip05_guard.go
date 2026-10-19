@@ -95,7 +95,7 @@ func (r *NIP05Resolver) dialPublic(ctx context.Context, network, addr string) (n
 		return nil, err
 	}
 	var d net.Dialer
-	var lastErr error = fmt.Errorf("%w: %s has no addresses", errNIP05Internal, host)
+	lastErr := fmt.Errorf("%w: %s has no addresses", errNIP05Internal, host)
 	for _, ip := range ips {
 		if !r.allowAddr(ip, port) {
 			lastErr = fmt.Errorf("%w: %s resolves to %s", errNIP05Internal, host, ip)
