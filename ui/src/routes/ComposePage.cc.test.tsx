@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { nip44, nip04, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools'
 import type { SignerInterface } from '@cloistr/auth'
 import type { SendEmailRequest } from '../lib/api'
+import { AxiosError, AxiosHeaders } from 'axios'
 
 function keySigner() {
   const sk = generateSecretKey()
@@ -37,6 +38,7 @@ const KEYS: Record<string, string> = { 'bob@cloistr.xyz': bob.pk, 'carol@cloistr
 const sent: SendEmailRequest[] = []
 const discovered: string[] = []
 const encryptCalls: Array<Record<string, string>> = []
+let sendRefusal: { code: string; message: string } | null = null
 
 vi.mock('@cloistr/auth', async (orig) => ({
   ...(await orig<typeof import('@cloistr/auth')>()),
@@ -55,7 +57,16 @@ vi.mock('../lib/email-compose', async (orig) => ({
 vi.mock('../lib/api', async (orig) => ({
   ...(await orig<typeof import('../lib/api')>()),
   emailAPI: {
-    send: async (req: SendEmailRequest) => (sent.push(req), { data: { status: 'pending' } }),
+    send: async (req: SendEmailRequest) => {
+      sent.push(req)
+      if (sendRefusal) {
+        const config = { headers: new AxiosHeaders() }
+        throw new AxiosError('Request failed with status code 400', 'ERR_BAD_REQUEST', config, null, {
+          status: 400, statusText: 'Bad Request', headers: {}, config, data: sendRefusal,
+        })
+      }
+      return { data: { status: 'pending' } }
+    },
     get: async () => ({ data: null }),
   },
   keyAPI: {
@@ -70,6 +81,7 @@ beforeEach(() => {
   sent.length = 0
   discovered.length = 0
   encryptCalls.length = 0
+  sendRefusal = null
   localStorage.clear()
 })
 afterEach(cleanup)
@@ -115,5 +127,14 @@ describe('CC in client mode', () => {
     // with the user's session.
     expect(screen.queryByText(/still signed in/i)).toBeNull()
     expect(screen.getByText(/nokey@example\.com/).textContent).not.toMatch(/carol@cloistr\.xyz/)
+  })
+
+  it("shows the server's reason when it refuses the send", async () => {
+    // e.g. CLIENT_MODE_BCC_UNSUPPORTED or RECIPIENT_KEY_MISMATCH from an API
+    // check: the user needs the reason, not "status code 400".
+    sendRefusal = { code: 'RECIPIENT_KEY_MISMATCH', message: 'client-side encryption used a key that is not the recipient\'s: carol@cloistr.xyz' }
+    await composeClientMode('carol@cloistr.xyz')
+    await screen.findByText(/not the recipient's: carol@cloistr\.xyz/, undefined, { timeout: 3000 })
+    expect(screen.queryByText(/status code 400/)).toBeNull()
   })
 })

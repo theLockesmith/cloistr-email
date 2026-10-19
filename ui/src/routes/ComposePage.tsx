@@ -552,7 +552,12 @@ export default function ComposePage() {
         {sendMutation.isError && (
           axios.isAxiosError(sendMutation.error) || sendMutation.error instanceof RecipientKeyError ? (
             <div className="mb-4 p-4 bg-cloistr-error/10 border border-cloistr-error/40 text-cloistr-error rounded-lg">
-              {sendMutation.error.message || 'Error sending email'}
+              {/* The server's reason (e.g. a refused end-to-end send) beats
+                  axios's generic "Request failed with status code 400". */}
+              {(axios.isAxiosError(sendMutation.error) &&
+                (sendMutation.error.response?.data as { message?: string } | undefined)?.message) ||
+                sendMutation.error.message ||
+                'Error sending email'}
             </div>
           ) : (
             <div className="mb-4">

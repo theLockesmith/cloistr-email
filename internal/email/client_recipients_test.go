@@ -154,3 +154,39 @@ func TestCheckClientRecipientsCovered(t *testing.T) {
 
 	_ = encryption.ModeClientSide
 }
+
+// Every recipient decrypts the SAME body envelope, whose key map is keyed by
+// recipient pubkey. Wrapping to a BCC would show every To/CC recipient who
+// was BCC'd, so client mode refuses BCC until per-BCC envelopes exist.
+func TestCheckClientNoBCC(t *testing.T) {
+	if err := checkClientNoBCC(&SendRequest{To: []string{"bob@x"}, CC: []string{"carol@x"}}); err != nil {
+		t.Fatalf("no BCC refused: %v", err)
+	}
+	err := checkClientNoBCC(&SendRequest{To: []string{"bob@x"}, BCC: []string{"dave@x"}})
+	if !errors.Is(err, ErrClientBCCUnsupported) {
+		t.Fatalf("err = %v, want ErrClientBCCUnsupported", err)
+	}
+}
+
+// The client says which key each recipient has. Unchecked, a client could
+// wrap to a key the recipient does not hold and still be reported encrypted.
+// Each must match the key the server resolves for that address itself.
+func TestCheckClientKeysMatchResolved(t *testing.T) {
+	bob := strings.Repeat("b", 64)
+	req := &SendRequest{
+		To: []string{"Bob@X"}, CC: []string{"carol@x"},
+		RecipientPubkeys: map[string]string{"bob@x": strings.ToUpper(bob), "carol@x": carolPK},
+	}
+	if err := checkClientKeysMatchResolved(req, map[string]string{"Bob@X": bob, "carol@x": carolPK}); err != nil {
+		t.Fatalf("matching keys refused: %v", err)
+	}
+	err := checkClientKeysMatchResolved(req, map[string]string{"Bob@X": bob, "carol@x": davePK})
+	if !errors.Is(err, ErrClientRecipientKeyMismatch) || !strings.Contains(err.Error(), "carol@x") ||
+		strings.Contains(err.Error(), "Bob@X") {
+		t.Fatalf("mismatch: err = %v, want only carol@x named", err)
+	}
+	err = checkClientKeysMatchResolved(req, map[string]string{"Bob@X": bob})
+	if !errors.Is(err, ErrClientRecipientKeyMismatch) || !strings.Contains(err.Error(), "carol@x") {
+		t.Fatalf("unresolvable recipient: err = %v, want carol@x named", err)
+	}
+}
