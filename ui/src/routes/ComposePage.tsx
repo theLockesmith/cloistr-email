@@ -287,7 +287,9 @@ export default function ComposePage() {
       return
     }
 
-    await sendMutation.mutateAsync()
+    // mutate, not mutateAsync: a failed send is shown from the mutation's
+    // error state, and an awaited rejection here went unhandled.
+    sendMutation.mutate()
   }
 
   const canEncrypt = recipientPubkey !== null
