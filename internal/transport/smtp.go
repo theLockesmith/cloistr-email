@@ -233,6 +233,12 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 	if strings.TrimSpace(msg.FromAddress) == "" {
 		return nil, fmt.Errorf("cannot build message: FromAddress is empty")
 	}
+	// Every value below lands in a header line. A CR or LF in one would start
+	// a header of the caller's choosing (a second From, which DKIM then signs
+	// because it signs the bottom-most instance; a Reply-To) or end the header
+	// block and replace the body. The API refuses such input; this is the
+	// backstop for any other caller.
+	msg = headerSafeMessage(msg)
 
 	var sb strings.Builder
 
@@ -412,6 +418,54 @@ func (t *SMTPTransport) writeBodyContent(sb *strings.Builder, msg *Message, body
 		sb.WriteString("\r\n")
 		sb.WriteString(base64.StdEncoding.EncodeToString([]byte(body)))
 	}
+}
+
+// headerBreaks turns every line break into a space so a value cannot leave
+// its header line.
+var headerBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
+func headerSafe(v string) string { return headerBreaks.Replace(v) }
+
+func headerSafeList(vs []string) []string {
+	if vs == nil {
+		return nil
+	}
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = headerSafe(v)
+	}
+	return out
+}
+
+// headerSafeMessage returns a shallow copy of msg whose header-bound fields
+// cannot break out of their header line. Attachment names also lose double
+// quotes, which would otherwise close the quoted MIME parameter.
+func headerSafeMessage(msg *Message) *Message {
+	m := *msg
+	m.FromAddress = headerSafe(m.FromAddress)
+	m.ToAddresses = headerSafeList(m.ToAddresses)
+	m.CCAddresses = headerSafeList(m.CCAddresses)
+	m.Subject = headerSafe(m.Subject)
+	m.InReplyTo = headerSafe(m.InReplyTo)
+	m.References = headerSafeList(m.References)
+	m.MessageID = headerSafe(m.MessageID)
+	if m.Headers != nil {
+		h := make(map[string]string, len(m.Headers))
+		for k, v := range m.Headers {
+			h[headerSafe(k)] = headerSafe(v)
+		}
+		m.Headers = h
+	}
+	if m.Attachments != nil {
+		atts := make([]Attachment, len(m.Attachments))
+		for i, a := range m.Attachments {
+			a.Filename = strings.ReplaceAll(headerSafe(a.Filename), `"`, "'")
+			a.ContentType = headerSafe(a.ContentType)
+			atts[i] = a
+		}
+		m.Attachments = atts
+	}
+	return &m
 }
 
 // writeAttachmentPart writes one base64 MIME attachment part (headers + body,

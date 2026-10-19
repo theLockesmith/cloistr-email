@@ -6,6 +6,7 @@ import (
 	stderrors "errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
@@ -40,7 +41,6 @@ func (h *EmailHandler) respondJSON(w http.ResponseWriter, status int, data inter
 	}
 }
 
-
 // SendEmailV2 sends an email with full encryption and transport support
 func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("SendEmailV2: processing request")
@@ -55,6 +55,14 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 	var req SendEmailRequestV2
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
+		return
+	}
+
+	// Header-bound fields must not carry line breaks: one would let the sender
+	// write their own headers (a second, DKIM-signed From; Reply-To) or
+	// replace the body.
+	if field := headerBreakField(&req); field != "" {
+		errors.BadRequest("HEADER_INJECTION", field+" must not contain line breaks").WriteResponse(w)
 		return
 	}
 
@@ -705,4 +713,40 @@ func parseDate(s string) (time.Time, error) {
 		return t, nil
 	}
 	return time.Parse("2006-01-02", s)
+}
+
+// headerBreakField names the first header-bound field of req that contains a
+// CR or LF, or returns "" if none does.
+func headerBreakField(req *SendEmailRequestV2) string {
+	has := func(v string) bool { return strings.ContainsAny(v, "\r\n") }
+	anyOf := func(vs []string) bool {
+		for _, v := range vs {
+			if has(v) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has(req.From):
+		return "from"
+	case anyOf(req.To):
+		return "to"
+	case anyOf(req.CC):
+		return "cc"
+	case anyOf(req.BCC):
+		return "bcc"
+	case has(req.Subject):
+		return "subject"
+	case has(req.InReplyTo):
+		return "in_reply_to"
+	case anyOf(req.References):
+		return "references"
+	}
+	for _, a := range req.Attachments {
+		if has(a.Filename) || has(a.ContentType) {
+			return "attachments"
+		}
+	}
+	return ""
 }
