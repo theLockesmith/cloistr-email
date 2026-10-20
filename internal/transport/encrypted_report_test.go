@@ -36,15 +36,15 @@ func (recordingEncryptor) DecryptContent(context.Context, string, string, string
 	return "", nil
 }
 
-// Server-side mode encrypts the body to ONE recipient (the first To with a
-// key), yet every recipient with a known pubkey was reported encrypted.
+// Server-side mode encrypts the body to ONE recipient, yet every recipient with
+// a known pubkey was reported encrypted. (A server-side send with a second
+// recipient is now refused outright; see server_encryption_failclosed_test.go.)
 func TestDeliveredEncrypted_ServerSide(t *testing.T) {
 	tr := newTestTransport(t)
 	tr.encryptor = encryption.NewEmailEncryptor(recordingEncryptor{}, nil, zap.NewNop())
 	msg := &Message{
 		FromAddress:         "alice@cloistr.xyz",
 		ToAddresses:         []string{"bob@x"},
-		CCAddresses:         []string{"carol@x"},
 		SenderPubkey:        "a",
 		RecipientPubkeys:    map[string]string{"bob@x": "b", "carol@x": "c"},
 		EncryptionRequested: true,
