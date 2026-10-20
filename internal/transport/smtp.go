@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"mime/quotedprintable"
 	"net"
@@ -209,8 +210,15 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 	// Success
 	result.Success = true
 	result.MessageID = msg.MessageID
+	// buildRawEmail refuses any server-side message it could not encrypt to
+	// exactly its one recipient, so success means that recipient, and only
+	// that recipient, received an encrypted body.
+	serverEncryptedTo := ""
+	if msg.EncryptionRequested && !msg.IsPreEncrypted {
+		serverEncryptedTo = msg.ToAddresses[0]
+	}
 	for _, addr := range allRecipients {
-		encrypted := msg.IsPreEncrypted || (msg.EncryptionRequested && msg.RecipientPubkeys[addr] != "")
+		encrypted := deliveredEncrypted(msg, serverEncryptedTo, addr)
 		result.Recipients = append(result.Recipients, RecipientResult{
 			Address:   addr,
 			Success:   true,
@@ -223,6 +231,20 @@ func (t *SMTPTransport) Send(ctx context.Context, msg *Message) (*DeliveryResult
 		zap.Int("recipients", len(allRecipients)))
 
 	return result, nil
+}
+
+// ErrServerEncryption means a server-side (NIP-46) encrypted send could not be
+// encrypted and was not sent. It never falls back to plaintext.
+var ErrServerEncryption = errors.New("server-side encryption failed; the message was not sent")
+
+// deliveredEncrypted reports whether addr received a body it can decrypt. A
+// server-encrypted body counts only for the one recipient it was encrypted
+// to; a pre-encrypted (client) body keeps its previous rule.
+func deliveredEncrypted(msg *Message, serverEncryptedTo, addr string) bool {
+	if msg.IsPreEncrypted {
+		return msg.RecipientPubkeys[addr] != ""
+	}
+	return serverEncryptedTo != "" && addr == serverEncryptedTo
 }
 
 // BuildRawEmail returns the RFC 5322 message Send would deliver for msg,
@@ -321,29 +343,36 @@ func (t *SMTPTransport) buildRawEmail(ctx context.Context, msg *Message) ([]byte
 	isEncrypted := msg.IsPreEncrypted
 
 	// Handle server-side encryption if requested and not pre-encrypted
-	if msg.EncryptionRequested && !msg.IsPreEncrypted && t.encryptor != nil {
-		// For now, we encrypt for the first recipient with a known pubkey
-		// A more sophisticated approach would create per-recipient copies
-		for _, addr := range msg.ToAddresses {
-			if pubkey, ok := msg.RecipientPubkeys[addr]; ok && pubkey != "" {
-				encryptedBody, err := t.encryptor.EncryptEmailBody(ctx, msg.SenderPubkey, pubkey, msg.Body)
-				if err != nil {
-					t.logger.Warn("Failed to encrypt email body, sending unencrypted",
-						zap.String("recipient", addr),
-						zap.Error(err))
-					continue
-				}
-				body = encryptedBody
-				isEncrypted = true
-
-				// Add encryption headers
-				sb.WriteString(fmt.Sprintf("%s: true\r\n", encryption.HeaderNostrEncrypted))
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrSender, msg.SenderPubkey))
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrRecipient, pubkey))
-				sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44))
-				break
-			}
+	if msg.EncryptionRequested && !msg.IsPreEncrypted {
+		// Server-side mode encrypts the one body for one recipient's key. It
+		// never falls back to plaintext: the user asked for encryption, so a
+		// missing key or a failed encrypt stops the send (Email service checks
+		// the recipient rules first; this is the backstop).
+		if t.encryptor == nil {
+			return nil, fmt.Errorf("%w: no encryptor configured", ErrServerEncryption)
 		}
+		if len(msg.ToAddresses) != 1 || len(msg.CCAddresses) != 0 || len(msg.BCCAddresses) != 0 {
+			return nil, fmt.Errorf("%w: server-side encryption supports exactly one recipient", ErrServerEncryption)
+		}
+		if len(msg.Attachments) != 0 {
+			return nil, fmt.Errorf("%w: attachments would be sent unencrypted", ErrServerEncryption)
+		}
+		addr := msg.ToAddresses[0]
+		pubkey := msg.RecipientPubkeys[addr]
+		if pubkey == "" {
+			return nil, fmt.Errorf("%w: no Nostr key for %s", ErrServerEncryption, addr)
+		}
+		encryptedBody, err := t.encryptor.EncryptEmailBody(ctx, msg.SenderPubkey, pubkey, msg.Body)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrServerEncryption, err)
+		}
+		body = encryptedBody
+		isEncrypted = true
+
+		sb.WriteString(fmt.Sprintf("%s: true\r\n", encryption.HeaderNostrEncrypted))
+		sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrSender, msg.SenderPubkey))
+		sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrRecipient, pubkey))
+		sb.WriteString(fmt.Sprintf("%s: %s\r\n", encryption.HeaderNostrAlgorithm, encryption.AlgorithmNIP44))
 	} else if msg.IsPreEncrypted {
 		// Pre-encrypted (NIP-07 client-side encryption)
 		sb.WriteString(fmt.Sprintf("%s: true\r\n", encryption.HeaderNostrEncrypted))

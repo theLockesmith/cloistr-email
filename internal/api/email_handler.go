@@ -14,6 +14,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/transport"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
@@ -155,6 +156,17 @@ func (h *EmailHandler) SendEmailV2(w http.ResponseWriter, r *http.Request) {
 			errors.Forbidden("SEND_NOT_PERMITTED", err.Error()).WriteResponse(w)
 		case stderrors.Is(err, email.ErrSendSuspended):
 			errors.Forbidden("SEND_SUSPENDED", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, email.ErrServerModeOneRecipient):
+			errors.BadRequest("SERVER_ENCRYPTION_ONE_RECIPIENT", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, email.ErrServerModeAttachments):
+			errors.BadRequest("SERVER_ENCRYPTION_NO_ATTACHMENTS", err.Error()).WriteResponse(w)
+		case stderrors.Is(err, email.ErrServerRecipientNoKey):
+			errors.BadRequest("RECIPIENT_NOT_ENCRYPTED", err.Error()).WriteResponse(w)
+		// Encrypting failed (for example the signer connection is down) and
+		// nothing was sent: say so, never a generic 500 the user may retry
+		// believing it went out.
+		case stderrors.Is(err, transport.ErrServerEncryption):
+			errors.New("SERVER_ENCRYPTION_FAILED", "encryption failed, so the message was NOT sent; reconnect your signer or send without encryption", http.StatusUnprocessableEntity).WriteResponse(w)
 		// Rate limits are transient: 429 + Retry-After so clients back off
 		// instead of hammering.
 		case stderrors.As(err, &rateLimited):

@@ -220,6 +220,14 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 		}
 	}
 
+	// Server-side mode never falls back to plaintext: refuse what its one
+	// encrypted body cannot cover before anything is sent.
+	if req.EncryptionMode == encryption.ModeServerSide {
+		if err := checkServerModeSendable(req, recipientPubkeys); err != nil {
+			return nil, err
+		}
+	}
+
 	// 3. Determine body content based on encryption mode
 	body := req.Body
 	isPreEncrypted := false
@@ -999,4 +1007,29 @@ func (s *Service) bodyAtRest(ctx context.Context, req *SendRequest) (string, str
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+// Server-side (NIP-46) mode encrypts ONE body to ONE recipient's key on the
+// server. It used to send whatever that could not cover in plaintext (no key,
+// attachments) or undecryptable (extra recipients) while the user believed the
+// message was encrypted. These refuse the send instead.
+var (
+	ErrServerModeOneRecipient = errors.New("server-side encryption can send to exactly one recipient; remove the others or send without encryption")
+	ErrServerRecipientNoKey   = errors.New("server-side encryption needs the recipient's Nostr key, and none was found; send without encryption instead")
+	ErrServerModeAttachments  = errors.New("server-side encryption cannot encrypt attachments; remove them or send without encryption")
+)
+
+// checkServerModeSendable refuses a server-side send that its single encrypted
+// body cannot fully cover. resolved maps recipient address to Nostr pubkey.
+func checkServerModeSendable(req *SendRequest, resolved map[string]string) error {
+	if len(req.To) != 1 || len(req.CC) != 0 || len(req.BCC) != 0 {
+		return ErrServerModeOneRecipient
+	}
+	if len(req.Attachments) != 0 {
+		return ErrServerModeAttachments
+	}
+	if resolved[req.To[0]] == "" {
+		return fmt.Errorf("%w (%s)", ErrServerRecipientNoKey, req.To[0])
+	}
+	return nil
 }
