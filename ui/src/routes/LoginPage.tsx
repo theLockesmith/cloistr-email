@@ -96,7 +96,7 @@ export default function LoginPage() {
             to sign in. */}
         <p className="text-sm text-[var(--cloistr-text-muted)]">
           New here? Get a Nostr identity at{' '}
-          <a href={SIGNER_URL} className="text-[var(--cloistr-primary)] hover:underline">
+          <a href={SIGNER_URL} className="text-[var(--cloistr-primary-text)] hover:underline">
             {SIGNER_HOST}
           </a>
         </p>
