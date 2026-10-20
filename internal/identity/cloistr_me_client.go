@@ -31,6 +31,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -156,6 +157,47 @@ func (c *CloistrMeClient) VerifyAddressOwnership(ctx context.Context, pubkey, ad
 		zap.Bool("valid", verifyResp.Valid))
 
 	return verifyResp.Valid, nil
+}
+
+// EnsureAddress asks cloistr-me to give pubkey its auto-assigned address if it
+// has none (POST /internal/v1/addresses/ensure, idempotent). A no-op when the
+// URL or secret is not configured.
+func (c *CloistrMeClient) EnsureAddress(ctx context.Context, pubkey string) error {
+	if c.baseURL == "" || c.secret == "" {
+		return nil
+	}
+	body, err := json.Marshal(map[string]string{"pubkey": pubkey})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(c.baseURL, "/")+"/internal/v1/addresses/ensure", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.secret)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("cloistr-me request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("cloistr-me ensure returned status %d", resp.StatusCode)
+	}
+	var out struct {
+		Username string `json:"username"`
+		Created  bool   `json:"created"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return fmt.Errorf("failed to parse cloistr-me response: %w", err)
+	}
+	c.logger.Info("ensured address via cloistr-me",
+		zap.String("pubkey", truncateKey(pubkey)),
+		zap.String("username", out.Username),
+		zap.Bool("created", out.Created))
+	return nil
 }
 
 // usernameFromAddress returns the local part of an email address (the substring

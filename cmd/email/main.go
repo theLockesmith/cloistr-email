@@ -93,14 +93,21 @@ func main() {
 		logger.Fatal("Invalid relay preferences configuration", zap.Error(err))
 	}
 
-	// Initialize API handler
+	// Initialize API handler. With the cloistr-me secret set, sign-in also
+	// gives an address-less user their @cloistr.xyz address.
+	handlerOpts := []api.HandlerOption{api.WithRelayClient(relayClient)}
+	if cfg.CloistrMeSecret != "" {
+		handlerOpts = append(handlerOpts, api.WithAddressEnsurer(
+			identity.NewCloistrMeClient(cfg.CloistrMeURL, cfg.CloistrMeSecret, logger),
+		))
+	}
 	apiHandler := api.NewHandler(
 		db,
 		authHandler,
 		sessionStore,
 		cfg,
 		logger,
-		api.WithRelayClient(relayClient),
+		handlerOpts...,
 	)
 
 	// --- v2 email pipeline ---

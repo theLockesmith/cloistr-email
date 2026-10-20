@@ -33,6 +33,8 @@ type Handler struct {
 	config      *config.Config
 	logger      *zap.Logger
 	relayClient *relays.Client
+
+	addressEnsurer AddressEnsurer
 }
 
 // HandlerOption is a functional option for configuring the Handler

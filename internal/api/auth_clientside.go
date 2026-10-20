@@ -247,6 +247,10 @@ func (h *Handler) VerifyChallenge(w http.ResponseWriter, r *http.Request) {
 	// Challenge was already consumed atomically above (ConsumeNIP46Challenge),
 	// so there is nothing left to invalidate here.
 
+	// A user who signed up through Mail may have no address yet: cloistr-me
+	// only made one when they opened Me. Non-fatal and bounded.
+	h.ensureAddressOnSignIn(ctx, event.PubKey)
+
 	h.logger.Info("Client-side auth successful", zap.String("pubkey", event.PubKey))
 
 	h.respondJSON(w, http.StatusOK, csAuthResponse{
