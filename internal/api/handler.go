@@ -1,9 +1,11 @@
 package api
 
 import (
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"context"
 	"encoding/json"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/ratelimit"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	"net/http"
 	"strings"
 
@@ -33,7 +35,22 @@ type Handler struct {
 	config      *config.Config
 	logger      *zap.Logger
 	relayClient *relays.Client
+	recipients  RecipientResolver
+	discoverRL  *ratelimit.Limiter
 }
+
+// SetDiscoverLimiter rate-limits key discovery per account.
+func (h *Handler) SetDiscoverLimiter(l *ratelimit.Limiter) { h.discoverRL = l }
+
+// RecipientResolver looks up a recipient's Nostr key: the identity service,
+// the same lookup the send path uses (internal addresses, then NIP-05).
+type RecipientResolver interface {
+	ResolveRecipient(ctx context.Context, email string) (*identity.ExternalRecipient, error)
+}
+
+// SetRecipientResolver wires key discovery. The identity service is built
+// after the Handler in main, hence a setter rather than a constructor option.
+func (h *Handler) SetRecipientResolver(r RecipientResolver) { h.recipients = r }
 
 // HandlerOption is a functional option for configuring the Handler
 type HandlerOption func(*Handler)
@@ -78,7 +95,6 @@ func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{
 		_ = json.NewEncoder(w).Encode(data)
 	}
 }
-
 
 // AuthMiddleware validates session tokens and injects user context
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
@@ -409,7 +425,11 @@ func (h *Handler) DeleteEmail(w http.ResponseWriter, r *http.Request) {
 
 // ===== Keys & Discovery Endpoints =====
 
-// DiscoverKeyResponse is the response for key discovery
+// DiscoverKeyResponse is the response for key discovery.
+//
+// Pubkey is the 64-character lowercase hex key: it is what the UI reads and
+// sends back in recipient_pubkeys, and what the send path compares against.
+// Npub is the same key in bech32, for display only.
 type DiscoverKeyResponse struct {
 	Email  string `json:"email"`
 	Npub   string `json:"npub,omitempty"`
@@ -434,15 +454,44 @@ func (h *Handler) DiscoverKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement key discovery
-	// 1. Check contacts database
-	// 2. Try NIP-05 lookup
-	// 3. Return result
+	// Refuse a malformed address before it can become an outbound lookup.
+	if err := identity.ValidateEmailFormat(email); err != nil {
+		errors.BadRequest("INVALID_EMAIL", err.Error()).WriteResponse(w)
+		return
+	}
+	if h.discoverRL != nil {
+		d, err := h.discoverRL.Allow(r.Context(), ratelimit.Send{Pubkey: userID, Recipients: 1})
+		if err != nil {
+			// A limiter outage must not break compose; the lookup itself is
+			// SSRF-safe, so failing open here costs only rate.
+			h.logger.Warn("key discovery rate limit unavailable", zap.Error(err))
+		} else if !d.Allowed {
+			retry := int(d.RetryAfter.Seconds())
+			if retry < 1 {
+				retry = 1
+			}
+			errors.TooManyRequests(string(d.Reason), "too many key lookups; try again shortly", retry).WriteResponse(w)
+			return
+		}
+	}
 
-	h.respondJSON(w, http.StatusOK, DiscoverKeyResponse{
-		Email: email,
-		Found: false,
-	})
+	resp := DiscoverKeyResponse{Email: email}
+	if h.recipients != nil {
+		rec, err := h.recipients.ResolveRecipient(r.Context(), email)
+		if err != nil {
+			// Not found, as far as the caller can act on it; the send path
+			// resolves again and refuses a key it cannot confirm.
+			h.logger.Warn("key discovery failed", zap.String("email", email), zap.Error(err))
+		} else if rec != nil && rec.Npub != "" {
+			resp.Found = true
+			resp.Pubkey = strings.ToLower(rec.Npub)
+			resp.Source = rec.DiscoveryMethod
+			if npub, err := nip19.EncodePublicKey(resp.Pubkey); err == nil {
+				resp.Npub = npub
+			}
+		}
+	}
+	h.respondJSON(w, http.StatusOK, resp)
 }
 
 // ImportKeyRequest is the request for importing a key

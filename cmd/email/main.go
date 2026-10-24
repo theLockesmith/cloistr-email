@@ -177,6 +177,14 @@ func main() {
 	signerStore := auth.NewNIP46SignerStore(authHandler)
 	encryptionSvc := encryption.NewEncryptionService(signerStore, logger)
 
+	// Key discovery for the compose page goes through the same resolver the
+	// send path checks client-mode keys against.
+	apiHandler.SetRecipientResolver(identitySvc)
+	apiHandler.SetDiscoverLimiter(ratelimit.NewDiscoverLimiter(
+		ratelimit.NewRedisStore(sessionStore.GetClient()),
+		ratelimit.DiscoverPerMinute, ratelimit.DiscoverPerHour, ratelimit.DiscoverPerDay,
+	))
+
 	emailSvc := email.NewService(identitySvc, transportMgr, encryptionSvc, db, logger)
 	// Declared out here because the inbound processor needs the same servers to
 	// store attachments arriving over SMTP; it was previously scoped to this
