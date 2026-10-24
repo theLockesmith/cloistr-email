@@ -82,7 +82,7 @@ export default function LoginPage() {
       <div className="max-w-2xl">
         <h1 className="text-4xl font-bold mb-3">Cloistr Mail</h1>
         <p className="text-xl text-[var(--cloistr-text-muted)] mb-8">
-          Encrypted, Nostr-native email. One address for email, Nostr, and Lightning.
+          Nostr-native email, with end-to-end encryption when you choose it. One address for email, Nostr, and Lightning.
         </p>
 
         {displayError && (
