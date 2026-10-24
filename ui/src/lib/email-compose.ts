@@ -141,3 +141,22 @@ export async function resolveClientRecipients(
   if (missing.length > 0) throw new RecipientKeyError(missing)
   return Object.fromEntries(resolved) as Record<string, string>
 }
+
+/**
+ * Server answers that mean "this could not be sent encrypted, and nothing was
+ * sent". Only these may offer the user a plaintext send instead.
+ */
+export const ENCRYPTION_REFUSAL_CODES = new Set([
+  'SERVER_ENCRYPTION_FAILED',
+  'SERVER_ENCRYPTION_ONE_RECIPIENT',
+  'SERVER_ENCRYPTION_NO_ATTACHMENTS',
+  'RECIPIENT_NOT_ENCRYPTED',
+  'CLIENT_MODE_BCC_UNSUPPORTED',
+])
+
+/** Whether a failed send was refused for an encryption reason (and so sent nothing). */
+export function isEncryptionRefusal(err: unknown): boolean {
+  if (err instanceof RecipientKeyError) return true
+  const code = (err as { response?: { data?: { code?: unknown } } } | null)?.response?.data?.code
+  return typeof code === 'string' && ENCRYPTION_REFUSAL_CODES.has(code)
+}
