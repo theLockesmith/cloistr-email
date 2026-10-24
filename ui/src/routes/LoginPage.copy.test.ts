@@ -23,6 +23,22 @@ describe('landing page encryption copy', () => {
     expect(text).not.toMatch(/server never sees plaintext/i)
   })
 
+  // The same false claim also sat outside FEATURES: the tagline under the
+  // heading and the page's meta description (search results, link previews).
+  const page = readFileSync(join(__dirname, 'LoginPage.tsx'), 'utf8')
+  const indexHtml = readFileSync(join(__dirname, '..', '..', 'index.html'), 'utf8')
+
+  it('the tagline does not call the mail encrypted outright', () => {
+    expect(page).not.toMatch(/>\s*Encrypted, Nostr-native email/)
+    expect(page).toMatch(/encryption when you choose it/)
+  })
+
+  it('the meta description does not promise encrypted email', () => {
+    const meta = indexHtml.match(/<meta name="description" content="([^"]*)"/)?.[1] ?? ''
+    expect(meta).not.toMatch(/end-to-end encrypted email/i)
+    expect(meta).toMatch(/when you choose it/i)
+  })
+
   it('still tells users encryption is available and that they choose it', () => {
     expect(text).toMatch(/end-to-end encrypt/i)
     expect(text).toMatch(/choose|turn (it )?on/i)
