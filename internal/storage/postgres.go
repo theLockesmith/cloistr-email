@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -396,44 +395,13 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 		RETURNING created_at, updated_at
 	`
 
-	insert := func() error {
-		return db.db.QueryRowContext(ctx, query,
-			email.ID, email.MailboxPubkey, email.MessageID, email.FromAddress, email.ToAddress,
-			email.CC, email.BCC, email.Subject, email.Body, email.HTMLBody,
-			email.IsEncrypted, email.EncryptionNonce, email.EncryptionMode, email.SenderNpub, email.RecipientNpub,
-			email.Direction, email.Status, email.Folder, pq.Array(email.Labels),
-			email.InReplyTo, email.References,
-		).Scan(&email.CreatedAt, &email.UpdatedAt)
-	}
-
-	err := insert()
-
-	// `emails.message_id` is UNIQUE across the WHOLE table, not scoped per
-	// mailbox (configs/schema.sql / prod: constraint emails_message_id_key).
-	// One outbound send legitimately produces several rows sharing the same
-	// Message-ID: the sender's own Sent copy, plus one Received copy per
-	// local To/Cc recipient -- including the sender CC'ing themselves. Only
-	// the FIRST of those to be inserted gets to keep the real value; every
-	// later one hits this unique_violation and, before this retry existed,
-	// was dropped entirely (logged, not stored) -- the bug this guards
-	// against (a Cc copy silently missing from the sender's own inbox).
-	//
-	// Properly scoping the constraint to (mailbox_pubkey, message_id) needs a
-	// migration, which is out of scope here (production is frozen and this
-	// table is on the shared cloistr DB). Until that lands, storing the
-	// colliding copy with message_id = NULL is safe: NULLs never collide
-	// under a UNIQUE index, and nothing in this codebase looks up an email by
-	// Message-ID alone (GetEmailByMessageID is scoped by mailbox and unused
-	// in production code), so losing that one field on the duplicate copy has
-	// no observable effect beyond this row no longer matching its Message-ID.
-	if err != nil && email.MessageID != nil && isDuplicateMessageID(err) {
-		db.logger.Warn("Message-ID collides with an existing email row; storing this copy with message_id=NULL instead of dropping it",
-			zap.String("mailbox_pubkey", email.MailboxPubkey),
-			zap.String("direction", email.Direction),
-			zap.String("message_id", *email.MessageID))
-		email.MessageID = nil
-		err = insert()
-	}
+	err := db.db.QueryRowContext(ctx, query,
+		email.ID, email.MailboxPubkey, email.MessageID, email.FromAddress, email.ToAddress,
+		email.CC, email.BCC, email.Subject, email.Body, email.HTMLBody,
+		email.IsEncrypted, email.EncryptionNonce, email.EncryptionMode, email.SenderNpub, email.RecipientNpub,
+		email.Direction, email.Status, email.Folder, pq.Array(email.Labels),
+		email.InReplyTo, email.References,
+	).Scan(&email.CreatedAt, &email.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create email: %w", err)
@@ -441,16 +409,6 @@ func (db *PostgreSQL) CreateEmail(ctx context.Context, email *Email) error {
 
 	db.logger.Info("Email created", zap.String("id", email.ID))
 	return nil
-}
-
-// isDuplicateMessageID reports whether err is a Postgres unique_violation on
-// emails.message_id (constraint emails_message_id_key).
-func isDuplicateMessageID(err error) bool {
-	var pqErr *pq.Error
-	if !errors.As(err, &pqErr) {
-		return false
-	}
-	return pqErr.Code.Name() == "unique_violation" && pqErr.Constraint == "emails_message_id_key"
 }
 
 // GetEmail retrieves an email by ID
