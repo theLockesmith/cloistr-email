@@ -304,129 +304,11 @@ func main() {
 
 	emailHandler := api.NewEmailHandler(emailSvc, logger)
 
-	// Setup routes
-	router := mux.NewRouter()
-
-	// Health check
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"ok","service":"coldforge-email","timestamp":"%s"}`, time.Now().UTC().Format(time.RFC3339))
-	}).Methods("GET")
-
-	// Ready check
-	router.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		if err := db.Ping(context.Background()); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = fmt.Fprintf(w, `{"status":"not_ready","reason":"database"}`)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
-	}).Methods("GET")
-
-	// API v1 routes
-	v1 := router.PathPrefix("/api/v1").Subrouter()
-
-	// Authentication endpoints
-	authRoutes := v1.PathPrefix("/auth").Subrouter()
-	authRoutes.HandleFunc("/nip46/challenge", apiHandler.StartNIP46Auth).Methods("POST")
-	authRoutes.HandleFunc("/nip46/verify", apiHandler.VerifyNIP46Auth).Methods("POST")
-	authRoutes.HandleFunc("/logout", apiHandler.Logout).Methods("POST")
-
-	// RFC-004: client-side signing endpoints (backend verifies only; no server-side key).
-	authRoutes.HandleFunc("/challenge", apiHandler.StartChallenge).Methods("GET")
-	authRoutes.HandleFunc("/verify", apiHandler.VerifyChallenge).Methods("POST")
-	authRoutes.HandleFunc("/refresh", apiHandler.RefreshToken).Methods("POST")
-	authRoutes.HandleFunc("/token-info", apiHandler.TokenInfo).Methods("GET")
-
-	// Email endpoints
-	emailRoutes := v1.PathPrefix("/emails").Subrouter()
-	emailRoutes.Use(apiHandler.AuthMiddleware)
-	emailRoutes.HandleFunc("", apiHandler.ListEmails).Methods("GET")
-	// No v1 send: it was an unimplemented stub with no input checks. Sending
-	// is POST /api/v2/email/send.
-	emailRoutes.HandleFunc("/{id}", apiHandler.GetEmail).Methods("GET")
-	emailRoutes.HandleFunc("/{id}/reply", apiHandler.ReplyEmail).Methods("POST")
-	emailRoutes.HandleFunc("/{id}", apiHandler.DeleteEmail).Methods("DELETE")
-
-	// Keys & discovery endpoints
-	keyRoutes := v1.PathPrefix("/keys").Subrouter()
-	keyRoutes.Use(apiHandler.AuthMiddleware)
-	keyRoutes.HandleFunc("/discover", apiHandler.DiscoverKey).Methods("GET")
-	keyRoutes.HandleFunc("/import", apiHandler.ImportKey).Methods("POST")
-	keyRoutes.HandleFunc("/mine", apiHandler.GetMyKey).Methods("GET")
-
-	// Contacts endpoints
-	contactRoutes := v1.PathPrefix("/contacts").Subrouter()
-	contactRoutes.Use(apiHandler.AuthMiddleware)
-	contactRoutes.HandleFunc("", apiHandler.ListContacts).Methods("GET")
-	contactRoutes.HandleFunc("", apiHandler.AddContact).Methods("POST")
-	contactRoutes.HandleFunc("/{id}", apiHandler.GetContact).Methods("GET")
-	contactRoutes.HandleFunc("/{id}", apiHandler.DeleteContact).Methods("DELETE")
-
-	// Encryption preference endpoints.
-	//
-	// The Settings screen posted to /api/v1/encryption/preferred-mode against a
-	// route that did not exist, so every save 404'd silently and the preference
-	// never applied.
-	encRoutes := v1.PathPrefix("/encryption").Subrouter()
-	encRoutes.Use(apiHandler.AuthMiddleware)
-	encRoutes.HandleFunc("/preferred-mode", apiHandler.GetEncryptionPreference).Methods("GET")
-	encRoutes.HandleFunc("/preferred-mode", apiHandler.SetEncryptionPreference).Methods("POST")
-
-	// Relay preferences endpoint (cloistr-common integration)
-	relayRoutes := v1.PathPrefix("/relays").Subrouter()
-	relayRoutes.HandleFunc("/prefs", apiHandler.GetRelayPrefs).Methods("GET")
-
-	// API v2 routes — encrypted email pipeline
-	v2 := router.PathPrefix("/api/v2").Subrouter()
-	emailV2Routes := v2.PathPrefix("/email").Subrouter()
-	emailV2Routes.Use(apiHandler.AuthMiddleware)
-	emailV2Routes.HandleFunc("/send", emailHandler.SendEmailV2).Methods("POST")
-	emailV2Routes.HandleFunc("/bulk", emailHandler.BulkActionV2).Methods("POST")
-	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
-	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
-	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
-	emailV2Routes.HandleFunc("/{id}/archive", emailHandler.ArchiveEmailV2).Methods("PATCH")
-	emailV2Routes.HandleFunc("/{id}/read", emailHandler.MarkReadV2).Methods("PATCH")
-	emailV2Routes.HandleFunc("/{id}/unread", emailHandler.MarkUnreadV2).Methods("PATCH")
-	emailV2Routes.HandleFunc("/{id}/star", emailHandler.ToggleStarV2).Methods("PATCH")
-	emailV2Routes.HandleFunc("/{id}/move", emailHandler.MoveEmailV2).Methods("PATCH")
-	emailV2Routes.HandleFunc("/{id}/labels", emailHandler.AddLabelV2).Methods("POST")
-	emailV2Routes.HandleFunc("/{id}/labels", emailHandler.RemoveLabelV2).Methods("DELETE")
-	emailV2Routes.HandleFunc("/{id}/attachments/{attachmentId}", emailHandler.GetAttachmentV2).Methods("GET")
-
-	// API v2 auth routes — Option D signer-as-bunker bootstrap + NIP-46 status
-	authV2Routes := v2.PathPrefix("/auth").Subrouter()
-	authV2Routes.Use(apiHandler.AuthMiddleware)
-	authV2Routes.HandleFunc("/nostrconnect/init", apiHandler.InitNostrConnect).Methods("POST")
-	authV2Routes.HandleFunc("/nip46/status", apiHandler.NIP46Status).Methods("GET")
-
-	// Internal domain-admin API — served-domain + per-domain DKIM management,
-	// consumed by the admin page (cloistr-me). Guarded by INTERNAL_API_SECRET;
-	// only registered when the secret is configured. Private keys never leave
-	// this service (responses carry only the public DKIM record).
-	if cfg.InternalAPISecret != "" {
-		domainAdmin := api.NewInternalDomainHandler(db, domainRegistry, domains.NewNetDNSChecker(), cfg.InternalAPISecret, logger)
-		internalRoutes := router.PathPrefix("/internal/v1/domains").Subrouter()
-		internalRoutes.Use(domainAdmin.AuthMiddleware)
-		internalRoutes.HandleFunc("", domainAdmin.ListDomains).Methods("GET")
-		internalRoutes.HandleFunc("", domainAdmin.CreateDomain).Methods("POST")
-		internalRoutes.HandleFunc("/{domain}", domainAdmin.DeleteDomain).Methods("DELETE")
-		internalRoutes.HandleFunc("/{domain}/verify", domainAdmin.VerifyDomain).Methods("POST")
-		internalRoutes.HandleFunc("/{domain}/activate", domainAdmin.ActivateDomain).Methods("POST")
-		internalRoutes.HandleFunc("/{domain}/deactivate", domainAdmin.DeactivateDomain).Methods("POST")
-		internalRoutes.HandleFunc("/{domain}/rotate-dkim", domainAdmin.RotateDKIM).Methods("POST")
-		logger.Info("Internal domain-admin API enabled at /internal/v1/domains")
-	} else {
-		logger.Warn("INTERNAL_API_SECRET not set — domain-admin API disabled")
-	}
-
-	// Middleware
-	router.Use(loggingMiddleware(logger))
-	router.Use(corsMiddleware())
+	// Setup routes. Extracted into buildRouter so the route table can be
+	// exercised directly by tests (httptest against the real *mux.Router)
+	// without needing a live DB/Redis connection — route registration itself
+	// never touches either.
+	router := buildRouter(db, domainRegistry, apiHandler, emailHandler, cfg, logger)
 
 	// Start API server
 	apiServer := &http.Server{
@@ -536,6 +418,148 @@ func main() {
 	}
 
 	logger.Info("Shutdown complete")
+}
+
+// buildRouter constructs the full HTTP route table for the API server.
+// Extracted out of main() so tests can exercise the real route table with
+// httptest, independent of any live DB/Redis connection — registering routes
+// never calls into db or domainRegistry, it only closes over them for the
+// handlers that need them at request time.
+func buildRouter(
+	db *storage.PostgreSQL,
+	domainRegistry *domains.Registry,
+	apiHandler *api.Handler,
+	emailHandler *api.EmailHandler,
+	cfg *config.Config,
+	logger *zap.Logger,
+) *mux.Router {
+	router := mux.NewRouter()
+
+	// Health check
+	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"ok","service":"coldforge-email","timestamp":"%s"}`, time.Now().UTC().Format(time.RFC3339))
+	}).Methods("GET")
+
+	// Ready check
+	router.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		if err := db.Ping(context.Background()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = fmt.Fprintf(w, `{"status":"not_ready","reason":"database"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
+	}).Methods("GET")
+
+	// API v1 routes
+	v1 := router.PathPrefix("/api/v1").Subrouter()
+
+	// Authentication endpoints
+	authRoutes := v1.PathPrefix("/auth").Subrouter()
+	authRoutes.HandleFunc("/nip46/challenge", apiHandler.StartNIP46Auth).Methods("POST")
+	authRoutes.HandleFunc("/nip46/verify", apiHandler.VerifyNIP46Auth).Methods("POST")
+	authRoutes.HandleFunc("/logout", apiHandler.Logout).Methods("POST")
+
+	// RFC-004: client-side signing endpoints (backend verifies only; no server-side key).
+	authRoutes.HandleFunc("/challenge", apiHandler.StartChallenge).Methods("GET")
+	authRoutes.HandleFunc("/verify", apiHandler.VerifyChallenge).Methods("POST")
+	authRoutes.HandleFunc("/refresh", apiHandler.RefreshToken).Methods("POST")
+	authRoutes.HandleFunc("/token-info", apiHandler.TokenInfo).Methods("GET")
+
+	// Email endpoints
+	emailRoutes := v1.PathPrefix("/emails").Subrouter()
+	emailRoutes.Use(apiHandler.AuthMiddleware)
+	emailRoutes.HandleFunc("", apiHandler.ListEmails).Methods("GET")
+	// No v1 send: it was an unimplemented stub with no input checks. Sending
+	// is POST /api/v2/email/send.
+	emailRoutes.HandleFunc("/{id}", apiHandler.GetEmail).Methods("GET")
+	emailRoutes.HandleFunc("/{id}/reply", apiHandler.ReplyEmail).Methods("POST")
+	emailRoutes.HandleFunc("/{id}", apiHandler.DeleteEmail).Methods("DELETE")
+
+	// Keys & discovery endpoints
+	keyRoutes := v1.PathPrefix("/keys").Subrouter()
+	keyRoutes.Use(apiHandler.AuthMiddleware)
+	keyRoutes.HandleFunc("/discover", apiHandler.DiscoverKey).Methods("GET")
+	keyRoutes.HandleFunc("/import", apiHandler.ImportKey).Methods("POST")
+	keyRoutes.HandleFunc("/mine", apiHandler.GetMyKey).Methods("GET")
+
+	// Contacts endpoints
+	contactRoutes := v1.PathPrefix("/contacts").Subrouter()
+	contactRoutes.Use(apiHandler.AuthMiddleware)
+	contactRoutes.HandleFunc("", apiHandler.ListContacts).Methods("GET")
+	contactRoutes.HandleFunc("", apiHandler.AddContact).Methods("POST")
+	contactRoutes.HandleFunc("/{id}", apiHandler.GetContact).Methods("GET")
+	contactRoutes.HandleFunc("/{id}", apiHandler.DeleteContact).Methods("DELETE")
+
+	// Encryption preference endpoints.
+	//
+	// The Settings screen posted to /api/v1/encryption/preferred-mode against a
+	// route that did not exist, so every save 404'd silently and the preference
+	// never applied.
+	encRoutes := v1.PathPrefix("/encryption").Subrouter()
+	encRoutes.Use(apiHandler.AuthMiddleware)
+	encRoutes.HandleFunc("/preferred-mode", apiHandler.GetEncryptionPreference).Methods("GET")
+	encRoutes.HandleFunc("/preferred-mode", apiHandler.SetEncryptionPreference).Methods("POST")
+	// The Settings page has always requested this on load; the route never
+	// existed, so it 404'd on every page load (MAIL-7/36/37/38).
+	encRoutes.HandleFunc("/capabilities", apiHandler.GetEncryptionCapabilities).Methods("GET")
+
+	// Relay preferences endpoint (cloistr-common integration)
+	relayRoutes := v1.PathPrefix("/relays").Subrouter()
+	relayRoutes.HandleFunc("/prefs", apiHandler.GetRelayPrefs).Methods("GET")
+
+	// API v2 routes — encrypted email pipeline
+	v2 := router.PathPrefix("/api/v2").Subrouter()
+	emailV2Routes := v2.PathPrefix("/email").Subrouter()
+	emailV2Routes.Use(apiHandler.AuthMiddleware)
+	emailV2Routes.HandleFunc("/send", emailHandler.SendEmailV2).Methods("POST")
+	emailV2Routes.HandleFunc("/bulk", emailHandler.BulkActionV2).Methods("POST")
+	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
+	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
+	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
+	emailV2Routes.HandleFunc("/{id}/archive", emailHandler.ArchiveEmailV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/read", emailHandler.MarkReadV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/unread", emailHandler.MarkUnreadV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/star", emailHandler.ToggleStarV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/move", emailHandler.MoveEmailV2).Methods("PATCH")
+	emailV2Routes.HandleFunc("/{id}/labels", emailHandler.AddLabelV2).Methods("POST")
+	emailV2Routes.HandleFunc("/{id}/labels", emailHandler.RemoveLabelV2).Methods("DELETE")
+	emailV2Routes.HandleFunc("/{id}/attachments/{attachmentId}", emailHandler.GetAttachmentV2).Methods("GET")
+
+	// API v2 auth routes — Option D signer-as-bunker bootstrap + NIP-46 status
+	authV2Routes := v2.PathPrefix("/auth").Subrouter()
+	authV2Routes.Use(apiHandler.AuthMiddleware)
+	authV2Routes.HandleFunc("/nostrconnect/init", apiHandler.InitNostrConnect).Methods("POST")
+	authV2Routes.HandleFunc("/nip46/status", apiHandler.NIP46Status).Methods("GET")
+
+	// Internal domain-admin API — served-domain + per-domain DKIM management,
+	// consumed by the admin page (cloistr-me). Guarded by INTERNAL_API_SECRET;
+	// only registered when the secret is configured. Private keys never leave
+	// this service (responses carry only the public DKIM record).
+	if cfg.InternalAPISecret != "" {
+		domainAdmin := api.NewInternalDomainHandler(db, domainRegistry, domains.NewNetDNSChecker(), cfg.InternalAPISecret, logger)
+		internalRoutes := router.PathPrefix("/internal/v1/domains").Subrouter()
+		internalRoutes.Use(domainAdmin.AuthMiddleware)
+		internalRoutes.HandleFunc("", domainAdmin.ListDomains).Methods("GET")
+		internalRoutes.HandleFunc("", domainAdmin.CreateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}", domainAdmin.DeleteDomain).Methods("DELETE")
+		internalRoutes.HandleFunc("/{domain}/verify", domainAdmin.VerifyDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/activate", domainAdmin.ActivateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/deactivate", domainAdmin.DeactivateDomain).Methods("POST")
+		internalRoutes.HandleFunc("/{domain}/rotate-dkim", domainAdmin.RotateDKIM).Methods("POST")
+		logger.Info("Internal domain-admin API enabled at /internal/v1/domains")
+	} else {
+		logger.Warn("INTERNAL_API_SECRET not set — domain-admin API disabled")
+	}
+
+	// Middleware
+	router.Use(loggingMiddleware(logger))
+	router.Use(corsMiddleware())
+
+	return router
 }
 
 // loggingMiddleware logs HTTP requests and records metrics
