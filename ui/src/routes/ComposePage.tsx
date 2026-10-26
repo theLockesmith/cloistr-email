@@ -16,6 +16,7 @@ import {
   buildClientModeSend,
   resolveClientRecipients,
   RecipientKeyError,
+  isEncryptionRefusal,
 } from '../lib/email-compose'
 import { clientModeSigner } from '../lib/client-signer'
 import { useNostrAuth } from '@cloistr/auth'
@@ -218,12 +219,15 @@ export default function ComposePage() {
 
   // Send email mutation
   const sendMutation = useMutation({
-    mutationFn: async () => {
+    // withoutEncryption: the user chose "Send without encryption" after an
+    // encrypted send was refused. Never set automatically.
+    mutationFn: async (opts?: { withoutEncryption?: boolean }) => {
+      const mode: EncryptionMode = opts?.withoutEncryption ? 'none' : encryptionMode
       let sendRequest: SendEmailRequest = {
         to: [to],
         subject,
         body,
-        encryption_mode: encryptionMode,
+        encryption_mode: mode,
         ...(replyId && originalEmail?.message_id
           ? {
               in_reply_to: originalEmail.message_id,
@@ -240,7 +244,7 @@ export default function ComposePage() {
           .filter(Boolean)
       }
 
-      if (encryptionMode === 'client') {
+      if (mode === 'client') {
         if (!recipientPubkey) {
           throw new Error('Cannot encrypt: recipient public key not found')
         }
@@ -262,7 +266,7 @@ export default function ComposePage() {
           ...sendRequest,
           ...(await buildClientModeSend({ subject, body, attachments }, recipients, cmSigner)),
         }
-      } else if (encryptionMode === 'server' && recipientPubkey) {
+      } else if (mode === 'server' && recipientPubkey) {
         sendRequest.recipient_pubkeys = { [to]: recipientPubkey }
       }
 
@@ -293,6 +297,14 @@ export default function ComposePage() {
   }
 
   const canEncrypt = recipientPubkey !== null
+
+  // An encrypted send that was refused for an encryption reason can go out as
+  // ordinary email, but only when the user says so.
+  const refusedForEncryption = sendMutation.isError && isEncryptionRefusal(sendMutation.error)
+  const sendWithoutEncryption = () => {
+    setEncryptionMode('none')
+    sendMutation.mutate({ withoutEncryption: true })
+  }
 
   return (
     <div className="flex flex-col min-h-0 overflow-y-auto p-4 md:p-6">
@@ -558,6 +570,19 @@ export default function ComposePage() {
                 (sendMutation.error.response?.data as { message?: string } | undefined)?.message) ||
                 sendMutation.error.message ||
                 'Error sending email'}
+              {refusedForEncryption && (
+                <div className="mt-3 flex items-center gap-3 flex-wrap">
+                  <span className="text-cloistr-text">Nothing was sent. You can send it as ordinary, unencrypted email instead.</span>
+                  <button
+                    type="button"
+                    onClick={sendWithoutEncryption}
+                    disabled={sendMutation.isPending}
+                    className="min-h-[44px] px-4 py-2 text-cloistr-text border border-cloistr-border rounded-lg hover:bg-cloistr-bg-hover disabled:opacity-50 transition"
+                  >
+                    Send without encryption
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="mb-4">
