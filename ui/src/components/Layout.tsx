@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { AppShell, AppShellToggle, Header, Footer, useBackendAuth } from '@cloistr/ui/components'
+import {
+  AppShell,
+  AppShellToggle,
+  Header,
+  Footer,
+  useBackendAuth,
+  useIsMobile,
+} from '@cloistr/ui/components'
 import { SIGNER_URL } from '../lib/serviceConfig'
 
 /**
@@ -149,6 +156,7 @@ export default function Layout() {
   const { isAuthenticated, user, logout } = useBackendAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const isMobile = useIsMobile()
 
   // Desktop icons-only rail. Ignored below the AppShell breakpoint (768px).
   const [collapsed, setCollapsed] = useState(readCollapsed)
@@ -181,6 +189,24 @@ export default function Layout() {
         />
       }
       toggleInHeader
+      /*
+       * Drive AppShell's own rail-collapse state from the same preference
+       * MailNav uses, instead of leaving it uncontrolled.
+       *
+       * AppShellToggle (the single mobile/desktop nav button, portaled into
+       * <Header/> below) computes its `expanded` state as
+       * `drawerOpen || !railCollapsed`. Left uncontrolled, AppShell's rail
+       * defaults to "not collapsed" even on a phone where there is no rail
+       * at all -- so the button rendered "expanded" (aria-expanded="true",
+       * "Close navigation") on first load while the drawer was still closed
+       * (MAIL-8). Forcing `collapsed` true on mobile makes that formula
+       * collapse to just `drawerOpen`, which is the only state that exists
+       * at that viewport. On desktop this passes through the real
+       * preference, which also fixes the toggle driving its own, previously
+       * disconnected internal state there.
+       */
+      collapsed={isMobile ? true : collapsed}
+      onCollapsedChange={setCollapsedPersisted}
     >
       {/* The ONE nav control, portaled into the shared Header. */}
       <AppShellToggle />
