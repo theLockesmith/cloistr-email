@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -150,6 +151,15 @@ func newTestMigrator(t *testing.T, db *sql.DB) *Migrator {
 	return m
 }
 
+// baselineOnlyMigrator applies the baseline and none of the numbered
+// migrations, for the checks that compare the baseline itself with production.
+func baselineOnlyMigrator(t *testing.T, db *sql.DB) *Migrator {
+	t.Helper()
+	m := newTestMigrator(t, db)
+	m.migrations = nil
+	return m
+}
+
 func TestMigrateEmptyDatabaseBuildsSchemaAndIsIdempotent(t *testing.T) {
 	db := freshDB(t)
 	ctx := context.Background()
@@ -166,7 +176,9 @@ func TestMigrateEmptyDatabaseBuildsSchemaAndIsIdempotent(t *testing.T) {
 	if err := verifyRequired(ctx, db); err != nil {
 		t.Fatalf("schema built from empty is missing required objects: %v", err)
 	}
-	if got := appliedVersions(t, db); len(got) == 0 || got[0] != BaselineVersion {
+	// The first numbered migration after the baseline (013_...) sorts before
+	// "baseline-012", so look the baseline up rather than expect it first.
+	if got := appliedVersions(t, db); !slices.Contains(got, BaselineVersion) {
 		t.Fatalf("baseline not recorded, schema_migrations = %v", got)
 	}
 
@@ -189,15 +201,88 @@ func TestMigrateProductionSchemaIsNoOp(t *testing.T) {
 	loadFixture(t, db, "testdata/prod_email_schema_20261006.sql")
 
 	before := schemaObjects(t, db)
-	if err := newTestMigrator(t, db).Run(ctx); err != nil {
+	if err := baselineOnlyMigrator(t, db).Run(ctx); err != nil {
 		t.Fatalf("run against production schema: %v", err)
 	}
 	after := schemaObjects(t, db)
 	if strings.Join(before, "\n") != strings.Join(after, "\n") {
 		t.Fatalf("migrator changed production's schema:\n%s", diffLines(before, after))
 	}
-	if got := appliedVersions(t, db); len(got) == 0 || got[0] != BaselineVersion {
+	if got := appliedVersions(t, db); !slices.Contains(got, BaselineVersion) {
 		t.Fatalf("baseline not recorded on adoption, schema_migrations = %v", got)
+	}
+}
+
+// Production today: the 10-06 build adopted the schema and recorded only
+// baseline-012 (aegis read, 2026-10-26). The next start must skip adoption,
+// apply every numbered migration once, and not record the baseline again.
+func TestMigrateProductionWithBaselineRecordedAppliesNumberedMigrations(t *testing.T) {
+	db := freshDB(t)
+	ctx := context.Background()
+	loadFixture(t, db, "testdata/prod_email_schema_20261006.sql")
+	if err := baselineOnlyMigrator(t, db).Run(ctx); err != nil {
+		t.Fatalf("adopt production schema: %v", err)
+	}
+	if got := appliedVersions(t, db); strings.Join(got, ",") != BaselineVersion {
+		t.Fatalf("schema_migrations before upgrade = %v, want only %s", got, BaselineVersion)
+	}
+
+	m := newTestMigrator(t, db)
+	if len(m.migrations) == 0 {
+		t.Fatal("no numbered migrations embedded")
+	}
+	if err := m.Run(ctx); err != nil {
+		t.Fatalf("upgrade production with baseline recorded: %v", err)
+	}
+	got := appliedVersions(t, db)
+	if len(got) != len(m.migrations)+1 {
+		t.Fatalf("schema_migrations = %v, want %s plus each numbered migration once", got, BaselineVersion)
+	}
+	for _, mig := range m.migrations {
+		if !slices.Contains(got, mig.Version) {
+			t.Errorf("migration %s not recorded: %v", mig.Version, got)
+		}
+	}
+	objs := schemaObjects(t, db)
+	if !slices.Contains(objs, "index emails_mailbox_direction_message_id_key") || slices.Contains(objs, "index emails_message_id_key") {
+		t.Fatalf("013 not applied: message_id indexes are %v", slices.DeleteFunc(slices.Clone(objs), func(s string) bool { return !strings.Contains(s, "message_id_key") }))
+	}
+}
+
+// Migration 013 on production's schema changes exactly the Message-ID
+// uniqueness: the table-wide constraint (and its index) go, the per-mailbox,
+// per-direction unique index comes, and nothing else moves.
+func TestMigration013ScopesMessageIDUniquenessOnProduction(t *testing.T) {
+	db := freshDB(t)
+	ctx := context.Background()
+	loadFixture(t, db, "testdata/prod_email_schema_20261006.sql")
+	before := schemaObjects(t, db)
+	if err := newTestMigrator(t, db).Run(ctx); err != nil {
+		t.Fatalf("run against production schema: %v", err)
+	}
+	after := schemaObjects(t, db)
+
+	in := func(xs []string, x string) bool { return slices.Contains(xs, x) }
+	var removed, added []string
+	for _, x := range before {
+		if !in(after, x) {
+			removed = append(removed, x)
+		}
+	}
+	for _, x := range after {
+		if !in(before, x) {
+			added = append(added, x)
+		}
+	}
+	slices.Sort(removed)
+	slices.Sort(added)
+	wantRemoved := []string{"constraint emails_message_id_key: UNIQUE (message_id)", "index emails_message_id_key"}
+	wantAdded := []string{"index emails_mailbox_direction_message_id_key"}
+	if !slices.Equal(removed, wantRemoved) || !slices.Equal(added, wantAdded) {
+		t.Fatalf("013 changed more or less than the Message-ID uniqueness:\nremoved %q\nadded %q", removed, added)
+	}
+	if got := appliedVersions(t, db); !slices.Contains(got, "013_message_id_unique_per_mailbox") {
+		t.Fatalf("013 not recorded, schema_migrations = %v", got)
 	}
 }
 
@@ -208,7 +293,7 @@ func TestBaselineMatchesProduction(t *testing.T) {
 	prod := freshDB(t)
 	loadFixture(t, prod, "testdata/prod_email_schema_20261006.sql")
 	built := freshDB(t)
-	if err := newTestMigrator(t, built).Run(ctx); err != nil {
+	if err := baselineOnlyMigrator(t, built).Run(ctx); err != nil {
 		t.Fatalf("build from empty: %v", err)
 	}
 	p, b := schemaObjects(t, prod), schemaObjects(t, built)

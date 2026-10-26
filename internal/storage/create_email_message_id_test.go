@@ -8,6 +8,7 @@ import (
 )
 
 // TestCreateEmailStoresEveryLocalRecipientCopyDespiteSharedMessageID
+// (fixed by configs/migrations/013_message_id_unique_per_mailbox.sql)
 // reproduces MAIL-26 at the level the bug actually lives at: Postgres.
 //
 // A sends "To: B, Cc: A" (A CC's themselves). That legitimately produces
@@ -144,5 +145,21 @@ func TestCreateEmailStoresEveryLocalRecipientCopyDespiteSharedMessageID(t *testi
 	}
 	if gotSent.MessageID == nil || *gotSent.MessageID != messageID {
 		t.Errorf("Sent copy's Message-ID should be untouched, got %v", gotSent.MessageID)
+	}
+	// Migration 013 scopes uniqueness to (mailbox, direction, Message-ID), so
+	// every copy keeps its real Message-ID (threading needs it).
+	for name, id := range map[string]string{"recipient copy": toB.ID, "Cc-to-self copy": ccSelf.ID} {
+		row, err := db.GetEmail(ctx, id)
+		if err != nil || row == nil || row.MessageID == nil || *row.MessageID != messageID {
+			t.Errorf("%s lost its Message-ID: %+v err=%v", name, row, err)
+		}
+	}
+
+	// A second delivery of the same message into the same mailbox and
+	// direction is still refused.
+	dupID := messageID
+	dup := &Email{MailboxPubkey: recipientPubkey, MessageID: &dupID, FromAddress: senderAddr, ToAddress: recipientAddr, Direction: "received", Folder: "INBOX"}
+	if err := db.CreateEmail(ctx, dup); err == nil {
+		t.Fatal("a duplicate delivery into the same mailbox and direction was accepted")
 	}
 }
