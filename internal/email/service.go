@@ -359,7 +359,7 @@ func (s *Service) Send(ctx context.Context, req *SendRequest) (*SendResult, erro
 
 		email := &storage.Email{
 			MailboxPubkey:  req.SenderNpub,
-			MessageID:      stringPtr(deliveryResult.MessageID),
+			MessageID:      nonEmptyPtr(deliveryResult.MessageID),
 			FromAddress:    senderAddr.Email,
 			ToAddress:      req.To[0], // Primary recipient
 			Subject:        outerSubject(req),
@@ -1251,6 +1251,15 @@ func (s *Service) bodyAtRest(ctx context.Context, req *SendRequest) (string, str
 }
 
 func stringPtr(s string) *string {
+	return &s
+}
+
+// nonEmptyPtr stores a missing value as NULL rather than "": message_id is
+// unique, and an empty string would collide with every other empty one.
+func nonEmptyPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
 	return &s
 }
 

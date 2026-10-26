@@ -269,16 +269,19 @@ func (t *SMTPTransport) buildRawEmailReport(ctx context.Context, msg *Message) (
 	// because it signs the bottom-most instance; a Reply-To) or end the header
 	// block and replace the body. The API refuses such input; this is the
 	// backstop for any other caller.
+	//
+	// The Message-ID is generated on the caller's message BEFORE taking the
+	// sanitised copy: Send reports it back and the sender's Sent copy is stored
+	// under it. Generated on the copy, it never reached the caller, every Sent
+	// copy was stored with message_id "" and all but the first were dropped.
+	if msg.MessageID == "" {
+		msg.MessageID = t.generateMessageID(headerSafe(msg.FromAddress))
+	}
 	msg = headerSafeMessage(msg)
 
 	var sb strings.Builder
 
-	// Generate Message-ID if not provided
 	messageID := msg.MessageID
-	if messageID == "" {
-		messageID = t.generateMessageID(msg.FromAddress)
-	}
-	msg.MessageID = messageID // Store for later use
 
 	// Build headers map for signing
 	dateStr := time.Now().UTC().Format(time.RFC1123Z)
