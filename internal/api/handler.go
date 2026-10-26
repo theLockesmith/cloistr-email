@@ -12,7 +12,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/config"
-	_ "git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption" // Will be used for email encryption
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
 	"github.com/gorilla/mux"
@@ -558,6 +558,55 @@ func (h *Handler) GetMyKey(w http.ResponseWriter, r *http.Request) {
 // Anything else is rejected rather than stored, so a typo cannot silently
 // disable encryption for every future message.
 var validEncryptionModes = map[string]bool{"e2e": true, "server": true, "none": true}
+
+// GetEncryptionCapabilities reports what encryption options are available to
+// the caller: whether they have a live NIP-46 bunker connection (so the
+// server can encrypt/decrypt on their behalf) and their stored preferred
+// send mode.
+//
+// The Settings page has always called GET /api/v1/encryption/capabilities on
+// load (ui/src/lib/api.ts, encryptionAPI.getCapabilities). No such route was
+// ever registered — only /encryption/preferred-mode existed — so every page
+// load 404'd (seen live as MAIL-7/36/37/38). The response shape
+// (EncryptionCapabilityResponse) already existed in email_types.go; nothing
+// constructed or served it.
+func (h *Handler) GetEncryptionCapabilities(w http.ResponseWriter, r *http.Request) {
+	userID := getUserID(r.Context())
+	if userID == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+
+	mode, err := h.db.GetPreferredEncryptionMode(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("Failed to read encryption preference", zap.Error(err))
+		errors.InternalError("INTERNAL_ERROR", "failed to read encryption capabilities").WriteResponse(w)
+		return
+	}
+	if mode == "" {
+		mode = string(encryption.ModeNone)
+	}
+
+	// A live bunker connection is what lets the server encrypt/decrypt on the
+	// user's behalf (see NIP46Status), so it governs both capability flags.
+	hasNIP46 := h.auth.HasBunkerConnection(userID)
+
+	resp := EncryptionCapabilityResponse{
+		Npub:             userID,
+		HasNIP46:         hasNIP46,
+		PreferredMode:    encryption.EncryptionMode(mode),
+		CanServerEncrypt: hasNIP46,
+		CanServerDecrypt: hasNIP46,
+	}
+	if npub, err := nip19.EncodePublicKey(userID); err == nil {
+		resp.Npub = npub
+	} else {
+		h.logger.Warn("Failed to encode pubkey as npub",
+			zap.String("pubkey", userID), zap.Error(err))
+	}
+
+	h.respondJSON(w, http.StatusOK, resp)
+}
 
 // GetEncryptionPreference returns the caller's default encryption mode for new
 // sends. An empty mode means no explicit preference.
