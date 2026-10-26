@@ -213,6 +213,42 @@ func TestMigrateProductionSchemaIsNoOp(t *testing.T) {
 	}
 }
 
+// Production today: the 10-06 build adopted the schema and recorded only
+// baseline-012 (aegis read, 2026-10-26). The next start must skip adoption,
+// apply every numbered migration once, and not record the baseline again.
+func TestMigrateProductionWithBaselineRecordedAppliesNumberedMigrations(t *testing.T) {
+	db := freshDB(t)
+	ctx := context.Background()
+	loadFixture(t, db, "testdata/prod_email_schema_20261006.sql")
+	if err := baselineOnlyMigrator(t, db).Run(ctx); err != nil {
+		t.Fatalf("adopt production schema: %v", err)
+	}
+	if got := appliedVersions(t, db); strings.Join(got, ",") != BaselineVersion {
+		t.Fatalf("schema_migrations before upgrade = %v, want only %s", got, BaselineVersion)
+	}
+
+	m := newTestMigrator(t, db)
+	if len(m.migrations) == 0 {
+		t.Fatal("no numbered migrations embedded")
+	}
+	if err := m.Run(ctx); err != nil {
+		t.Fatalf("upgrade production with baseline recorded: %v", err)
+	}
+	got := appliedVersions(t, db)
+	if len(got) != len(m.migrations)+1 {
+		t.Fatalf("schema_migrations = %v, want %s plus each numbered migration once", got, BaselineVersion)
+	}
+	for _, mig := range m.migrations {
+		if !slices.Contains(got, mig.Version) {
+			t.Errorf("migration %s not recorded: %v", mig.Version, got)
+		}
+	}
+	objs := schemaObjects(t, db)
+	if !slices.Contains(objs, "index emails_mailbox_direction_message_id_key") || slices.Contains(objs, "index emails_message_id_key") {
+		t.Fatalf("013 not applied: message_id indexes are %v", slices.DeleteFunc(slices.Clone(objs), func(s string) bool { return !strings.Contains(s, "message_id_key") }))
+	}
+}
+
 // Migration 013 on production's schema changes exactly the Message-ID
 // uniqueness: the table-wide constraint (and its index) go, the per-mailbox,
 // per-direction unique index comes, and nothing else moves.
