@@ -28,7 +28,7 @@ func NewRedisSessionStore(redisURL string, logger *zap.Logger) (*RedisSessionSto
 
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Redis URL: %w", redactURLError(err))
+		return nil, fmt.Errorf("failed to parse Redis URL: %w", RedactDSNError(err, redisURL))
 	}
 
 	client := redis.NewClient(opt)
@@ -38,7 +38,7 @@ func NewRedisSessionStore(redisURL string, logger *zap.Logger) (*RedisSessionSto
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+		return nil, fmt.Errorf("failed to connect to Redis: %w", RedactDSNError(err, redisURL))
 	}
 
 	logger.Info("Redis connection established")

@@ -204,11 +204,7 @@ func main() {
 	// receive-only), per-account send state, and pubkey-keyed rate limits shared
 	// across replicas via Dragonfly. In standalone mode platform.GetTier returns
 	// "named", so self-hosters keep full send rights by default.
-	platformClient, perr := platform.NewClient(platform.Config{
-		Mode:        platform.Mode(cfg.PlatformMode),
-		DatabaseURL: cfg.DatabaseURL,
-		ServiceID:   "email",
-	})
+	platformClient, perr := newPlatformClient(cfg)
 	if perr != nil {
 		logger.Warn("Platform client unavailable; outbound abuse controls DISABLED", zap.Error(perr))
 	}
@@ -715,4 +711,16 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// newPlatformClient builds the shared platform client. Its errors can repeat
+// the database DSN (driver parse and connect errors), and the caller logs
+// them, so the password is scrubbed here.
+func newPlatformClient(cfg *config.Config) (*platform.Client, error) {
+	c, err := platform.NewClient(platform.Config{
+		Mode:        platform.Mode(cfg.PlatformMode),
+		DatabaseURL: cfg.DatabaseURL,
+		ServiceID:   "email",
+	})
+	return c, storage.RedactDSNError(err, cfg.DatabaseURL)
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	neturl "net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ func NewPostgres(databaseURL string, logger *zap.Logger) (*PostgreSQL, error) {
 
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", redactURLError(err))
+		return nil, fmt.Errorf("failed to open database: %w", RedactDSNError(err, databaseURL))
 	}
 
 	// Configure connection pool
@@ -41,7 +42,7 @@ func NewPostgres(databaseURL string, logger *zap.Logger) (*PostgreSQL, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", redactURLError(err))
+		return nil, fmt.Errorf("failed to connect to database: %w", RedactDSNError(err, databaseURL))
 	}
 
 	logger.Info("PostgreSQL connection established")
@@ -52,33 +53,91 @@ func NewPostgres(databaseURL string, logger *zap.Logger) (*PostgreSQL, error) {
 	}, nil
 }
 
-// maskDatabaseURL hides credentials in a database or Redis URL for logging.
-// The userinfo ends at the LAST '@' before the path, so a password that itself
-// contains '@' is masked whole.
-func maskDatabaseURL(url string) string {
-	idx := strings.Index(url, "://")
+var (
+	// queryPasswordRe matches a password carried as a URL query parameter.
+	queryPasswordRe = regexp.MustCompile(`(?i)([?&](?:password|pass|pwd)=)([^&#]*)`)
+	// kvPasswordRe matches password=value in a key=value DSN; the value may be
+	// single-quoted (libpq syntax).
+	kvPasswordRe = regexp.MustCompile(`(?i)(\bpassword\s*=\s*)('(?:[^'\\]|\\.)*'|\S*)`)
+)
+
+// maskDatabaseURL hides credentials in a database or Redis URL, or a key=value
+// DSN, for logging. In a URL the userinfo ends at the LAST '@' before the
+// query, so a password containing '@' or '/' is masked whole; a ?password=
+// parameter is masked too.
+func maskDatabaseURL(s string) string {
+	idx := strings.Index(s, "://")
 	if idx <= 0 {
-		return url
+		return kvPasswordRe.ReplaceAllString(s, "${1}***")
 	}
-	rest := url[idx+3:]
-	authority := rest
-	if end := strings.IndexAny(rest, "/?#"); end >= 0 {
-		authority = rest[:end]
+	rest := s[idx+3:]
+	authEnd := len(rest)
+	if end := strings.IndexAny(rest, "?#"); end >= 0 {
+		authEnd = end
 	}
-	if atIdx := strings.LastIndex(authority, "@"); atIdx >= 0 {
-		return url[:idx+3] + "***:***@" + rest[atIdx+1:]
+	if at := strings.LastIndex(rest[:authEnd], "@"); at >= 0 {
+		rest = "***:***@" + rest[at+1:]
 	}
-	return url
+	return s[:idx+3] + queryPasswordRe.ReplaceAllString(rest, "${1}***")
 }
 
-// redactURLError drops the URL from a URL-parse error. *url.Error repeats the
-// whole URL, credentials included, and callers log these errors at startup.
-func redactURLError(err error) error {
-	var ue *neturl.Error
-	if errors.As(err, &ue) {
-		return fmt.Errorf("%s %s: %w", ue.Op, maskDatabaseURL(ue.URL), ue.Err)
+// dsnPasswords returns the password(s) written in dsn, raw and URL-decoded,
+// so they can be scrubbed from text that repeats the DSN.
+func dsnPasswords(dsn string) []string {
+	var raw []string
+	if idx := strings.Index(dsn, "://"); idx > 0 {
+		rest := dsn[idx+3:]
+		authEnd := len(rest)
+		if end := strings.IndexAny(rest, "?#"); end >= 0 {
+			authEnd = end
+		}
+		if at := strings.LastIndex(rest[:authEnd], "@"); at >= 0 {
+			if c := strings.Index(rest[:at], ":"); c >= 0 {
+				raw = append(raw, rest[c+1:at])
+			}
+		}
+		for _, m := range queryPasswordRe.FindAllStringSubmatch(rest, -1) {
+			raw = append(raw, m[2])
+		}
+	} else {
+		for _, m := range kvPasswordRe.FindAllStringSubmatch(dsn, -1) {
+			raw = append(raw, m[2], strings.Trim(m[2], "'"))
+		}
 	}
-	return err
+	var out []string
+	for _, p := range raw {
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+		if dec, err := neturl.QueryUnescape(p); err == nil && dec != p && dec != "" {
+			out = append(out, dec)
+		}
+		if dec, err := neturl.PathUnescape(p); err == nil && dec != p && dec != "" {
+			out = append(out, dec)
+		}
+	}
+	return out
+}
+
+// redactedError carries only the scrubbed message: no Unwrap, so nothing that
+// walks the chain can reach the original text.
+type redactedError struct{ msg string }
+
+func (e *redactedError) Error() string { return e.msg }
+
+// RedactDSNError scrubs dsn's password from err's message. Use it on any error
+// from code that was handed the DSN (driver parse and connect errors, and
+// libraries such as platform.NewClient), since those may repeat the DSN.
+func RedactDSNError(err error, dsn string) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	for _, p := range dsnPasswords(dsn) {
+		msg = strings.ReplaceAll(msg, p, "***")
+	}
+	return &redactedError{msg: msg}
 }
 
 // Ping verifies database connectivity
