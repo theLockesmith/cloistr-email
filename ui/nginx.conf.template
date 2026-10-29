@@ -33,7 +33,19 @@ server {
         return 200 'window.__CLOISTR_CONFIG__={"relayUrl":"${CLOISTR_RELAY_URL}","blossomUrl":"${CLOISTR_BLOSSOM_URL}","discoveryUrl":"${CLOISTR_DISCOVERY_URL}","signerUrl":"${CLOISTR_SIGNER_URL}","appUrl":"${CLOISTR_APP_URL}","environment":"${CLOISTR_ENVIRONMENT}","baseDomain":"${CLOISTR_BASE_DOMAIN}"};';
     }
 
+    # Vite's build output: every file name carries a content hash, so a file
+    # never changes under its name. Cache it for a year. A missing asset is a
+    # 404, not index.html: serving HTML as a stale script name breaks the page
+    # in a way that looks like a code bug.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # index.html and the SPA fallback name the current hashed bundles, so they
+    # must never be served from cache after a deploy.
     location / {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         try_files $uri $uri/ /index.html;
     }
 
