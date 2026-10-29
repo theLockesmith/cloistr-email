@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blobseal"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -200,6 +203,20 @@ func main() {
 			zap.Int("servers", len(blossomServers)),
 			zap.Int("redundancy", cfg.BlossomRedundancy))
 	}
+	// Attachments the server can read go to Blossom only sealed, under Mail's
+	// service key. Without both secrets they are not stored there at all.
+	var attachmentSealer *blobseal.Sealer
+	var blossomServiceAuth blossom.AuthSigner
+	if len(blossomServers) > 0 {
+		sealer, auth, err := newAttachmentSealing(cfg)
+		if err != nil {
+			logger.Warn("Attachment sealing not configured; attachments the server can read will NOT be stored on Blossom", zap.Error(err))
+		} else {
+			attachmentSealer, blossomServiceAuth = sealer, auth
+			emailSvc.WithAttachmentSealing(sealer, auth)
+			logger.Info("Attachment sealing enabled", zap.String("service_pubkey", auth.PublicKey()))
+		}
+	}
 	// Outbound abuse controls (audit C): tier send-rights (anonymous =
 	// receive-only), per-account send state, and pubkey-keyed rate limits shared
 	// across replicas via Dragonfly. In standalone mode platform.GetTier returns
@@ -336,12 +353,12 @@ func main() {
 		// Store attachments that arrive over SMTP. Returns nil when Blossom is
 		// unconfigured, in which case the processor records attachment metadata
 		// so the recipient still SEES that a file was sent.
-		if up := email.NewBlossomAttachmentUploader(encryptionSvc, blossomServers, cfg.BlossomRedundancy, logger); up != nil {
+		if up := email.NewBlossomAttachmentUploader(blossomServiceAuth, attachmentSealer, blossomServers, cfg.BlossomRedundancy, logger); up != nil {
 			inboundProcessor.SetAttachmentUploader(up)
 			logger.Info("Inbound attachment storage enabled",
 				zap.Int("servers", len(blossomServers)))
 		} else {
-			logger.Warn("Inbound attachments will be recorded without content (no Blossom servers configured)")
+			logger.Warn("Inbound attachments will be recorded without content (Blossom servers or attachment sealing not configured)")
 		}
 
 		// Create SMTP server config
@@ -723,4 +740,31 @@ func newPlatformClient(cfg *config.Config) (*platform.Client, error) {
 		ServiceID:   "email",
 	})
 	return c, storage.RedactDSNError(err, cfg.DatabaseURL)
+}
+
+// newAttachmentSealing builds the attachment sealer and Mail's Blossom signing
+// key from config. Errors never include key material: a parse error could
+// quote part of the key, so they are replaced with fixed text.
+func newAttachmentSealing(cfg *config.Config) (*blobseal.Sealer, blossom.AuthSigner, error) {
+	if cfg.AttachmentKEK == "" || cfg.BlossomSigningKey == "" {
+		return nil, nil, fmt.Errorf("ATTACHMENT_KEK and MAIL_BLOSSOM_SIGNING_KEY must both be set")
+	}
+	sealer, err := blobseal.NewSealer(cfg.AttachmentKEK)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ATTACHMENT_KEK is invalid (must be base64 of 32 random bytes)")
+	}
+	key := strings.TrimSpace(cfg.BlossomSigningKey)
+	if strings.HasPrefix(key, "nsec") {
+		prefix, v, derr := nip19.Decode(key)
+		hexKey, ok := v.(string)
+		if derr != nil || prefix != "nsec" || !ok {
+			return nil, nil, fmt.Errorf("MAIL_BLOSSOM_SIGNING_KEY is invalid (want 64 hex chars or nsec)")
+		}
+		key = hexKey
+	}
+	auth, err := blossom.NewLocalAuthSigner(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("MAIL_BLOSSOM_SIGNING_KEY is invalid (want 64 hex chars or nsec)")
+	}
+	return sealer, auth, nil
 }

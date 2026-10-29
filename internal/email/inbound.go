@@ -30,14 +30,21 @@ type InboundProcessor struct {
 
 // AttachmentUploader offloads inbound attachment bytes to blob storage.
 //
-// Injected rather than constructed here because the processor has no signer:
-// Blossom uploads are authenticated per-user, and only the encryption service
-// can sign on a bunker user's behalf. Optional — a nil uploader means the
+// Injected rather than constructed here so the processor never holds the
+// signing key or the attachment KEK itself. Optional: a nil uploader means the
 // bytes cannot be stored, which is handled explicitly rather than by panicking.
 type AttachmentUploader interface {
-	// UploadFor stores data owned by recipientPubkey, returning its SHA-256 and
-	// a retrieval URL.
-	UploadFor(ctx context.Context, recipientPubkey string, data []byte, contentType string) (sha256 string, url string, err error)
+	// UploadFor seals data and stores it, returning where it went and the
+	// wrapped key needed to open it.
+	UploadFor(ctx context.Context, data []byte) (StoredBlob, error)
+}
+
+// StoredBlob is a sealed blob on Blossom: its hash, a retrieval URL, and its
+// key wrapped under the attachment KEK.
+type StoredBlob struct {
+	SHA256 string
+	URL    string
+	Key    string
 }
 
 // SetAttachmentUploader enables inbound attachment storage.
@@ -625,15 +632,16 @@ func (p *InboundProcessor) storeAttachments(ctx context.Context, emailID, recipi
 		if p.uploader == nil {
 			p.logger.Warn("No attachment uploader configured; storing metadata only",
 				zap.String("email_id", emailID), zap.String("filename", att.Filename))
-		} else if sha, url, err := p.uploader.UploadFor(ctx, recipientPubkey, att.Data, att.ContentType); err != nil {
+		} else if blob, err := p.uploader.UploadFor(ctx, att.Data); err != nil {
 			p.logger.Warn("Failed to store inbound attachment blob",
 				zap.String("email_id", emailID),
 				zap.String("filename", att.Filename),
 				zap.Error(err))
 		} else {
-			record.BlossomSHA256 = &sha
-			if url != "" {
-				record.BlossomURL = &url
+			record.BlossomSHA256 = &blob.SHA256
+			record.BlobKey = &blob.Key
+			if blob.URL != "" {
+				record.BlossomURL = &blob.URL
 			}
 		}
 

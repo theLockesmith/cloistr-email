@@ -264,7 +264,10 @@ type Attachment struct {
 	SizeBytes     *int64
 	BlossomSHA256 *string
 	BlossomURL    *string
-	CreatedAt     time.Time
+	// BlobKey is the blob's random key wrapped under the attachment KEK
+	// (internal/blobseal). Nil when the server did not seal the blob.
+	BlobKey   *string
+	CreatedAt time.Time
 }
 
 // NIP05CacheEntry represents a cached NIP-05 lookup
@@ -1256,14 +1259,14 @@ func (db *PostgreSQL) CreateAttachment(ctx context.Context, attachment *Attachme
 	}
 
 	query := `
-		INSERT INTO attachments (id, email_id, filename, content_type, size_bytes, blossom_sha256, blossom_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO attachments (id, email_id, filename, content_type, size_bytes, blossom_sha256, blossom_url, blob_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING created_at
 	`
 
 	err := db.db.QueryRowContext(ctx, query,
 		attachment.ID, attachment.EmailID, attachment.Filename, attachment.ContentType,
-		attachment.SizeBytes, attachment.BlossomSHA256, attachment.BlossomURL,
+		attachment.SizeBytes, attachment.BlossomSHA256, attachment.BlossomURL, attachment.BlobKey,
 	).Scan(&attachment.CreatedAt)
 
 	if err != nil {
@@ -1278,7 +1281,7 @@ func (db *PostgreSQL) GetAttachmentsByEmail(ctx context.Context, emailID string)
 	db.logger.Debug("Getting attachments for email", zap.String("email_id", emailID))
 
 	query := `
-		SELECT id, email_id, filename, content_type, size_bytes, blossom_sha256, blossom_url, created_at
+		SELECT id, email_id, filename, content_type, size_bytes, blossom_sha256, blossom_url, blob_key, created_at
 		FROM attachments
 		WHERE email_id = $1
 		ORDER BY created_at
@@ -1295,7 +1298,7 @@ func (db *PostgreSQL) GetAttachmentsByEmail(ctx context.Context, emailID string)
 		att := &Attachment{}
 		err := rows.Scan(
 			&att.ID, &att.EmailID, &att.Filename, &att.ContentType,
-			&att.SizeBytes, &att.BlossomSHA256, &att.BlossomURL, &att.CreatedAt,
+			&att.SizeBytes, &att.BlossomSHA256, &att.BlossomURL, &att.BlobKey, &att.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attachment: %w", err)
