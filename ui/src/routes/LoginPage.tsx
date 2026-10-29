@@ -29,9 +29,9 @@ import { Header, LoginModal } from '@cloistr/ui/components'
 import { useLoginWithSigner } from '../hooks/useLoginWithSigner'
 import { SIGNER_URL, SIGNER_HOST } from '../lib/serviceConfig'
 
-const FEATURES = [
+export const FEATURES = [
   { icon: '🔑', title: 'Your keys, your inbox', body: 'Your Nostr identity is your login. No passwords to leak, no account to lose.' },
-  { icon: '🔒', title: 'Encrypted by default', body: 'Messages between Cloistr users are end-to-end encrypted — the server never sees plaintext.' },
+  { icon: '🔒', title: 'Encryption when you want it', body: 'Messages start as ordinary email. When you write to someone with a Nostr identity, you can choose to end-to-end encrypt the message in Compose.' },
   { icon: '✉️', title: 'Real email, too', body: 'Send and receive with the rest of the world over SMTP. One address for Nostr, email, and Lightning.' },
 ]
 
@@ -82,7 +82,7 @@ export default function LoginPage() {
       <div className="max-w-2xl">
         <h1 className="text-4xl font-bold mb-3">Cloistr Mail</h1>
         <p className="text-xl text-[var(--cloistr-text-muted)] mb-8">
-          Encrypted, Nostr-native email. One address for email, Nostr, and Lightning.
+          Nostr-native email, with end-to-end encryption when you choose it. One address for email, Nostr, and Lightning.
         </p>
 
         {displayError && (
