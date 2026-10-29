@@ -142,9 +142,14 @@ export default function SettingsPage() {
 
         <div className="mt-6 pt-6 border-t">
           <h3 className="text-lg font-semibold mb-4">Nostr Identity</h3>
-          <p className="text-sm text-cloistr-text-muted mb-4">
-            Your email is encrypted and verified using your Nostr keypair.
-          </p>
+          <div className="text-sm text-cloistr-text-muted mb-4 space-y-2">
+            <p>You sign in with your Nostr keypair.</p>
+            <p>
+              Mail is end-to-end encrypted only when you choose encryption and every recipient has a Nostr key; other
+              mail, including mail from ordinary email addresses, is stored as it arrived.
+            </p>
+            <p>Incoming mail signed with the sender’s Nostr key is checked and marked “Verified sender”.</p>
+          </div>
           <button
             onClick={handleViewPublicKey}
             className="px-4 py-2 text-cloistr-text border border-cloistr-border rounded hover:bg-cloistr-bg-hover"
