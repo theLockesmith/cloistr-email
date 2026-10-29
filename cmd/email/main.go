@@ -469,21 +469,15 @@ func buildRouter(
 	authRoutes.HandleFunc("/refresh", apiHandler.RefreshToken).Methods("POST")
 	authRoutes.HandleFunc("/token-info", apiHandler.TokenInfo).Methods("GET")
 
-	// Email endpoints
-	emailRoutes := v1.PathPrefix("/emails").Subrouter()
-	emailRoutes.Use(apiHandler.AuthMiddleware)
-	emailRoutes.HandleFunc("", apiHandler.ListEmails).Methods("GET")
-	// No v1 send: it was an unimplemented stub with no input checks. Sending
-	// is POST /api/v2/email/send.
-	emailRoutes.HandleFunc("/{id}", apiHandler.GetEmail).Methods("GET")
-	emailRoutes.HandleFunc("/{id}/reply", apiHandler.ReplyEmail).Methods("POST")
-	emailRoutes.HandleFunc("/{id}", apiHandler.DeleteEmail).Methods("DELETE")
+	// No v1 email routes: list/read/reply/delete were stubs that answered
+	// success without doing anything. Mail is /api/v2/email/*; a reply is a
+	// send with in_reply_to.
 
 	// Keys & discovery endpoints
 	keyRoutes := v1.PathPrefix("/keys").Subrouter()
 	keyRoutes.Use(apiHandler.AuthMiddleware)
 	keyRoutes.HandleFunc("/discover", apiHandler.DiscoverKey).Methods("GET")
-	keyRoutes.HandleFunc("/import", apiHandler.ImportKey).Methods("POST")
+	// No /keys/import: it was a stub that answered "imported" and saved nothing.
 	keyRoutes.HandleFunc("/mine", apiHandler.GetMyKey).Methods("GET")
 
 	// Contacts endpoints
