@@ -1316,17 +1316,20 @@ func (db *PostgreSQL) GetAttachmentsByEmail(ctx context.Context, emailID string)
 func (db *PostgreSQL) CacheNIP05(ctx context.Context, email string, npub *string, ttl time.Duration) error {
 	db.logger.Debug("Caching NIP-05 lookup", zap.String("email", email))
 
-	expiresAt := time.Now().Add(ttl)
 	valid := npub != nil
 
+	// expires_at is a timestamp WITHOUT time zone compared against
+	// CURRENT_TIMESTAMP, so it is computed from the database's own clock. A Go
+	// time.Now() here is stored as local wall-clock time and, with the process
+	// in UTC-4 and the database in UTC, a 1h entry was already expired.
 	query := `
 		INSERT INTO nip05_cache (id, email, npub, expires_at, valid)
-		VALUES ($1, $2, $3, $4, $5)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP + make_interval(secs => $4), $5)
 		ON CONFLICT (email) DO UPDATE
-		SET npub = $3, cached_at = CURRENT_TIMESTAMP, expires_at = $4, valid = $5
+		SET npub = $3, cached_at = CURRENT_TIMESTAMP, expires_at = CURRENT_TIMESTAMP + make_interval(secs => $4), valid = $5
 	`
 
-	_, err := db.db.ExecContext(ctx, query, uuid.New().String(), email, npub, expiresAt, valid)
+	_, err := db.db.ExecContext(ctx, query, uuid.New().String(), email, npub, ttl.Seconds(), valid)
 	if err != nil {
 		return fmt.Errorf("failed to cache NIP-05: %w", err)
 	}
