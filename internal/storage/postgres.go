@@ -8,6 +8,7 @@ import (
 	"fmt"
 	neturl "net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,9 +134,20 @@ func RedactDSNError(err error, dsn string) error {
 	if err == nil {
 		return nil
 	}
+	// A URL parse error is never echoed: its text repeats the input, and a
+	// password containing '/' is reported as a stray "port" fragment that no
+	// scrub of the whole password can match.
+	var ue *neturl.Error
+	if errors.As(err, &ue) {
+		return &redactedError{msg: "connection URL could not be parsed (details withheld)"}
+	}
 	msg := err.Error()
 	for _, p := range dsnPasswords(dsn) {
 		msg = strings.ReplaceAll(msg, p, "***")
+		// Errors built with %q show the password Go-quoted (p\"q for p"q).
+		if q := strconv.Quote(p); q[1:len(q)-1] != p {
+			msg = strings.ReplaceAll(msg, q[1:len(q)-1], "***")
+		}
 	}
 	return &redactedError{msg: msg}
 }
