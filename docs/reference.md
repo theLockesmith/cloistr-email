@@ -207,15 +207,25 @@ Users must have a `@cloistr.xyz` address to send email:
 | `services.yaml` | Service definitions |
 | `ingress.yaml` | Ingress + Certificate |
 | `hpa.yaml` | Autoscaling + PDB |
-| `monitoring.yaml` | ServiceMonitor + PrometheusRules |
+| `monitoring.yaml` | ServiceMonitor |
 | `kustomization.yaml` | Kustomize config |
 
 ---
 
 ## Alerting Rules
 
-| Alert | Description |
-|-------|-------------|
+Defined in Atlas, `roles/kube/external-monitoring/rules/cloistr-email-alerts.yml` (all scoped to `namespace="cloistr"`):
+
+| Alert | Fires when |
+|-------|------------|
+| CloistrEmailBackendDown | Backend has zero available replicas for 2m (critical) |
+| CloistrEmailMetricsScrapeFailing | Backend `/metrics` unscrapeable for 5m |
+| CloistrEmailHighSendErrorRate | > 10% of sends fail over 15m, at least 3 failures |
+| CloistrEmailHighSendLatency | > 5% of sends take over 10s over 15m, at least 3 |
+| CloistrEmailHighHTTPErrorRate | > 5% of API requests 5xx over 15m, at least 5 |
+| CloistrEmailHighNIP05LookupFailures | > 30% of NIP-05 lookups fail over 15m, at least 5 |
+
+-------|-------------|
 | EmailSendErrorRate | Send error rate > 5% |
 | SignatureVerificationFailures | Verification failures > 10/min |
 | DatabaseLatency | PostgreSQL p99 > 500ms |

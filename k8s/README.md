@@ -92,7 +92,7 @@ EOF
 | `services.yaml` | Service definitions |
 | `ingress.yaml` | Ingress + Certificate |
 | `hpa.yaml` | Autoscaling + PodDisruptionBudget |
-| `monitoring.yaml` | ServiceMonitor + PrometheusRules |
+| `monitoring.yaml` | ServiceMonitor |
 | `kustomization.yaml` | Kustomize configuration |
 
 ## Verify Deployment
@@ -146,7 +146,7 @@ Metrics available at:
 
 Grafana dashboards import from `configs/grafana/`.
 
-Alerts defined in `monitoring.yaml`.
+Alerts are defined in Atlas, `roles/kube/external-monitoring/rules/cloistr-email-alerts.yml`, which is what the Prometheus scraping this service loads.
 
 ## Troubleshooting
 
