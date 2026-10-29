@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -26,7 +28,7 @@ func NewPostgres(databaseURL string, logger *zap.Logger) (*PostgreSQL, error) {
 
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to open database: %w", redactURLError(err))
 	}
 
 	// Configure connection pool
@@ -39,7 +41,7 @@ func NewPostgres(databaseURL string, logger *zap.Logger) (*PostgreSQL, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", redactURLError(err))
 	}
 
 	logger.Info("PostgreSQL connection established")
@@ -50,16 +52,33 @@ func NewPostgres(databaseURL string, logger *zap.Logger) (*PostgreSQL, error) {
 	}, nil
 }
 
-// maskDatabaseURL hides credentials in the database URL for logging
+// maskDatabaseURL hides credentials in a database or Redis URL for logging.
+// The userinfo ends at the LAST '@' before the path, so a password that itself
+// contains '@' is masked whole.
 func maskDatabaseURL(url string) string {
-	// Simple masking - replace password portion
-	if idx := strings.Index(url, "://"); idx > 0 {
-		rest := url[idx+3:]
-		if atIdx := strings.Index(rest, "@"); atIdx > 0 {
-			return url[:idx+3] + "***:***@" + rest[atIdx+1:]
-		}
+	idx := strings.Index(url, "://")
+	if idx <= 0 {
+		return url
+	}
+	rest := url[idx+3:]
+	authority := rest
+	if end := strings.IndexAny(rest, "/?#"); end >= 0 {
+		authority = rest[:end]
+	}
+	if atIdx := strings.LastIndex(authority, "@"); atIdx >= 0 {
+		return url[:idx+3] + "***:***@" + rest[atIdx+1:]
 	}
 	return url
+}
+
+// redactURLError drops the URL from a URL-parse error. *url.Error repeats the
+// whole URL, credentials included, and callers log these errors at startup.
+func redactURLError(err error) error {
+	var ue *neturl.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("%s %s: %w", ue.Op, maskDatabaseURL(ue.URL), ue.Err)
+	}
+	return err
 }
 
 // Ping verifies database connectivity
