@@ -50,12 +50,12 @@ func TestUploadAuthFor(t *testing.T) {
 	blob := clientEnvelope(t)
 
 	spy := &serverAuthSpy{}
-	if _, ok := uploadAuthFor(encryption.ModeClientSide, spy, AttachmentInput{Data: blob}, blob); ok {
+	if _, ok := uploadAuthFor(encryption.ModeClientSide, spy, nil, AttachmentInput{Data: blob}, blob); ok {
 		t.Error("client mode without the sender's authorization must not upload")
 	}
 
 	auth := signedUpload(t, sk, blob)
-	signer, ok := uploadAuthFor(encryption.ModeClientSide, spy, AttachmentInput{Data: blob, UploadAuth: auth}, blob)
+	signer, ok := uploadAuthFor(encryption.ModeClientSide, spy, nil, AttachmentInput{Data: blob, UploadAuth: auth}, blob)
 	if !ok {
 		t.Fatal("client mode with the sender's authorization was not uploaded")
 	}
@@ -67,8 +67,18 @@ func TestUploadAuthFor(t *testing.T) {
 		t.Error("the server signer was used in client mode")
 	}
 
-	if s, ok := uploadAuthFor(encryption.ModeServerSide, spy, AttachmentInput{Data: blob}, blob); !ok || s != spy {
+	if s, ok := uploadAuthFor(encryption.ModeServerSide, spy, nil, AttachmentInput{Data: blob}, blob); !ok || s != spy {
 		t.Error("server mode should keep using the server signer")
+	}
+
+	// Unencrypted mode: the blob is sealed by the server and uploaded under
+	// Mail's service key, never the user's session; without one, no upload.
+	service := &serverAuthSpy{}
+	if s, ok := uploadAuthFor(encryption.ModeNone, spy, service, AttachmentInput{Data: blob}, blob); !ok || s != service {
+		t.Error("unencrypted mode should use the Mail service key")
+	}
+	if _, ok := uploadAuthFor(encryption.ModeNone, spy, nil, AttachmentInput{Data: blob}, blob); ok {
+		t.Error("unencrypted mode without a service key must not upload")
 	}
 }
 

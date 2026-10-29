@@ -47,6 +47,13 @@ type Config struct {
 	BlossomServers    []string
 	BlossomRedundancy int
 
+	// Attachment sealing (internal/blobseal). AttachmentKEK is a base64 32-byte
+	// key that wraps each blob's random key; BlossomSigningKey is Mail's own
+	// Nostr key (hex or nsec) that signs Blossom uploads for attachments the
+	// server stores. Both are secrets and must never be logged.
+	AttachmentKEK     string
+	BlossomSigningKey string
+
 	// Nostr
 	NSECBunkerRelayURL string
 	IdentityServiceURL string
@@ -141,6 +148,8 @@ func Load() (*Config, error) {
 		// Blossom (optional - for attachment offload)
 		BlossomServers:    getEnvList("BLOSSOM_SERVERS", []string{}),
 		BlossomRedundancy: getEnvInt("BLOSSOM_REDUNDANCY", 2),
+		AttachmentKEK:     getEnv("ATTACHMENT_KEK", ""),
+		BlossomSigningKey: getEnv("MAIL_BLOSSOM_SIGNING_KEY", ""),
 
 		// Nostr
 		NSECBunkerRelayURL: getEnvRequired("NSECBUNKER_RELAY_URL"),

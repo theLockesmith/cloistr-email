@@ -4,46 +4,46 @@ import (
 	"context"
 	"fmt"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blobseal"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
-	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
-	"github.com/nbd-wtf/go-nostr"
 	"go.uber.org/zap"
 )
 
-// blossomAttachmentUploader stores inbound attachment bytes in Blossom, owned
-// by the RECIPIENT.
+// sealedBlobContentType is the only type the server declares to Blossom for a
+// sealed blob. The real type stays in Mail's database, so Blossom learns
+// nothing about what the file is.
+const sealedBlobContentType = "application/octet-stream"
+
+// blossomAttachmentUploader stores inbound attachments on Blossom, sealed.
 //
-// Ownership matters: Blossom auth is a signed per-user event, and the recipient
-// is the only party to the delivery whose key this server can act for. The
-// sender is an arbitrary stranger on the internet with no account here.
+// Blossom serves any blob to anyone who knows its hash, so the bytes are
+// encrypted first under a random per-blob key (internal/blobseal); the wrapped
+// key is returned for the attachment row and never leaves Mail's database.
 //
-// This mirrors the outbound path (Service.uploadAttachments), including its
-// limitation: signing goes through the user's bunker key, so a NIP-07 user —
-// whose key the server never holds — cannot have blobs stored on their behalf.
-// For those users UploadFor fails, and the caller records attachment metadata
-// without a blob rather than dropping the attachment silently.
-//
-// Bytes are stored AS RECEIVED, not encrypted. That matches how the inbound
-// body is stored (parsed.Body goes to the DB in the clear): mail arriving over
-// plain SMTP from the open internet was never confidential in transit, and
-// encrypting only the attachment would imply a guarantee the message as a whole
-// does not have.
+// Uploads are signed by Mail's own service key, not the recipient's: mail
+// arrives while the recipient is offline, and the server holds no session for
+// them. One key therefore owns every inbound blob. Its inventory (hashes, sizes,
+// upload times) is pooled, but every blob in it is opaque ciphertext. Per-user
+// ownership is a follow-up (docs/008-sealed-attachments.md).
 type blossomAttachmentUploader struct {
-	enc        *encryption.EncryptionService
+	auth       blossom.AuthSigner
+	sealer     *blobseal.Sealer
 	servers    []blossom.Server
 	redundancy int
 	logger     *zap.Logger
 }
 
 // NewBlossomAttachmentUploader builds an uploader for inbound attachments.
-// Returns nil when no servers are configured, so the caller can leave the
-// processor's uploader unset and fall back to metadata-only storage.
-func NewBlossomAttachmentUploader(enc *encryption.EncryptionService, servers []blossom.Server, redundancy int, logger *zap.Logger) AttachmentUploader {
-	if enc == nil || len(servers) == 0 {
+// Returns nil unless a service key, a sealer and at least one server are all
+// configured, so no configuration can upload an attachment unsealed. The caller
+// then records attachment metadata only.
+func NewBlossomAttachmentUploader(auth blossom.AuthSigner, sealer *blobseal.Sealer, servers []blossom.Server, redundancy int, logger *zap.Logger) AttachmentUploader {
+	if auth == nil || sealer == nil || len(servers) == 0 {
 		return nil
 	}
 	return &blossomAttachmentUploader{
-		enc:        enc,
+		auth:       auth,
+		sealer:     sealer,
 		servers:    servers,
 		redundancy: redundancy,
 		logger:     logger,
@@ -51,24 +51,18 @@ func NewBlossomAttachmentUploader(enc *encryption.EncryptionService, servers []b
 }
 
 // UploadFor implements AttachmentUploader.
-func (u *blossomAttachmentUploader) UploadFor(ctx context.Context, recipientPubkey string, data []byte, contentType string) (string, string, error) {
-	if recipientPubkey == "" {
-		return "", "", fmt.Errorf("no recipient pubkey to own the blob")
-	}
-
-	authSigner := blossom.NewEventAuthSigner(recipientPubkey, func(ctx context.Context, ev *nostr.Event) error {
-		return u.enc.SignEventForUser(ctx, recipientPubkey, ev)
-	})
-	client := blossom.NewClient(authSigner, u.logger)
-
-	desc, err := client.Upload(ctx, data, contentType, u.servers, u.redundancy)
+func (u *blossomAttachmentUploader) UploadFor(ctx context.Context, data []byte) (StoredBlob, error) {
+	blob, key, err := u.sealer.Seal(data)
 	if err != nil {
-		return "", "", err
+		return StoredBlob{}, fmt.Errorf("seal attachment: %w", err)
 	}
-
-	url := ""
+	desc, err := blossom.NewClient(u.auth, u.logger).Upload(ctx, blob, sealedBlobContentType, u.servers, u.redundancy)
+	if err != nil {
+		return StoredBlob{}, err
+	}
+	out := StoredBlob{SHA256: desc.SHA256, Key: key}
 	if len(desc.Servers) > 0 {
-		url = desc.Servers[0] + "/" + desc.SHA256
+		out.URL = desc.Servers[0] + "/" + desc.SHA256
 	}
-	return desc.SHA256, url, nil
+	return out, nil
 }

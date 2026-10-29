@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blobseal"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/blossom"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
@@ -100,6 +101,12 @@ type Service struct {
 	blossomServers    []blossom.Server
 	blossomRedundancy int
 
+	// sealer and serviceAuth store unencrypted-mode attachments on Blossom
+	// sealed under the attachment KEK and signed by Mail's service key. Without
+	// them such attachments are not offloaded at all, never sent as plaintext.
+	sealer      *blobseal.Sealer
+	serviceAuth blossom.AuthSigner
+
 	// sendGate enforces tier send-rights, per-account send state, and outbound
 	// rate limits. Nil disables enforcement (self-hosted / tests).
 	sendGate *SendGate
@@ -145,6 +152,19 @@ func (s *Service) WithBlossom(servers []blossom.Server, redundancy int) *Service
 	s.blossomRedundancy = redundancy
 	return s
 }
+
+// WithAttachmentSealing lets the server store attachments it can read (the
+// unencrypted mode) on Blossom: sealed under sealer's KEK and signed by auth,
+// Mail's service key. Returns the service for chaining.
+func (s *Service) WithAttachmentSealing(sealer *blobseal.Sealer, auth blossom.AuthSigner) *Service {
+	s.sealer = sealer
+	s.serviceAuth = auth
+	return s
+}
+
+// ErrAttachmentNotSealable is returned when an unencrypted-mode attachment
+// would have to go to Blossom without a sealer. It is skipped instead.
+var ErrAttachmentNotSealable = errors.New("attachment sealing is not configured; not storing the file on Blossom")
 
 // blossomEnabled reports whether attachment offload is configured.
 func (s *Service) blossomEnabled() bool {
@@ -896,6 +916,20 @@ func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachme
 		res.ContentType = *att.ContentType
 	}
 
+	// A blob the server sealed opens only with its wrapped key and the KEK.
+	// Any failure is "no file": the stored bytes are never served instead.
+	if att.BlobKey != nil {
+		if s.sealer == nil {
+			return nil, fmt.Errorf("attachment is sealed but sealing is not configured")
+		}
+		data, err := s.sealer.Open(*att.BlobKey, blob)
+		if err != nil {
+			return nil, fmt.Errorf("attachment cannot be opened: %w", err)
+		}
+		res.Data = data
+		return res, nil
+	}
+
 	switch storedMode(email) {
 	case encryption.ModeClientSide:
 		res.RequiresClientDecryption = true
@@ -925,7 +959,9 @@ func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachme
 		}
 		res.Data = data
 	default:
-		res.Data = blob
+		// Unencrypted-mode blobs are always sealed (above). One without a key
+		// was not stored by this code and is refused rather than served raw.
+		return nil, fmt.Errorf("attachment blob is not sealed; refusing to serve it")
 	}
 	return res, nil
 }
@@ -942,20 +978,24 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 	})
 
 	for _, att := range atts {
-		blob, err := s.attachmentBlob(ctx, senderNpub, mode, att)
+		blob, key, err := s.attachmentBlob(ctx, senderNpub, mode, att)
 		if err != nil {
 			s.logger.Warn("Failed to prepare attachment for Blossom",
 				zap.String("filename", att.Filename), zap.Error(err))
 			continue
 		}
-		authSigner, ok := uploadAuthFor(mode, serverAuth, att, blob)
+		authSigner, ok := uploadAuthFor(mode, serverAuth, s.serviceAuth, att, blob)
 		if !ok {
 			s.logger.Info("Client did not authorize storing this attachment; delivered by mail only",
 				zap.String("filename", att.Filename))
 			continue
 		}
 		client := blossom.NewClient(authSigner, s.logger)
-		desc, err := client.Upload(ctx, blob, att.ContentType, s.blossomServers, s.blossomRedundancy)
+		uploadType := att.ContentType
+		if key != "" {
+			uploadType = sealedBlobContentType
+		}
+		desc, err := client.Upload(ctx, blob, uploadType, s.blossomServers, s.blossomRedundancy)
 		if err != nil {
 			s.logger.Warn("Failed to upload attachment to Blossom",
 				zap.String("filename", att.Filename), zap.Error(err))
@@ -975,6 +1015,9 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 			SizeBytes:     &size,
 			BlossomSHA256: &desc.SHA256,
 			BlossomURL:    &url,
+		}
+		if key != "" {
+			rec.BlobKey = &key
 		}
 		if err := s.db.CreateAttachment(ctx, rec); err != nil {
 			s.logger.Warn("Failed to persist attachment record",
@@ -1161,9 +1204,15 @@ func checkClientUploadAuth(senderPubkey string, atts []AttachmentInput, now time
 // uses only the sender's own signed authorization (client-side signing: the
 // server never signs for that user); without one the attachment is not
 // stored. Other modes use the server-held signer as before.
-func uploadAuthFor(mode encryption.EncryptionMode, serverAuth blossom.AuthSigner, att AttachmentInput, blob []byte) (blossom.AuthSigner, bool) {
-	if mode != encryption.ModeClientSide {
+func uploadAuthFor(mode encryption.EncryptionMode, serverAuth, serviceAuth blossom.AuthSigner, att AttachmentInput, blob []byte) (blossom.AuthSigner, bool) {
+	switch mode {
+	case encryption.ModeServerSide:
 		return serverAuth, true
+	case encryption.ModeClientSide:
+	default:
+		// Unencrypted mode: the blob is sealed by the server and stored under
+		// Mail's service key (the user's session is not needed or held).
+		return serviceAuth, serviceAuth != nil
 	}
 	if att.UploadAuth == nil {
 		return nil, false
@@ -1188,31 +1237,38 @@ func toTransportAttachments(atts []AttachmentInput) []transport.Attachment {
 }
 
 // attachmentBlob returns the bytes to upload for an attachment given the
-// email's encryption mode. Server-side mode NIP-44 self-encrypts the
-// base64-encoded bytes (NIP-44 operates on text); client/none upload as-is.
-func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, att AttachmentInput) ([]byte, error) {
-	if mode == encryption.ModeClientSide {
+// email's encryption mode, and the wrapped key when the server sealed them.
+// Client mode uploads the client's envelope as-is; server mode NIP-44
+// self-encrypts the base64-encoded bytes; unencrypted mode is sealed under the
+// attachment KEK, and refused (ErrAttachmentNotSealable) without a sealer so a
+// readable file never reaches Blossom.
+func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, att AttachmentInput) ([]byte, string, error) {
+	switch mode {
+	case encryption.ModeClientSide:
 		// Already ciphertext from the client; Send refuses anything else, and
 		// this re-check keeps a plaintext file off Blossom if a future caller
 		// skips Send.
 		if !encryption.IsEncryptedAttachment(att.Data) {
-			return nil, fmt.Errorf("%w: %s", ErrClientAttachmentNotEncrypted, att.Filename)
+			return nil, "", fmt.Errorf("%w: %s", ErrClientAttachmentNotEncrypted, att.Filename)
 		}
-		return att.Data, nil
+		return att.Data, "", nil
+	case encryption.ModeServerSide:
+		res, err := s.encryptionSvc.EncryptForRecipient(ctx, &encryption.EncryptionRequest{
+			Plaintext:       base64.StdEncoding.EncodeToString(att.Data),
+			SenderPubkey:    senderNpub,
+			RecipientPubkey: senderNpub, // self-encrypt the sender's stored copy
+			Mode:            encryption.ModeServerSide,
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		return []byte(res.Ciphertext), "", nil
+	default:
+		if s.sealer == nil {
+			return nil, "", ErrAttachmentNotSealable
+		}
+		return s.sealer.Seal(att.Data)
 	}
-	if mode != encryption.ModeServerSide {
-		return att.Data, nil
-	}
-	res, err := s.encryptionSvc.EncryptForRecipient(ctx, &encryption.EncryptionRequest{
-		Plaintext:       base64.StdEncoding.EncodeToString(att.Data),
-		SenderPubkey:    senderNpub,
-		RecipientPubkey: senderNpub, // self-encrypt the sender's stored copy
-		Mode:            encryption.ModeServerSide,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return []byte(res.Ciphertext), nil
 }
 
 // storedMode resolves the encryption mode an email's body was persisted under.
