@@ -37,9 +37,36 @@ const (
 
 func contactsHandler(t *testing.T) http.Handler {
 	t.Helper()
+	h := NewHandler(testDB(t), nil, nil, &config.Config{}, zap.NewNop())
+	r := mux.NewRouter()
+	// The same routes main.go registers, minus the session middleware: the
+	// caller's pubkey goes in the context the way AuthMiddleware puts it.
+	c := r.PathPrefix("/api/v1/contacts").Subrouter()
+	c.Use(testUserMiddleware)
+	c.HandleFunc("", h.ListContacts).Methods("GET")
+	c.HandleFunc("", h.AddContact).Methods("POST")
+	c.HandleFunc("/{id}", h.GetContact).Methods("GET")
+	c.HandleFunc("/{id}", h.UpdateContact).Methods("PUT")
+	c.HandleFunc("/{id}", h.DeleteContact).Methods("DELETE")
+	return r
+}
+
+// testUserMiddleware puts the X-Test-User header in the context the way
+// AuthMiddleware puts the session's pubkey.
+func testUserMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ctx := context.WithValue(req.Context(), contextKeyUserID, req.Header.Get("X-Test-User"))
+		next.ServeHTTP(w, req.WithContext(ctx))
+	})
+}
+
+// testDB is a throwaway Postgres built by the migrator, with mailboxes for
+// alice and bob.
+func testDB(t *testing.T) *storage.PostgreSQL {
+	t.Helper()
 	adminURL := os.Getenv("TEST_PG_ADMIN_URL")
 	if adminURL == "" {
-		t.Skip("set TEST_PG_ADMIN_URL to run the contacts tests against a real Postgres")
+		t.Skip("set TEST_PG_ADMIN_URL to run the handler tests against a real Postgres")
 	}
 	admin, err := sql.Open("postgres", adminURL)
 	if err != nil {
@@ -77,23 +104,7 @@ func contactsHandler(t *testing.T) http.Handler {
 		}
 	}
 
-	h := NewHandler(db, nil, nil, &config.Config{}, zap.NewNop())
-	r := mux.NewRouter()
-	// The same routes main.go registers, minus the session middleware: the
-	// caller's pubkey goes in the context the way AuthMiddleware puts it.
-	c := r.PathPrefix("/api/v1/contacts").Subrouter()
-	c.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := context.WithValue(req.Context(), contextKeyUserID, req.Header.Get("X-Test-User"))
-			next.ServeHTTP(w, req.WithContext(ctx))
-		})
-	})
-	c.HandleFunc("", h.ListContacts).Methods("GET")
-	c.HandleFunc("", h.AddContact).Methods("POST")
-	c.HandleFunc("/{id}", h.GetContact).Methods("GET")
-	c.HandleFunc("/{id}", h.UpdateContact).Methods("PUT")
-	c.HandleFunc("/{id}", h.DeleteContact).Methods("DELETE")
-	return r
+	return db
 }
 
 func call(t *testing.T, h http.Handler, user, method, path string, body any) (int, map[string]any) {
