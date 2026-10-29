@@ -49,6 +49,17 @@ func TestEmailStorageIntegration(t *testing.T) {
 	err = db.Migrate(ctx)
 	require.NoError(t, err, "Failed to run migrations")
 
+	// emails.mailbox_pubkey references mailboxes (migration 008).
+	for _, pk := range []string{
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		"0000000000000000000000000000000000000000000000000000000000000002",
+		"0000000000000000000000000000000000000000000000000000000000000003",
+		"0000000000000000000000000000000000000000000000000000000000000004",
+	} {
+		_, err := db.EnsureMailbox(ctx, pk)
+		require.NoError(t, err, "Failed to ensure mailbox")
+	}
+
 	t.Run("create and retrieve email", func(t *testing.T) {
 		email := &storage.Email{
 			MailboxPubkey: "0000000000000000000000000000000000000000000000000000000000000001",
