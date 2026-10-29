@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/google/uuid"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -34,9 +35,9 @@ type InboundProcessor struct {
 // signing key or the attachment KEK itself. Optional: a nil uploader means the
 // bytes cannot be stored, which is handled explicitly rather than by panicking.
 type AttachmentUploader interface {
-	// UploadFor seals data and stores it, returning where it went and the
-	// wrapped key needed to open it.
-	UploadFor(ctx context.Context, data []byte) (StoredBlob, error)
+	// UploadFor seals data for the attachment row attachmentID and stores it,
+	// returning where it went and the wrapped key (bound to that row).
+	UploadFor(ctx context.Context, attachmentID string, data []byte) (StoredBlob, error)
 }
 
 // StoredBlob is a sealed blob on Blossom: its hash, a retrieval URL, and its
@@ -623,19 +624,23 @@ func (p *InboundProcessor) storeAttachments(ctx context.Context, emailID, recipi
 		size := int64(len(att.Data))
 		contentType := att.ContentType
 		record := &storage.Attachment{
+			// The id is fixed before upload: the sealed key is bound to it.
+			ID:          uuid.New().String(),
 			EmailID:     emailID,
 			Filename:    att.Filename,
 			ContentType: &contentType,
 			SizeBytes:   &size,
 		}
 
+		// Filenames are user content: logs name the row id and size instead.
 		if p.uploader == nil {
 			p.logger.Warn("No attachment uploader configured; storing metadata only",
-				zap.String("email_id", emailID), zap.String("filename", att.Filename))
-		} else if blob, err := p.uploader.UploadFor(ctx, att.Data); err != nil {
+				zap.String("email_id", emailID), zap.String("attachment_id", record.ID), zap.Int64("size_bytes", size))
+		} else if blob, err := p.uploader.UploadFor(ctx, record.ID, att.Data); err != nil {
 			p.logger.Warn("Failed to store inbound attachment blob",
 				zap.String("email_id", emailID),
-				zap.String("filename", att.Filename),
+				zap.String("attachment_id", record.ID),
+				zap.Int64("size_bytes", size),
 				zap.Error(err))
 		} else {
 			record.BlossomSHA256 = &blob.SHA256
@@ -648,7 +653,8 @@ func (p *InboundProcessor) storeAttachments(ctx context.Context, emailID, recipi
 		if err := p.db.CreateAttachment(ctx, record); err != nil {
 			p.logger.Warn("Failed to record inbound attachment",
 				zap.String("email_id", emailID),
-				zap.String("filename", att.Filename),
+				zap.String("attachment_id", record.ID),
+				zap.Int64("size_bytes", size),
 				zap.Error(err))
 		}
 	}

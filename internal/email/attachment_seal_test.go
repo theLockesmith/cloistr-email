@@ -116,7 +116,7 @@ func TestInboundUploaderSealsAndSignsAsService(t *testing.T) {
 		t.Fatal("uploader not built")
 	}
 
-	got, err := up.UploadFor(context.Background(), secretPDF)
+	got, err := up.UploadFor(context.Background(), "row-1", secretPDF)
 	if err != nil {
 		t.Fatalf("UploadFor: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestInboundUploaderSealsAndSignsAsService(t *testing.T) {
 	if got.Key == "" {
 		t.Fatal("no wrapped key returned")
 	}
-	opened, err := sealer.Open(got.Key, blob)
+	opened, err := sealer.Open(got.Key, blob, "row-1")
 	if err != nil || !bytes.Equal(opened, secretPDF) {
 		t.Fatalf("returned key does not open the uploaded blob: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestE2ESealedAttachments(t *testing.T) {
 			t.Fatalf("set key: %v", err)
 		}
 	}
-	_, otherKey, _ := newTestSealer(t).Seal([]byte("another file"))
+	_, otherKey, _ := newTestSealer(t).Seal([]byte("another file"), inAtt.ID)
 	tampered := *inAtt.BlobKey
 	tampered = tampered[:len(tampered)-2] + "AA"
 	for name, key := range map[string]*string{"missing key": nil, "key from another KEK": &otherKey, "tampered key": &tampered} {
@@ -284,6 +284,17 @@ func TestE2ESealedAttachments(t *testing.T) {
 		}
 	}
 	setKey(inAtt.ID, inAtt.BlobKey)
+
+	// A database writer copying one row's blob and key onto another row gets
+	// nothing: the key is bound to the row it was sealed for.
+	outbound := onlyAttachment(sent.ID)
+	if _, err := db.DB().ExecContext(ctx, `UPDATE attachments SET blossom_sha256 = $2, blob_key = $3 WHERE id = $1`,
+		outbound.ID, *inAtt.BlossomSHA256, *inAtt.BlobKey); err != nil {
+		t.Fatalf("copy key: %v", err)
+	}
+	if res, err := svc.GetAttachment(ctx, me, sent.ID, outbound.ID); err == nil || (res != nil && len(res.Data) > 0) {
+		t.Error("a key copied onto another row opened there")
+	}
 
 	// A service with a different KEK cannot open it either.
 	wrongKEK := NewService(idSvc, nil, encSvc, db, logger).WithBlossom(servers, 1).WithAttachmentSealing(newTestSealer(t), svcKey)
