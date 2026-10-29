@@ -449,7 +449,19 @@ func (h *Handler) GetMyKey(w http.ResponseWriter, r *http.Request) {
 // validEncryptionModes are the modes a user may choose as their send default.
 // Anything else is rejected rather than stored, so a typo cannot silently
 // disable encryption for every future message.
-var validEncryptionModes = map[string]bool{"e2e": true, "server": true, "none": true}
+var validEncryptionModes = map[string]bool{"client": true, "server": true, "none": true}
+
+// canonicalEncryptionMode maps the legacy "e2e" spelling of the client-side
+// mode to "client", the name the UI and the rest of the service use. The
+// handler once accepted only "e2e" while Settings posted "client", so a
+// client-side preference could never be saved; "e2e" is still accepted and
+// read back as "client".
+func canonicalEncryptionMode(mode string) string {
+	if mode == "e2e" {
+		return string(encryption.ModeClientSide)
+	}
+	return mode
+}
 
 // GetEncryptionCapabilities reports what encryption options are available to
 // the caller: whether they have a live NIP-46 bunker connection (so the
@@ -475,6 +487,7 @@ func (h *Handler) GetEncryptionCapabilities(w http.ResponseWriter, r *http.Reque
 		errors.InternalError("INTERNAL_ERROR", "failed to read encryption capabilities").WriteResponse(w)
 		return
 	}
+	mode = canonicalEncryptionMode(mode)
 	if mode == "" {
 		mode = string(encryption.ModeNone)
 	}
@@ -514,7 +527,7 @@ func (h *Handler) GetEncryptionPreference(w http.ResponseWriter, r *http.Request
 		errors.InternalError("INTERNAL_ERROR", "failed to read encryption preference").WriteResponse(w)
 		return
 	}
-	h.respondJSON(w, http.StatusOK, map[string]string{"mode": mode})
+	h.respondJSON(w, http.StatusOK, map[string]string{"mode": canonicalEncryptionMode(mode)})
 }
 
 // SetEncryptionPreference records the caller's default encryption mode.
@@ -538,8 +551,9 @@ func (h *Handler) SetEncryptionPreference(w http.ResponseWriter, r *http.Request
 		errors.BadRequest("INVALID_REQUEST", "invalid request body").WriteResponse(w)
 		return
 	}
+	req.Mode = canonicalEncryptionMode(req.Mode)
 	if !validEncryptionModes[req.Mode] {
-		errors.BadRequest("INVALID_MODE", "mode must be one of: e2e, server, none").WriteResponse(w)
+		errors.BadRequest("INVALID_MODE", "mode must be one of: client, server, none").WriteResponse(w)
 		return
 	}
 
