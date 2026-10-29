@@ -23,7 +23,7 @@ As of this RFC, production had stored nothing on Blossom: `BLOSSOM_SERVERS` had 
 |-------|--------|
 | Blob cipher | XChaCha20-Poly1305, random 24-byte nonce, AAD `cloistr-email/attachment-blob/v1` |
 | Blob key | 32 random bytes per blob, never derived |
-| Key storage | `email.attachments.blob_key`: the blob key sealed under the KEK (XChaCha20-Poly1305, AAD `cloistr-email/attachment-key/v1`), stored as `v1.` + base64url |
+| Key storage | `email.attachments.blob_key`: the blob key sealed under the KEK (XChaCha20-Poly1305, AAD `cloistr-email/attachment-key/v1` + NUL + the attachment row id), stored as `v1.` + base64url. The row id is fixed before sealing, so a key copied onto another row (by anyone able to write the database) does not unwrap there. |
 | KEK | `ATTACHMENT_KEK`, base64 of 32 random bytes, from `cloistr-email-secrets` |
 | Upload signer | `MAIL_BLOSSOM_SIGNING_KEY` (hex or nsec), Mail's own key, from `cloistr-email-secrets` |
 | Declared type | Always `application/octet-stream`. The real type stays in Mail's database. |
@@ -46,6 +46,7 @@ Code: `internal/blobseal` (sealing), `internal/email/inbound_attachments.go` (in
 - A missing, malformed or tampered key, the wrong KEK, another blob's key, or a tampered or truncated blob is an error, and **no bytes are served**.
 - An unencrypted-mode row with a Blossom blob but no key is refused rather than served raw.
 - Startup logs only the service public key. Key values and their parse errors are never logged.
+- Attachment filenames are user content and are never logged; failure logs name the attachment row id and size.
 
 ### KEK rotation
 

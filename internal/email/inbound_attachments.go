@@ -51,8 +51,8 @@ func NewBlossomAttachmentUploader(auth blossom.AuthSigner, sealer *blobseal.Seal
 }
 
 // UploadFor implements AttachmentUploader.
-func (u *blossomAttachmentUploader) UploadFor(ctx context.Context, data []byte) (StoredBlob, error) {
-	blob, key, err := u.sealer.Seal(data)
+func (u *blossomAttachmentUploader) UploadFor(ctx context.Context, attachmentID string, data []byte) (StoredBlob, error) {
+	blob, key, err := u.sealer.Seal(data, attachmentID)
 	if err != nil {
 		return StoredBlob{}, fmt.Errorf("seal attachment: %w", err)
 	}

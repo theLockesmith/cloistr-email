@@ -60,9 +60,25 @@ func NewSealer(kekBase64 string) (*Sealer, error) {
 	return &Sealer{kek: kek}, nil
 }
 
+// ErrNoBinding is returned by Seal when no row binding is given.
+var ErrNoBinding = errors.New("sealing requires the attachment row id")
+
+// keyAADFor binds a wrapped key to the attachment row it belongs to: a key
+// copied onto another row (by anyone able to write the database) then fails
+// to unwrap there.
+func keyAADFor(binding string) []byte {
+	aad := append([]byte(nil), keyAAD...)
+	aad = append(aad, 0)
+	return append(aad, binding...)
+}
+
 // Seal encrypts plaintext under a fresh random key. It returns the blob to
-// upload and the key wrapped under the KEK, to store with the attachment row.
-func (s *Sealer) Seal(plaintext []byte) (blob []byte, wrappedKey string, err error) {
+// upload and the key wrapped under the KEK and bound to binding (the
+// attachment row id), to store with that row.
+func (s *Sealer) Seal(plaintext []byte, binding string) (blob []byte, wrappedKey string, err error) {
+	if binding == "" {
+		return nil, "", ErrNoBinding
+	}
 	key := make([]byte, chacha20poly1305.KeySize)
 	if _, err := rand.Read(key); err != nil {
 		return nil, "", fmt.Errorf("generate blob key: %w", err)
@@ -71,16 +87,19 @@ func (s *Sealer) Seal(plaintext []byte) (blob []byte, wrappedKey string, err err
 	if err != nil {
 		return nil, "", err
 	}
-	wrapped, err := seal(s.kek, key, keyAAD)
+	wrapped, err := seal(s.kek, key, keyAADFor(binding))
 	if err != nil {
 		return nil, "", err
 	}
 	return blob, keyPrefix + base64.RawURLEncoding.EncodeToString(wrapped), nil
 }
 
-// Open unwraps wrappedKey and decrypts blob. Every failure is ErrOpen and
-// returns no bytes.
-func (s *Sealer) Open(wrappedKey string, blob []byte) ([]byte, error) {
+// Open unwraps wrappedKey for the row named by binding and decrypts blob.
+// Every failure is ErrOpen and returns no bytes.
+func (s *Sealer) Open(wrappedKey string, blob []byte, binding string) ([]byte, error) {
+	if binding == "" {
+		return nil, fmt.Errorf("%w: no row binding", ErrOpen)
+	}
 	if !strings.HasPrefix(wrappedKey, keyPrefix) {
 		return nil, fmt.Errorf("%w: missing or unknown key format", ErrOpen)
 	}
@@ -88,7 +107,7 @@ func (s *Sealer) Open(wrappedKey string, blob []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: malformed key", ErrOpen)
 	}
-	key, err := open(s.kek, wrapped, keyAAD)
+	key, err := open(s.kek, wrapped, keyAADFor(binding))
 	if err != nil {
 		return nil, fmt.Errorf("%w: key does not unwrap", ErrOpen)
 	}

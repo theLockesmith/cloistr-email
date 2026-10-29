@@ -19,20 +19,20 @@ func TestAttachmentBlob_NoneIsSealed(t *testing.T) {
 	data := []byte{0x00, 0x01, 0x02, 0xff, 'h', 'i'}
 
 	s := newServiceWithSigner(nil)
-	if blob, key, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeNone, AttachmentInput{Data: data}); !errors.Is(err, ErrAttachmentNotSealable) || blob != nil || key != "" {
+	if blob, key, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeNone, AttachmentInput{Data: data}, "row-1"); !errors.Is(err, ErrAttachmentNotSealable) || blob != nil || key != "" {
 		t.Fatalf("without a sealer: blob=%v key=%q err=%v, want ErrAttachmentNotSealable", blob, key, err)
 	}
 
 	sealer := newTestSealer(t)
 	s.WithAttachmentSealing(sealer, newServiceSigner(t))
-	blob, key, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeNone, AttachmentInput{Data: data})
+	blob, key, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeNone, AttachmentInput{Data: data}, "row-1")
 	if err != nil {
 		t.Fatalf("attachmentBlob: %v", err)
 	}
 	if string(blob) == string(data) || key == "" {
 		t.Fatal("unencrypted-mode attachment was not sealed")
 	}
-	if got, err := sealer.Open(key, blob); err != nil || string(got) != string(data) {
+	if got, err := sealer.Open(key, blob, "row-1"); err != nil || string(got) != string(data) {
 		t.Fatalf("sealed blob does not open: %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func bareNIP44(t *testing.T) []byte {
 func TestAttachmentBlob_ClientPassThrough(t *testing.T) {
 	s := newServiceWithSigner(nil)
 	ciphertext := clientEnvelope(t)
-	blob, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeClientSide, AttachmentInput{Data: ciphertext})
+	blob, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeClientSide, AttachmentInput{Data: ciphertext}, "row-1")
 	if err != nil {
 		t.Fatalf("attachmentBlob: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestAttachmentBlob_ClientRefusesPlaintext(t *testing.T) {
 		"bare NIP-44 payload": bareNIP44(t),
 	} {
 		t.Run(name, func(t *testing.T) {
-			blob, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeClientSide, AttachmentInput{Filename: "f", Data: data})
+			blob, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeClientSide, AttachmentInput{Filename: "f", Data: data}, "row-1")
 			if !errors.Is(err, ErrClientAttachmentNotEncrypted) {
 				t.Fatalf("err = %v, want ErrClientAttachmentNotEncrypted", err)
 			}
@@ -114,7 +114,7 @@ func TestCheckClientAttachmentsEncrypted(t *testing.T) {
 func TestAttachmentBlob_ServerEncryptsBase64(t *testing.T) {
 	s := newServiceWithSigner(&fakeSigner{pubkey: "senderpub", canEnc: true})
 	data := []byte{0xde, 0xad, 0xbe, 0xef}
-	blob, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeServerSide, AttachmentInput{Data: data})
+	blob, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeServerSide, AttachmentInput{Data: data}, "row-1")
 	if err != nil {
 		t.Fatalf("attachmentBlob: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestAttachmentBlob_ServerEncryptsBase64(t *testing.T) {
 
 func TestAttachmentBlob_ServerEncryptFailurePropagates(t *testing.T) {
 	s := newServiceWithSigner(&fakeSigner{pubkey: "senderpub", canEnc: true, failEnc: true})
-	_, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeServerSide, AttachmentInput{Data: []byte("x")})
+	_, _, err := s.attachmentBlob(context.Background(), "senderpub", encryption.ModeServerSide, AttachmentInput{Data: []byte("x")}, "row-1")
 	if err == nil {
 		t.Error("expected encryption failure to propagate (caller skips the attachment)")
 	}

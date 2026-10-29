@@ -1250,13 +1250,12 @@ func (db *PostgreSQL) DeleteContact(ctx context.Context, mailboxPubkey, id strin
 
 // CreateAttachment creates a new attachment
 func (db *PostgreSQL) CreateAttachment(ctx context.Context, attachment *Attachment) error {
-	db.logger.Debug("Creating attachment",
-		zap.String("email_id", attachment.EmailID),
-		zap.String("filename", attachment.Filename))
-
 	if attachment.ID == "" {
 		attachment.ID = uuid.New().String()
 	}
+	db.logger.Debug("Creating attachment",
+		zap.String("email_id", attachment.EmailID),
+		zap.String("attachment_id", attachment.ID))
 
 	query := `
 		INSERT INTO attachments (id, email_id, filename, content_type, size_bytes, blossom_sha256, blossom_url, blob_key)

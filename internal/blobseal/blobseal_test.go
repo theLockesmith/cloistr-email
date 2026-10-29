@@ -31,7 +31,7 @@ var plaintext = []byte("%PDF-1.4 quarterly figures: confidential\x00\xff")
 
 func TestSealedBlobIsNotThePlaintext(t *testing.T) {
 	s := mustSealer(t, testKEK(t))
-	blob, key, err := s.Seal(plaintext)
+	blob, key, err := s.Seal(plaintext, "row-1")
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
@@ -45,11 +45,11 @@ func TestSealedBlobIsNotThePlaintext(t *testing.T) {
 
 func TestRoundTrip(t *testing.T) {
 	s := mustSealer(t, testKEK(t))
-	blob, key, err := s.Seal(plaintext)
+	blob, key, err := s.Seal(plaintext, "row-1")
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
-	got, err := s.Open(key, blob)
+	got, err := s.Open(key, blob, "row-1")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -62,8 +62,8 @@ func TestRoundTrip(t *testing.T) {
 // different keys and different blobs (so equal files are not linkable by hash).
 func TestKeysAreRandomPerBlob(t *testing.T) {
 	s := mustSealer(t, testKEK(t))
-	b1, k1, _ := s.Seal(plaintext)
-	b2, k2, _ := s.Seal(plaintext)
+	b1, k1, _ := s.Seal(plaintext, "row-1")
+	b2, k2, _ := s.Seal(plaintext, "row-1")
 	if k1 == k2 || bytes.Equal(b1, b2) {
 		t.Fatal("two seals of the same plaintext produced the same key or blob")
 	}
@@ -72,11 +72,11 @@ func TestKeysAreRandomPerBlob(t *testing.T) {
 func TestFailsClosed(t *testing.T) {
 	s := mustSealer(t, testKEK(t))
 	other := mustSealer(t, testKEK(t))
-	blob, key, err := s.Seal(plaintext)
+	blob, key, err := s.Seal(plaintext, "row-1")
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
-	_, otherKey, _ := s.Seal([]byte("another file"))
+	_, otherKey, _ := s.Seal([]byte("another file"), "row-1")
 
 	flip := func(b []byte, i int) []byte {
 		c := append([]byte(nil), b...)
@@ -87,15 +87,15 @@ func TestFailsClosed(t *testing.T) {
 	tamperedKey := keyPrefix + base64.RawURLEncoding.EncodeToString(flip(rawKey, len(rawKey)-1))
 
 	for name, open := range map[string]func() ([]byte, error){
-		"missing key":         func() ([]byte, error) { return s.Open("", blob) },
-		"malformed key":       func() ([]byte, error) { return s.Open("v1.not-base64!!", blob) },
-		"unknown key version": func() ([]byte, error) { return s.Open("v9."+strings.TrimPrefix(key, keyPrefix), blob) },
-		"wrong KEK":           func() ([]byte, error) { return other.Open(key, blob) },
-		"another blob's key":  func() ([]byte, error) { return s.Open(otherKey, blob) },
-		"tampered key":        func() ([]byte, error) { return s.Open(tamperedKey, blob) },
-		"tampered blob":       func() ([]byte, error) { return s.Open(key, flip(blob, len(blob)-1)) },
-		"truncated blob":      func() ([]byte, error) { return s.Open(key, blob[:10]) },
-		"empty blob":          func() ([]byte, error) { return s.Open(key, nil) },
+		"missing key":         func() ([]byte, error) { return s.Open("", blob, "row-1") },
+		"malformed key":       func() ([]byte, error) { return s.Open("v1.not-base64!!", blob, "row-1") },
+		"unknown key version": func() ([]byte, error) { return s.Open("v9."+strings.TrimPrefix(key, keyPrefix), blob, "row-1") },
+		"wrong KEK":           func() ([]byte, error) { return other.Open(key, blob, "row-1") },
+		"another blob's key":  func() ([]byte, error) { return s.Open(otherKey, blob, "row-1") },
+		"tampered key":        func() ([]byte, error) { return s.Open(tamperedKey, blob, "row-1") },
+		"tampered blob":       func() ([]byte, error) { return s.Open(key, flip(blob, len(blob)-1), "row-1") },
+		"truncated blob":      func() ([]byte, error) { return s.Open(key, blob[:10], "row-1") },
+		"empty blob":          func() ([]byte, error) { return s.Open(key, nil, "row-1") },
 	} {
 		got, err := open()
 		if err == nil {

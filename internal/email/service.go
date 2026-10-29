@@ -3,6 +3,7 @@
 package email
 
 import (
+	"github.com/google/uuid"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -922,7 +923,7 @@ func (s *Service) GetAttachment(ctx context.Context, userNpub, emailID, attachme
 		if s.sealer == nil {
 			return nil, fmt.Errorf("attachment is sealed but sealing is not configured")
 		}
-		data, err := s.sealer.Open(*att.BlobKey, blob)
+		data, err := s.sealer.Open(*att.BlobKey, blob, att.ID)
 		if err != nil {
 			return nil, fmt.Errorf("attachment cannot be opened: %w", err)
 		}
@@ -978,16 +979,20 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 	})
 
 	for _, att := range atts {
-		blob, key, err := s.attachmentBlob(ctx, senderNpub, mode, att)
+		// The row id is fixed before sealing (the key is bound to it), and is
+		// what logs name: filenames are user content.
+		rowID := uuid.New().String()
+		size := int64(len(att.Data))
+		blob, key, err := s.attachmentBlob(ctx, senderNpub, mode, att, rowID)
 		if err != nil {
 			s.logger.Warn("Failed to prepare attachment for Blossom",
-				zap.String("filename", att.Filename), zap.Error(err))
+				zap.String("attachment_id", rowID), zap.Int64("size_bytes", size), zap.Error(err))
 			continue
 		}
 		authSigner, ok := uploadAuthFor(mode, serverAuth, s.serviceAuth, att, blob)
 		if !ok {
 			s.logger.Info("Client did not authorize storing this attachment; delivered by mail only",
-				zap.String("filename", att.Filename))
+				zap.String("attachment_id", rowID), zap.Int64("size_bytes", size))
 			continue
 		}
 		client := blossom.NewClient(authSigner, s.logger)
@@ -998,17 +1003,17 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 		desc, err := client.Upload(ctx, blob, uploadType, s.blossomServers, s.blossomRedundancy)
 		if err != nil {
 			s.logger.Warn("Failed to upload attachment to Blossom",
-				zap.String("filename", att.Filename), zap.Error(err))
+				zap.String("attachment_id", rowID), zap.Int64("size_bytes", size), zap.Error(err))
 			continue
 		}
 
-		size := int64(len(att.Data))
 		contentType := att.ContentType
 		url := ""
 		if len(desc.Servers) > 0 {
 			url = desc.Servers[0] + "/" + desc.SHA256
 		}
 		rec := &storage.Attachment{
+			ID:            rowID,
 			EmailID:       emailID,
 			Filename:      att.Filename,
 			ContentType:   &contentType,
@@ -1021,7 +1026,7 @@ func (s *Service) uploadAttachments(ctx context.Context, senderNpub string, mode
 		}
 		if err := s.db.CreateAttachment(ctx, rec); err != nil {
 			s.logger.Warn("Failed to persist attachment record",
-				zap.String("filename", att.Filename), zap.Error(err))
+				zap.String("attachment_id", rowID), zap.Int64("size_bytes", size), zap.Error(err))
 		}
 	}
 }
@@ -1242,7 +1247,7 @@ func toTransportAttachments(atts []AttachmentInput) []transport.Attachment {
 // self-encrypts the base64-encoded bytes; unencrypted mode is sealed under the
 // attachment KEK, and refused (ErrAttachmentNotSealable) without a sealer so a
 // readable file never reaches Blossom.
-func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, att AttachmentInput) ([]byte, string, error) {
+func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode encryption.EncryptionMode, att AttachmentInput, rowID string) ([]byte, string, error) {
 	switch mode {
 	case encryption.ModeClientSide:
 		// Already ciphertext from the client; Send refuses anything else, and
@@ -1267,7 +1272,7 @@ func (s *Service) attachmentBlob(ctx context.Context, senderNpub string, mode en
 		if s.sealer == nil {
 			return nil, "", ErrAttachmentNotSealable
 		}
-		return s.sealer.Seal(att.Data)
+		return s.sealer.Seal(att.Data, rowID)
 	}
 }
 
