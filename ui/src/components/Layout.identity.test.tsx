@@ -15,6 +15,7 @@ import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const PUBKEY = 'ab'.repeat(32)
 
@@ -83,11 +84,13 @@ describe('Layout identity lookups follow the deployment', () => {
     const { AuthProvider } = await import('@cloistr/ui/auth')
 
     render(
-      <AuthProvider>
-        <MemoryRouter initialEntries={['/inbox']}>
-          <Layout />
-        </MemoryRouter>
-      </AuthProvider>,
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={['/inbox']}>
+            <Layout />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
     )
 
     const urls = () => fetchMock.mock.calls.map((c) => String(c[0]))

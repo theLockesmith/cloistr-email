@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { emailAPI, type Email } from '../lib/api'
@@ -99,6 +99,13 @@ export default function EmailPage() {
   })
 
   const email = response?.data as Email | undefined
+
+  // GET /email/{id} marks received mail read on the server. Refresh the
+  // cached Inbox list and unread badge so they stop showing it as unread.
+  const loadedId = email?.id
+  useEffect(() => {
+    if (loadedId) queryClient.invalidateQueries({ queryKey: ['emails'] })
+  }, [loadedId, queryClient])
 
   const isStarred = email?.is_starred ||
     (email?.labels || []).includes(STAR_LABEL)
