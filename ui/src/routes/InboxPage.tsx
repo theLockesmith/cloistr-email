@@ -423,7 +423,7 @@ export default function InboxPage() {
 
                 {/* Clickable email row */}
                 <Link
-                  to={`/emails/${email.id}`}
+                  to={folder === 'drafts' ? `/compose?draft=${email.id}` : `/emails/${email.id}`}
                   className="flex-1 min-w-0 flex flex-col gap-0.5"
                 >
                   <div className="flex items-center gap-2 justify-between">

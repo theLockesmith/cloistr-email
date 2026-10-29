@@ -128,3 +128,34 @@ func TestEmailStatsRouteRegistered(t *testing.T) {
 		t.Fatalf("GET /api/v2/email/stats routed to %q, want its own route", tpl)
 	}
 }
+
+// TestDraftRoutesRegistered: Compose saves drafts with POST /api/v2/email/drafts
+// and PUT /api/v2/email/drafts/{id}. The PUT must not fall through to any
+// /{id} route.
+func TestDraftRoutesRegistered(t *testing.T) {
+	logger := zap.NewNop()
+	cfg := &config.Config{}
+
+	apiHandler := api.NewHandler(nil, nil, nil, cfg, logger)
+	emailHandler := api.NewEmailHandler(nil, logger)
+
+	router := buildRouter(nil, nil, apiHandler, emailHandler, cfg, logger)
+
+	for _, tc := range []struct{ method, path, want string }{
+		{http.MethodPost, "/api/v2/email/drafts", "/api/v2/email/drafts"},
+		{http.MethodPut, "/api/v2/email/drafts/abc", "/api/v2/email/drafts/{id}"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		var match mux.RouteMatch
+		if !router.Match(req, &match) {
+			t.Fatalf("%s %s does not match any route; match error: %v", tc.method, tc.path, match.MatchErr)
+		}
+		tpl, err := match.Route.GetPathTemplate()
+		if err != nil {
+			t.Fatalf("path template: %v", err)
+		}
+		if tpl != tc.want {
+			t.Fatalf("%s %s routed to %q, want %q", tc.method, tc.path, tpl, tc.want)
+		}
+	}
+}

@@ -525,6 +525,8 @@ func buildRouter(
 	emailV2Routes.Use(apiHandler.AuthMiddleware)
 	emailV2Routes.HandleFunc("/send", emailHandler.SendEmailV2).Methods("POST")
 	emailV2Routes.HandleFunc("/bulk", emailHandler.BulkActionV2).Methods("POST")
+	emailV2Routes.HandleFunc("/drafts", emailHandler.CreateDraftV2).Methods("POST")
+	emailV2Routes.HandleFunc("/drafts/{id}", emailHandler.UpdateDraftV2).Methods("PUT")
 	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
 	// Before /{id}, or mux would treat "stats" as an email id.
 	emailV2Routes.HandleFunc("/stats", emailHandler.EmailStatsV2).Methods("GET")
