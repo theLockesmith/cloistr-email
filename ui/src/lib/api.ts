@@ -259,6 +259,19 @@ export interface EmailStats {
   inbox_unread: number
 }
 
+export interface SaveDraftRequest {
+  to: string
+  cc?: string[]
+  subject: string
+  body: string
+  encryption_mode: 'none' | 'client'
+}
+
+export interface SaveDraftResponse {
+  id: string
+  updated_at: string
+}
+
 export const emailAPI = {
   list: (params?: EmailListParams) => apiV2.get<EmailListResponse>('/email', { params }),
 
@@ -270,6 +283,12 @@ export const emailAPI = {
   // Backend v2 send route is POST /api/v2/email/send (prefix is /email,
   // singular). Posting to /emails hit no route → 404.
   send: (data: SendEmailRequest) => apiV2.post<SendEmailResponse>('/email/send', data),
+
+  // Server-side drafts. An encrypted draft's body is a client envelope sealed
+  // to the sender (see lib/server-draft.ts); the server refuses plaintext.
+  createDraft: (data: SaveDraftRequest) => apiV2.post<SaveDraftResponse>('/email/drafts', data),
+
+  updateDraft: (id: string, data: SaveDraftRequest) => apiV2.put<SaveDraftResponse>(`/email/drafts/${id}`, data),
 
   delete: (id: string) => apiV2.delete(`/email/${id}`),
 

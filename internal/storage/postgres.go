@@ -750,6 +750,36 @@ func (db *PostgreSQL) UpdateEmail(ctx context.Context, email *Email) error {
 	return nil
 }
 
+// ErrDraftNotFound is returned by UpdateDraft when id is not a live draft in
+// the given mailbox: missing, deleted, someone else's, or not a draft.
+var ErrDraftNotFound = errors.New("draft not found")
+
+// UpdateDraft overwrites the editable fields of one of the mailbox's own
+// drafts. The mailbox and direction are part of the WHERE clause, so a draft id
+// from another mailbox, or the id of a sent or received message, matches
+// nothing.
+func (db *PostgreSQL) UpdateDraft(ctx context.Context, d *Email) error {
+	query := `
+		UPDATE emails
+		SET to_address = $3, cc = $4, subject = $5, body = $6, is_encrypted = $7,
+			encryption_mode = $8, in_reply_to = $9, references_header = $10,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND mailbox_pubkey = $2 AND direction = 'draft' AND deleted_at IS NULL
+		RETURNING created_at, updated_at
+	`
+	err := db.db.QueryRowContext(ctx, query,
+		d.ID, d.MailboxPubkey, d.ToAddress, d.CC, d.Subject, d.Body, d.IsEncrypted,
+		d.EncryptionMode, d.InReplyTo, d.References,
+	).Scan(&d.CreatedAt, &d.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return ErrDraftNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update draft: %w", err)
+	}
+	return nil
+}
+
 // MarkEmailAsRead marks an email as read
 func (db *PostgreSQL) MarkEmailAsRead(ctx context.Context, id string) error {
 	db.logger.Debug("Marking email as read", zap.String("id", id))

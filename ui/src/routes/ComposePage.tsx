@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { SignerRecovery } from '@cloistr/ui/components'
-import { emailAPI, keyAPI, type SendEmailRequest, type Email, type AttachmentRequest } from '../lib/api'
+import { emailAPI, keyAPI, encryptionAPI, type SendEmailRequest, type Email, type AttachmentRequest } from '../lib/api'
 import {
   hasNostrExtension,
   type EncryptionMode,
@@ -22,6 +22,17 @@ import { clientModeSigner } from '../lib/client-signer'
 import { useNostrAuth } from '@cloistr/auth'
 import { cachedProtectedSubject } from '../lib/protected-headers'
 import { composeDraftKey, saveDraft, loadDraft, clearDraft, hasDraftContent } from '../lib/draft-autosave'
+import { buildServerDraft, openServerDraft, SERVER_DRAFT_DELAY_MS } from '../lib/server-draft'
+
+/**
+ * The compose mode a stored preference stands for. The backend stores the
+ * client-side mode as 'e2e'; 'client' is accepted too.
+ */
+function preferredComposeMode(pref: string | undefined): EncryptionMode {
+  if (pref === 'e2e' || pref === 'client') return 'client'
+  if (pref === 'server') return 'server'
+  return 'none'
+}
 
 // Max per-file size to accept (20 MiB). Hard limit from Blossom backend.
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
@@ -45,6 +56,8 @@ export default function ComposePage() {
   const [searchParams] = useSearchParams()
   const replyId = searchParams.get('reply')
   const forwardId = searchParams.get('forward')
+  // A server draft being resumed (Drafts folder links here).
+  const draftParam = searchParams.get('draft')
   const originalId = replyId || forwardId
 
   const [to, setTo] = useState('')
@@ -69,6 +82,20 @@ export default function ComposePage() {
   const [draftRestoredAt, setDraftRestoredAt] = useState<number | null>(null)
   // True once the initial draft-restore check has completed.
   const hasInitializedDraft = useRef(false)
+  // Server draft: its id once created (or the one being resumed), and whether
+  // the resumed draft has loaded (no saving over it before then).
+  const serverDraftId = useRef<string | null>(draftParam)
+  const serverDraftReady = useRef(!draftParam)
+  const [serverDraftStatus, setServerDraftStatus] = useState<'saved' | 'error' | null>(null)
+  // Whether the encryption mode is settled: taken from the user's preference,
+  // a restored or resumed draft, or an explicit choice. Nothing is saved to
+  // the server before then, so text typed while the page still sits on its
+  // 'none' default never reaches the server as plaintext.
+  const [modeSettled, setModeSettled] = useState(false)
+  // True while the server's copy of this draft is plaintext. Switching to an
+  // encrypted mode then overwrites it immediately rather than after the
+  // typing delay.
+  const serverCopyPlain = useRef(false)
 
   const navigate = useNavigate()
 
@@ -88,8 +115,58 @@ export default function ComposePage() {
 
   const originalEmail = originalResponse?.data as Email | undefined
 
+  // The user's preferred encryption mode. Until it loads (or if it fails to)
+  // the mode is not settled and nothing is saved to the server.
+  const { data: capResponse } = useQuery({
+    queryKey: ['encryption-capabilities'],
+    queryFn: () => encryptionAPI.getCapabilities(),
+  })
+  useEffect(() => {
+    if (!capResponse || modeSettled || draftParam) return
+    setEncryptionMode(preferredComposeMode(capResponse.data?.preferred_mode))
+    setModeSettled(true)
+  }, [capResponse]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // An explicit choice in the mode picker settles the mode.
+  const chooseMode = (mode: EncryptionMode) => {
+    setEncryptionMode(mode)
+    setModeSettled(true)
+  }
+
+  // Resume a server draft: it takes the place of the local autosave.
+  useEffect(() => {
+    if (!draftParam) return
+    let cancelled = false
+    emailAPI
+      .get(draftParam)
+      .then((res) => openServerDraft(res.data as Email, cmSigner))
+      .then((fields) => {
+        if (cancelled) return
+        setTo(fields.to)
+        setCc(fields.cc)
+        setShowCc(fields.cc !== '')
+        setSubject(fields.subject)
+        setBody(fields.body)
+        setEncryptionMode(fields.encryptionMode)
+        setModeSettled(true)
+        serverCopyPlain.current = fields.encryptionMode === 'none'
+        setPrefilled(true)
+        serverDraftReady.current = true
+      })
+      .catch(() => {
+        if (!cancelled) setServerDraftStatus('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [draftParam]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // On mount: attempt to restore a previously saved draft.
   useEffect(() => {
+    if (draftParam) {
+      hasInitializedDraft.current = true
+      return
+    }
     const draft = loadDraft(draftKey)
     if (draft && hasDraftContent(draft)) {
       setTo(draft.to)
@@ -97,6 +174,7 @@ export default function ComposePage() {
       setSubject(draft.subject)
       setBody(draft.body)
       setEncryptionMode(draft.encryptionMode)
+      setModeSettled(true)
       setShowCc(draft.showCc)
       setPrefilled(true)
       setDraftRestoredAt(draft.savedAt)
@@ -152,6 +230,39 @@ export default function ComposePage() {
 
     return () => clearTimeout(timer)
   }, [to, cc, subject, body, encryptionMode, showCc, draftKey])
+
+  // Debounced server save: the first save creates the draft, later saves
+  // update it. An encrypted draft is sealed to the sender first; with no
+  // signer able to do that it stays local only. When the server's copy is
+  // plaintext and the mode has just become encrypted, the save runs at once,
+  // and if the draft cannot be sealed the plaintext copy is blanked instead.
+  useEffect(() => {
+    if (!hasInitializedDraft.current || !serverDraftReady.current || !modeSettled) return
+    const replacingPlain = encryptionMode !== 'none' && serverCopyPlain.current && serverDraftId.current !== null
+    if (!replacingPlain && !hasDraftContent({ to, cc, subject, body, encryptionMode, showCc, savedAt: 0 })) return
+
+    const timer = setTimeout(async () => {
+      try {
+        let req = await buildServerDraft({ to, cc, subject, body, encryptionMode }, cmSigner)
+        if (!req && replacingPlain) {
+          req = { to: to.trim(), subject: '', body: '', encryption_mode: 'none' }
+        }
+        if (!req) return
+        if (serverDraftId.current) {
+          await emailAPI.updateDraft(serverDraftId.current, req)
+        } else {
+          const res = await emailAPI.createDraft(req)
+          serverDraftId.current = res.data.id
+        }
+        serverCopyPlain.current = req.encryption_mode === 'none' && (req.body !== '' || req.subject !== '')
+        setServerDraftStatus('saved')
+      } catch {
+        setServerDraftStatus('error')
+      }
+    }, replacingPlain ? 0 : SERVER_DRAFT_DELAY_MS)
+
+    return () => clearTimeout(timer)
+  }, [to, cc, subject, body, encryptionMode, modeSettled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Discover recipient's pubkey when email changes
   useEffect(() => {
@@ -275,6 +386,11 @@ export default function ComposePage() {
     onSuccess: (response) => {
       if (response.data.status === 'sent') {
         clearDraft(draftKey)
+        // The draft is now a sent message; drop the server copy.
+        if (serverDraftId.current) {
+          emailAPI.delete(serverDraftId.current).catch(() => {})
+          serverDraftId.current = null
+        }
         navigate('/inbox')
       }
     },
@@ -312,6 +428,11 @@ export default function ComposePage() {
         {replyId ? 'Reply' : forwardId ? 'Forward' : 'Compose Email'}
       </h1>
 
+      {serverDraftStatus && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {serverDraftStatus === 'saved' ? 'Draft saved' : 'Draft could not be saved to the server; it is kept in this browser'}
+        </p>
+      )}
       {/* Draft restored banner */}
       {draftRestoredAt !== null && (
         <div className="mb-4 flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-800 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-300">
@@ -486,7 +607,7 @@ export default function ComposePage() {
                 name="encryption"
                 value="none"
                 checked={encryptionMode === 'none'}
-                onChange={() => setEncryptionMode('none')}
+                onChange={() => chooseMode('none')}
                 className="mt-1 w-4 h-4 text-cloistr-primary"
               />
               <div className="ml-3">
@@ -505,7 +626,7 @@ export default function ComposePage() {
                 name="encryption"
                 value="server"
                 checked={encryptionMode === 'server'}
-                onChange={() => canEncrypt && setEncryptionMode('server')}
+                onChange={() => canEncrypt && chooseMode('server')}
                 disabled={!canEncrypt}
                 className="mt-1 w-4 h-4 text-cloistr-primary"
               />
@@ -526,7 +647,7 @@ export default function ComposePage() {
                 name="encryption"
                 value="client"
                 checked={encryptionMode === 'client'}
-                onChange={() => canEncrypt && hasNip44 && setEncryptionMode('client')}
+                onChange={() => canEncrypt && hasNip44 && chooseMode('client')}
                 disabled={!canEncrypt || !hasNip44}
                 className="mt-1 w-4 h-4 text-cloistr-primary"
               />
