@@ -492,6 +492,7 @@ func buildRouter(
 	contactRoutes.HandleFunc("", apiHandler.ListContacts).Methods("GET")
 	contactRoutes.HandleFunc("", apiHandler.AddContact).Methods("POST")
 	contactRoutes.HandleFunc("/{id}", apiHandler.GetContact).Methods("GET")
+	contactRoutes.HandleFunc("/{id}", apiHandler.UpdateContact).Methods("PUT")
 	contactRoutes.HandleFunc("/{id}", apiHandler.DeleteContact).Methods("DELETE")
 
 	// Encryption preference endpoints.
