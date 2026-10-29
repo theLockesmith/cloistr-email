@@ -109,8 +109,6 @@ CREATE TABLE IF NOT EXISTS attachments (
     -- Blossom reference
     blossom_sha256 VARCHAR(64),
     blossom_url TEXT,
-    -- Per-blob key wrapped under ATTACHMENT_KEK (migration 014)
-    blob_key TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

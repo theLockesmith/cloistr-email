@@ -236,7 +236,7 @@ type querier interface {
 // them. TestRequiredColumnsCoverBaseline keeps this list equal to what the
 // baseline actually builds, so it cannot silently fall behind.
 var requiredColumns = map[string][]string{
-	"attachments":      {"blob_key", "blossom_sha256", "blossom_url", "content_type", "created_at", "email_id", "filename", "id", "size_bytes"},
+	"attachments":      {"blossom_sha256", "blossom_url", "content_type", "created_at", "email_id", "filename", "id", "size_bytes"},
 	"audit_log":        {"action", "created_at", "details", "id", "ip_address", "mailbox_pubkey", "resource_id", "resource_type", "user_agent"},
 	"contacts":         {"always_encrypt", "blocked", "created_at", "deleted_at", "email", "id", "mailbox_pubkey", "name", "notes", "npub", "organization", "phone", "updated_at"},
 	"domains":          {"active", "created_at", "dkim_private_key", "dkim_selector", "domain", "id", "updated_at", "verified"},
