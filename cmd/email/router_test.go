@@ -48,3 +48,24 @@ func TestEncryptionCapabilitiesRouteRegistered(t *testing.T) {
 		t.Fatalf("GET /api/v1/encryption/capabilities returned 404 via router.ServeHTTP")
 	}
 }
+
+// The UI saves a contact edit with PUT /api/v1/contacts/{id}
+// (ui/src/lib/api.ts, contactAPI.update); only GET and DELETE were routed.
+func TestContactRoutesRegistered(t *testing.T) {
+	logger := zap.NewNop()
+	cfg := &config.Config{}
+	router := buildRouter(nil, nil, api.NewHandler(nil, nil, nil, cfg, logger), api.NewEmailHandler(nil, logger), cfg, logger)
+
+	for _, mp := range [][2]string{
+		{http.MethodGet, "/api/v1/contacts"},
+		{http.MethodPost, "/api/v1/contacts"},
+		{http.MethodGet, "/api/v1/contacts/0b6f3c1e-1111-4222-8333-944455556666"},
+		{http.MethodPut, "/api/v1/contacts/0b6f3c1e-1111-4222-8333-944455556666"},
+		{http.MethodDelete, "/api/v1/contacts/0b6f3c1e-1111-4222-8333-944455556666"},
+	} {
+		var match mux.RouteMatch
+		if !router.Match(httptest.NewRequest(mp[0], mp[1], nil), &match) || match.MatchErr != nil {
+			t.Errorf("%s %s is not routed (match error: %v)", mp[0], mp[1], match.MatchErr)
+		}
+	}
+}

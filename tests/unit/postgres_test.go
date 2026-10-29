@@ -407,12 +407,12 @@ func TestPostgresCreateContact(t *testing.T) {
 				sqlmock.AnyArg(), contact.MailboxPubkey, contact.Email, contact.Name, contact.Npub,
 				nil, nil, nil, contact.AlwaysEncrypt, false,
 			).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).
-				AddRow(now, now))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
+				AddRow("contact-uuid", now, now))
 
 		err := postgres.CreateContact(context.Background(), contact)
 		assert.NoError(t, err)
-		assert.NotEmpty(t, contact.ID)
+		assert.Equal(t, "contact-uuid", contact.ID)
 	})
 
 	t.Run("duplicate contact error", func(t *testing.T) {
@@ -536,10 +536,10 @@ func TestPostgresDeleteContact(t *testing.T) {
 		contactID := "contact-uuid"
 
 		mock.ExpectExec(regexp.QuoteMeta(`UPDATE contacts SET deleted_at = CURRENT_TIMESTAMP`)).
-			WithArgs(contactID).
+			WithArgs(contactID, "mailbox-pubkey").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		err := postgres.DeleteContact(context.Background(), contactID)
+		err := postgres.DeleteContact(context.Background(), "mailbox-pubkey", contactID)
 		assert.NoError(t, err)
 	})
 
@@ -547,10 +547,10 @@ func TestPostgresDeleteContact(t *testing.T) {
 		contactID := "nonexistent-uuid"
 
 		mock.ExpectExec(regexp.QuoteMeta(`UPDATE contacts SET deleted_at = CURRENT_TIMESTAMP`)).
-			WithArgs(contactID).
+			WithArgs(contactID, "mailbox-pubkey").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := postgres.DeleteContact(context.Background(), contactID)
+		err := postgres.DeleteContact(context.Background(), "mailbox-pubkey", contactID)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "contact not found")
 	})

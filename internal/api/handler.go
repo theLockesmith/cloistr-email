@@ -3,11 +3,17 @@ package api
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
+	"fmt"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/identity"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/ratelimit"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"io"
 	"net/http"
+	"net/mail"
+	"strconv"
 	"strings"
+	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-common/errors"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/auth"
@@ -15,6 +21,7 @@ import (
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/encryption"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/relays"
 	"git.aegis-hq.xyz/coldforge/cloistr-email/internal/storage"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
@@ -662,127 +669,318 @@ func (h *Handler) SetEncryptionPreference(w http.ResponseWriter, r *http.Request
 
 // ===== Contact Endpoints =====
 
-// ContactResponse represents a contact in API responses
-type ContactResponse struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	Npub      string `json:"npub,omitempty"`
-	CreatedAt string `json:"created_at"`
+// ContactStore is the address book storage the contact endpoints use. Every
+// call is scoped to the signed-in mailbox.
+type ContactStore interface {
+	CreateContact(ctx context.Context, contact *storage.Contact) error
+	GetContact(ctx context.Context, mailboxPubkey, id string) (*storage.Contact, error)
+	ListContacts(ctx context.Context, mailboxPubkey string, opts storage.ListOptions) ([]*storage.Contact, int, error)
+	SearchContacts(ctx context.Context, mailboxPubkey, query string, limit int) ([]*storage.Contact, error)
+	UpdateContact(ctx context.Context, contact *storage.Contact) error
+	DeleteContact(ctx context.Context, mailboxPubkey, id string) error
+	EnsureMailbox(ctx context.Context, pubkey string) (*storage.Mailbox, error)
 }
 
-// ListContacts lists contacts for the authenticated user
-func (h *Handler) ListContacts(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Listing contacts")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
+func (h *Handler) contactStore() ContactStore {
+	if h.db == nil {
+		return nil
 	}
+	return h.db
+}
 
-	// TODO: Query database
-	h.respondJSON(w, http.StatusOK, map[string]interface{}{
-		"contacts": []ContactResponse{},
-		"total":    0,
-	})
+// ContactResponse represents a contact in API responses
+type ContactResponse struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	Name          string `json:"name"`
+	Npub          string `json:"npub,omitempty"`
+	Notes         string `json:"notes,omitempty"`
+	Organization  string `json:"organization,omitempty"`
+	Phone         string `json:"phone,omitempty"`
+	AlwaysEncrypt bool   `json:"always_encrypt"`
+	Blocked       bool   `json:"blocked"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+func contactResponse(c *storage.Contact) ContactResponse {
+	deref := func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	}
+	return ContactResponse{
+		ID:            c.ID,
+		Email:         c.Email,
+		Name:          deref(c.Name),
+		Npub:          deref(c.Npub),
+		Notes:         deref(c.Notes),
+		Organization:  deref(c.Organization),
+		Phone:         deref(c.Phone),
+		AlwaysEncrypt: c.AlwaysEncrypt,
+		Blocked:       c.Blocked,
+		CreatedAt:     c.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     c.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+// contactFields are the editable fields. On add only email is required; on
+// update an absent field is left as it was and "" clears an optional one.
+type contactFields struct {
+	Email         *string `json:"email"`
+	Name          *string `json:"name"`
+	Npub          *string `json:"npub"`
+	Notes         *string `json:"notes"`
+	Organization  *string `json:"organization"`
+	Phone         *string `json:"phone"`
+	AlwaysEncrypt *bool   `json:"always_encrypt"`
+	Blocked       *bool   `json:"blocked"`
 }
 
 // AddContactRequest is the request for adding a contact
-type AddContactRequest struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Npub  string `json:"npub"`
+type AddContactRequest = contactFields
+
+const maxContactField = 255
+
+// apply validates f and copies the fields it carries onto c.
+func (f contactFields) apply(c *storage.Contact) *errors.APIError {
+	if f.Email != nil {
+		addr, err := mail.ParseAddress(strings.TrimSpace(*f.Email))
+		if err != nil || addr.Name != "" || len(addr.Address) > maxContactField {
+			return errors.BadRequest("VALIDATION_FAILED", "email must be a plain email address")
+		}
+		c.Email = strings.ToLower(addr.Address)
+	}
+	opt := func(dst **string, src *string, field string, limit int) *errors.APIError {
+		if src == nil {
+			return nil
+		}
+		v := strings.TrimSpace(*src)
+		if len(v) > limit {
+			return errors.BadRequest("VALIDATION_FAILED", fmt.Sprintf("%s is too long", field))
+		}
+		if v == "" {
+			*dst = nil
+		} else {
+			*dst = &v
+		}
+		return nil
+	}
+	for _, o := range []struct {
+		dst   **string
+		src   *string
+		name  string
+		limit int
+	}{
+		{&c.Name, f.Name, "name", maxContactField},
+		{&c.Npub, f.Npub, "npub", maxContactField},
+		{&c.Notes, f.Notes, "notes", 10000},
+		{&c.Organization, f.Organization, "organization", maxContactField},
+		{&c.Phone, f.Phone, "phone", 50},
+	} {
+		if err := opt(o.dst, o.src, o.name, o.limit); err != nil {
+			return err
+		}
+	}
+	if f.AlwaysEncrypt != nil {
+		c.AlwaysEncrypt = *f.AlwaysEncrypt
+	}
+	if f.Blocked != nil {
+		c.Blocked = *f.Blocked
+	}
+	return nil
 }
 
-// AddContact adds a new contact
-func (h *Handler) AddContact(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Adding contact")
+// contactID returns the {id} path variable if it is a UUID. Anything else
+// cannot name a contact, so it is answered as not found rather than handed
+// to Postgres to fail as a 500.
+func contactID(r *http.Request) (string, bool) {
+	id := mux.Vars(r)["id"]
+	if _, err := uuid.Parse(id); err != nil {
+		return "", false
+	}
+	return id, true
+}
 
+// contactsReady answers 401/503 and returns false when the request cannot
+// reach the address book.
+func (h *Handler) contactsReady(w http.ResponseWriter, r *http.Request) (ContactStore, string, bool) {
 	userID := getUserID(r.Context())
 	if userID == "" {
 		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return nil, "", false
+	}
+	store := h.contactStore()
+	if store == nil {
+		errors.ServiceUnavailable("STORAGE_UNAVAILABLE", "contacts are unavailable", 30).WriteResponse(w)
+		return nil, "", false
+	}
+	return store, userID, true
+}
+
+func (h *Handler) contactStorageError(w http.ResponseWriter, err error) {
+	switch {
+	case stderrors.Is(err, storage.ErrContactExists):
+		errors.Conflict("CONTACT_EXISTS", "that address is already in your contacts").WriteResponse(w)
+	case stderrors.Is(err, storage.ErrContactNotFound):
+		errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
+	default:
+		h.logger.Error("contact storage failed", zap.Error(err))
+		errors.InternalError("INTERNAL_ERROR", "could not reach your contacts").WriteResponse(w)
+	}
+}
+
+// ListContacts lists the signed-in user's contacts; ?search= filters them by
+// name or email.
+func (h *Handler) ListContacts(w http.ResponseWriter, r *http.Request) {
+	store, userID, ok := h.contactsReady(w, r)
+	if !ok {
 		return
 	}
-
-	var req AddContactRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
-		return
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
 	}
 
-	if req.Email == "" {
-		errors.BadRequest("VALIDATION_FAILED", "email is required").WriteResponse(w)
+	var (
+		contacts []*storage.Contact
+		total    int
+		err      error
+	)
+	if search := strings.TrimSpace(q.Get("search")); search != "" {
+		contacts, err = store.SearchContacts(r.Context(), userID, search, limit)
+		total = len(contacts)
+	} else {
+		contacts, total, err = store.ListContacts(r.Context(), userID, storage.ListOptions{Limit: limit, Offset: offset, OrderBy: "name"})
+	}
+	if err != nil {
+		h.contactStorageError(w, err)
 		return
 	}
-
-	// TODO: Save to database
-	h.respondJSON(w, http.StatusCreated, map[string]string{
-		"status": "created",
-		"id":     "new-contact-id",
+	out := make([]ContactResponse, 0, len(contacts))
+	for _, c := range contacts {
+		out = append(out, contactResponse(c))
+	}
+	h.respondJSON(w, http.StatusOK, map[string]interface{}{
+		"contacts": out,
+		"total":    total,
 	})
 }
 
-// GetContact retrieves a single contact
+// AddContact adds a contact to the signed-in user's address book.
+func (h *Handler) AddContact(w http.ResponseWriter, r *http.Request) {
+	store, userID, ok := h.contactsReady(w, r)
+	if !ok {
+		return
+	}
+	var req AddContactRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
+		return
+	}
+	if req.Email == nil || strings.TrimSpace(*req.Email) == "" {
+		errors.BadRequest("VALIDATION_FAILED", "email is required").WriteResponse(w)
+		return
+	}
+	c := &storage.Contact{MailboxPubkey: userID}
+	if apiErr := req.apply(c); apiErr != nil {
+		apiErr.WriteResponse(w)
+		return
+	}
+	// contacts.mailbox_pubkey references mailboxes; the session already proved
+	// this pubkey, so its mailbox row may be created here.
+	if _, err := store.EnsureMailbox(r.Context(), userID); err != nil {
+		h.contactStorageError(w, err)
+		return
+	}
+	if err := store.CreateContact(r.Context(), c); err != nil {
+		h.contactStorageError(w, err)
+		return
+	}
+	h.respondJSON(w, http.StatusCreated, contactResponse(c))
+}
+
+// GetContact retrieves one of the signed-in user's contacts.
 func (h *Handler) GetContact(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Getting contact")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+	store, userID, ok := h.contactsReady(w, r)
+	if !ok {
 		return
 	}
-
-	vars := mux.Vars(r)
-	contactID := vars["id"]
-	if contactID == "" {
-		errors.BadRequest("VALIDATION_FAILED", "contact id is required").WriteResponse(w)
+	id, ok := contactID(r)
+	if !ok {
+		errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
 		return
 	}
-
-	// TODO: Query database
-	errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
+	c, err := store.GetContact(r.Context(), userID, id)
+	if err != nil {
+		h.contactStorageError(w, err)
+		return
+	}
+	if c == nil {
+		errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, contactResponse(c))
 }
 
-// UpdateContact updates a contact
+// UpdateContact changes the fields the request carries on one of the
+// signed-in user's contacts.
 func (h *Handler) UpdateContact(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Updating contact")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+	store, userID, ok := h.contactsReady(w, r)
+	if !ok {
 		return
 	}
-
-	vars := mux.Vars(r)
-	contactID := vars["id"]
-	if contactID == "" {
-		errors.BadRequest("VALIDATION_FAILED", "contact id is required").WriteResponse(w)
+	id, ok := contactID(r)
+	if !ok {
+		errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
 		return
 	}
-
-	// TODO: Update in database
-	h.respondJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	var req contactFields
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
+		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
+		return
+	}
+	c, err := store.GetContact(r.Context(), userID, id)
+	if err != nil {
+		h.contactStorageError(w, err)
+		return
+	}
+	if c == nil {
+		errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
+		return
+	}
+	if apiErr := req.apply(c); apiErr != nil {
+		apiErr.WriteResponse(w)
+		return
+	}
+	if err := store.UpdateContact(r.Context(), c); err != nil {
+		h.contactStorageError(w, err)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, contactResponse(c))
 }
 
-// DeleteContact deletes a contact
+// DeleteContact removes one of the signed-in user's contacts.
 func (h *Handler) DeleteContact(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Deleting contact")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+	store, userID, ok := h.contactsReady(w, r)
+	if !ok {
 		return
 	}
-
-	vars := mux.Vars(r)
-	contactID := vars["id"]
-	if contactID == "" {
-		errors.BadRequest("VALIDATION_FAILED", "contact id is required").WriteResponse(w)
+	id, ok := contactID(r)
+	if !ok {
+		errors.NotFound("RESOURCE_NOT_FOUND", "contact not found").WriteResponse(w)
 		return
 	}
-
-	// TODO: Delete from database
+	if err := store.DeleteContact(r.Context(), userID, id); err != nil {
+		h.contactStorageError(w, err)
+		return
+	}
 	h.respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

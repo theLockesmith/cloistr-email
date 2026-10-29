@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -891,7 +892,14 @@ func (db *PostgreSQL) GetEmailStats(ctx context.Context, mailboxPubkey string) (
 // Contact Operations
 // ============================================================================
 
-// CreateContact creates a new contact
+// ErrContactExists means the mailbox already has a live contact with that email.
+var ErrContactExists = errors.New("contact already exists for this email")
+
+// ErrContactNotFound means no live contact with that id belongs to the mailbox.
+var ErrContactNotFound = errors.New("contact not found")
+
+// CreateContact creates a new contact. A contact the mailbox deleted earlier
+// is brought back with the new details (the unique key covers deleted rows).
 func (db *PostgreSQL) CreateContact(ctx context.Context, contact *Contact) error {
 	db.logger.Debug("Creating contact",
 		zap.String("mailbox_pubkey", contact.MailboxPubkey),
@@ -904,17 +912,26 @@ func (db *PostgreSQL) CreateContact(ctx context.Context, contact *Contact) error
 	query := `
 		INSERT INTO contacts (id, mailbox_pubkey, email, name, npub, notes, organization, phone, always_encrypt, blocked)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING created_at, updated_at
+		ON CONFLICT (mailbox_pubkey, email) DO UPDATE
+		SET name = EXCLUDED.name, npub = EXCLUDED.npub, notes = EXCLUDED.notes,
+		    organization = EXCLUDED.organization, phone = EXCLUDED.phone,
+		    always_encrypt = EXCLUDED.always_encrypt, blocked = EXCLUDED.blocked,
+		    deleted_at = NULL, created_at = CURRENT_TIMESTAMP
+		WHERE contacts.deleted_at IS NOT NULL
+		RETURNING id, created_at, updated_at
 	`
 
 	err := db.db.QueryRowContext(ctx, query,
 		contact.ID, contact.MailboxPubkey, contact.Email, contact.Name, contact.Npub,
 		contact.Notes, contact.Organization, contact.Phone, contact.AlwaysEncrypt, contact.Blocked,
-	).Scan(&contact.CreatedAt, &contact.UpdatedAt)
+	).Scan(&contact.ID, &contact.CreatedAt, &contact.UpdatedAt)
 
+	if err == sql.ErrNoRows {
+		return ErrContactExists // conflict with a live contact: the WHERE skipped it
+	}
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("contact already exists for this email: %w", err)
+			return ErrContactExists
 		}
 		return fmt.Errorf("failed to create contact: %w", err)
 	}
@@ -923,19 +940,19 @@ func (db *PostgreSQL) CreateContact(ctx context.Context, contact *Contact) error
 	return nil
 }
 
-// GetContact retrieves a contact by ID
-func (db *PostgreSQL) GetContact(ctx context.Context, id string) (*Contact, error) {
+// GetContact retrieves one of a mailbox's contacts by ID, or nil.
+func (db *PostgreSQL) GetContact(ctx context.Context, mailboxPubkey, id string) (*Contact, error) {
 	db.logger.Debug("Getting contact", zap.String("id", id))
 
 	query := `
 		SELECT id, mailbox_pubkey, email, name, npub, notes, organization, phone,
 		       always_encrypt, blocked, created_at, updated_at, deleted_at
 		FROM contacts
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1 AND mailbox_pubkey = $2 AND deleted_at IS NULL
 	`
 
 	contact := &Contact{}
-	err := db.db.QueryRowContext(ctx, query, id).Scan(
+	err := db.db.QueryRowContext(ctx, query, id, mailboxPubkey).Scan(
 		&contact.ID, &contact.MailboxPubkey, &contact.Email, &contact.Name, &contact.Npub,
 		&contact.Notes, &contact.Organization, &contact.Phone,
 		&contact.AlwaysEncrypt, &contact.Blocked, &contact.CreatedAt, &contact.UpdatedAt, &contact.DeletedAt,
@@ -1084,7 +1101,7 @@ func (db *PostgreSQL) SearchContacts(ctx context.Context, mailboxPubkey, query s
 	return contacts, nil
 }
 
-// UpdateContact updates a contact
+// UpdateContact updates one of contact.MailboxPubkey's contacts.
 func (db *PostgreSQL) UpdateContact(ctx context.Context, contact *Contact) error {
 	db.logger.Debug("Updating contact", zap.String("id", contact.ID))
 
@@ -1092,39 +1109,43 @@ func (db *PostgreSQL) UpdateContact(ctx context.Context, contact *Contact) error
 		UPDATE contacts
 		SET email = $2, name = $3, npub = $4, notes = $5, organization = $6,
 		    phone = $7, always_encrypt = $8, blocked = $9
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1 AND mailbox_pubkey = $10 AND deleted_at IS NULL
 		RETURNING updated_at
 	`
 
 	err := db.db.QueryRowContext(ctx, query,
 		contact.ID, contact.Email, contact.Name, contact.Npub, contact.Notes,
 		contact.Organization, contact.Phone, contact.AlwaysEncrypt, contact.Blocked,
+		contact.MailboxPubkey,
 	).Scan(&contact.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("contact not found: %s", contact.ID)
+		return ErrContactNotFound
 	}
 	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrContactExists
+		}
 		return fmt.Errorf("failed to update contact: %w", err)
 	}
 
 	return nil
 }
 
-// DeleteContact soft-deletes a contact
-func (db *PostgreSQL) DeleteContact(ctx context.Context, id string) error {
+// DeleteContact soft-deletes one of a mailbox's contacts.
+func (db *PostgreSQL) DeleteContact(ctx context.Context, mailboxPubkey, id string) error {
 	db.logger.Debug("Deleting contact", zap.String("id", id))
 
-	query := `UPDATE contacts SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL`
+	query := `UPDATE contacts SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND mailbox_pubkey = $2 AND deleted_at IS NULL`
 
-	result, err := db.db.ExecContext(ctx, query, id)
+	result, err := db.db.ExecContext(ctx, query, id, mailboxPubkey)
 	if err != nil {
 		return fmt.Errorf("failed to delete contact: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return fmt.Errorf("contact not found: %s", id)
+		return ErrContactNotFound
 	}
 
 	db.logger.Info("Contact deleted", zap.String("id", id))
