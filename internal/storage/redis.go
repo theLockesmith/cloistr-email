@@ -24,11 +24,11 @@ var _ auth.SessionStore = (*RedisSessionStore)(nil)
 
 // NewRedisSessionStore creates a new Redis session store
 func NewRedisSessionStore(redisURL string, logger *zap.Logger) (*RedisSessionStore, error) {
-	logger.Info("Initializing Redis session store", zap.String("url", redisURL))
+	logger.Info("Initializing Redis session store", zap.String("url", maskDatabaseURL(redisURL)))
 
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
+		return nil, fmt.Errorf("failed to parse Redis URL: %w", redactURLError(err))
 	}
 
 	client := redis.NewClient(opt)
