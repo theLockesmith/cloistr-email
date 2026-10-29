@@ -160,6 +160,38 @@ func baselineOnlyMigrator(t *testing.T, db *sql.DB) *Migrator {
 	return m
 }
 
+// migratorThrough applies the baseline and the numbered migrations up to and
+// including version, so a test can look at one migration's effect alone.
+func migratorThrough(t *testing.T, db *sql.DB, version string) *Migrator {
+	t.Helper()
+	m := newTestMigrator(t, db)
+	for i, mig := range m.migrations {
+		if mig.Version == version {
+			m.migrations = m.migrations[:i+1]
+			return m
+		}
+	}
+	t.Fatalf("no migration %s", version)
+	return nil
+}
+
+// schemaDiff lists the objects only in before (removed) and only in after (added).
+func schemaDiff(before, after []string) (removed, added []string) {
+	for _, x := range before {
+		if !slices.Contains(after, x) {
+			removed = append(removed, x)
+		}
+	}
+	for _, x := range after {
+		if !slices.Contains(before, x) {
+			added = append(added, x)
+		}
+	}
+	slices.Sort(removed)
+	slices.Sort(added)
+	return removed, added
+}
+
 func TestMigrateEmptyDatabaseBuildsSchemaAndIsIdempotent(t *testing.T) {
 	db := freshDB(t)
 	ctx := context.Background()
@@ -257,25 +289,10 @@ func TestMigration013ScopesMessageIDUniquenessOnProduction(t *testing.T) {
 	ctx := context.Background()
 	loadFixture(t, db, "testdata/prod_email_schema_20261006.sql")
 	before := schemaObjects(t, db)
-	if err := newTestMigrator(t, db).Run(ctx); err != nil {
+	if err := migratorThrough(t, db, "013_message_id_unique_per_mailbox").Run(ctx); err != nil {
 		t.Fatalf("run against production schema: %v", err)
 	}
-	after := schemaObjects(t, db)
-
-	in := func(xs []string, x string) bool { return slices.Contains(xs, x) }
-	var removed, added []string
-	for _, x := range before {
-		if !in(after, x) {
-			removed = append(removed, x)
-		}
-	}
-	for _, x := range after {
-		if !in(before, x) {
-			added = append(added, x)
-		}
-	}
-	slices.Sort(removed)
-	slices.Sort(added)
+	removed, added := schemaDiff(before, schemaObjects(t, db))
 	wantRemoved := []string{"constraint emails_message_id_key: UNIQUE (message_id)", "index emails_message_id_key"}
 	wantAdded := []string{"index emails_mailbox_direction_message_id_key"}
 	if !slices.Equal(removed, wantRemoved) || !slices.Equal(added, wantAdded) {
@@ -283,6 +300,27 @@ func TestMigration013ScopesMessageIDUniquenessOnProduction(t *testing.T) {
 	}
 	if got := appliedVersions(t, db); !slices.Contains(got, "013_message_id_unique_per_mailbox") {
 		t.Fatalf("013 not recorded, schema_migrations = %v", got)
+	}
+}
+
+// Migration 014 on production's schema adds exactly the nullable blob_key
+// column. The column comes only from 014: the baseline is production as of
+// baseline-012 and must not define it, or adopting production would refuse.
+func TestMigration014AddsOnlyBlobKeyOnProduction(t *testing.T) {
+	db := freshDB(t)
+	ctx := context.Background()
+	loadFixture(t, db, "testdata/prod_email_schema_20261006.sql")
+	if err := migratorThrough(t, db, "013_message_id_unique_per_mailbox").Run(ctx); err != nil {
+		t.Fatalf("run through 013 against production schema: %v", err)
+	}
+	before := schemaObjects(t, db)
+	if err := migratorThrough(t, db, "014_attachment_blob_key").Run(ctx); err != nil {
+		t.Fatalf("run 014 against production schema: %v", err)
+	}
+	removed, added := schemaDiff(before, schemaObjects(t, db))
+	wantAdded := []string{"column attachments.blob_key text null=YES default=-"}
+	if len(removed) != 0 || !slices.Equal(added, wantAdded) {
+		t.Fatalf("014 changed more or less than attachments.blob_key:\nremoved %q\nadded %q", removed, added)
 	}
 }
 
@@ -377,7 +415,7 @@ func TestMigrateFailingMigrationLeavesNothing(t *testing.T) {
 // empty-database build would refuse itself.
 func TestRequiredColumnsCoverBaseline(t *testing.T) {
 	db := freshDB(t)
-	if err := newTestMigrator(t, db).Run(context.Background()); err != nil {
+	if err := baselineOnlyMigrator(t, db).Run(context.Background()); err != nil {
 		t.Fatalf("build from empty: %v", err)
 	}
 	rows, err := db.Query(`SELECT table_name || '.' || column_name FROM information_schema.columns
