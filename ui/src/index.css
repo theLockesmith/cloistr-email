@@ -83,6 +83,21 @@ textarea::placeholder {
   padding: 0;
 }
 
+/* Inbox unread count. Pushed to the row's end; on the collapsed rail it sits
+   on the icon's corner instead. */
+.mail-nav-badge {
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background: var(--cloistr-primary, #7c3aed);
+  color: var(--cloistr-primary-fg, #fff);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
 /* Desktop icons-only collapse — mirrors .cloistr-sidebar--collapsed.
    Applied at >= 768px only: on mobile the AppShell drawer always shows
    full labels, so the collapsed state has no effect there. */
@@ -106,5 +121,20 @@ textarea::placeholder {
 
   .mail-nav--collapsed .cloistr-sidebar-item {
     justify-content: center;
+  }
+
+  .mail-nav--collapsed .cloistr-sidebar-item {
+    position: relative;
+  }
+
+  .mail-nav--collapsed .mail-nav-badge {
+    position: absolute;
+    top: 0.125rem;
+    right: 0.125rem;
+    margin-left: 0;
+    min-width: 1rem;
+    padding: 0 0.25rem;
+    font-size: 0.625rem;
+    line-height: 1rem;
   }
 }

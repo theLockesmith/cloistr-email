@@ -634,6 +634,18 @@ func (s *Service) ListEmails(ctx context.Context, userNpub string, filter *stora
 	return emails, total, nil
 }
 
+// UnreadInboxCount returns how many unread messages the Inbox holds for
+// userNpub. It reuses the Inbox list query (folder INBOX, not deleted,
+// read_at NULL) so the badge can never disagree with the list.
+func (s *Service) UnreadInboxCount(ctx context.Context, userNpub string) (int, error) {
+	unread := true
+	_, total, err := s.db.ListEmails(ctx, userNpub, &storage.EmailFilter{Folder: "INBOX", Unread: &unread}, storage.ListOptions{Limit: 1})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count unread emails: %w", err)
+	}
+	return total, nil
+}
+
 // DeleteEmail soft-deletes an email
 func (s *Service) DeleteEmail(ctx context.Context, userNpub, emailID string) error {
 

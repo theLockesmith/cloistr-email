@@ -255,8 +255,15 @@ export interface EmailListParams {
   in_reply_to?: string
 }
 
+export interface EmailStats {
+  inbox_unread: number
+}
+
 export const emailAPI = {
   list: (params?: EmailListParams) => apiV2.get<EmailListResponse>('/email', { params }),
+
+  // Counts for the nav badges. Registered before /email/{id} on the backend.
+  stats: () => apiV2.get<EmailStats>('/email/stats'),
 
   get: (id: string) => apiV2.get<Email>(`/email/${id}`),
 

@@ -8,7 +8,9 @@ import {
   useBackendAuth,
   useIsMobile,
 } from '@cloistr/ui/components'
+import { useQuery } from '@tanstack/react-query'
 import { SIGNER_URL } from '../lib/serviceConfig'
+import { emailAPI } from '../lib/api'
 
 /**
  * Key for the desktop icons-only preference.
@@ -58,10 +60,12 @@ function MailNav({
   activeId,
   collapsed,
   onCollapsedChange,
+  inboxUnread,
 }: {
   activeId?: NavId
   collapsed: boolean
   onCollapsedChange: (next: boolean) => void
+  inboxUnread: number
 }) {
   return (
     <div
@@ -85,6 +89,7 @@ function MailNav({
         <ul className="mail-nav-list">
           {NAV_ITEMS.map((item) => {
             const isActive = item.id === activeId
+            const unread = item.id === 'inbox' ? inboxUnread : 0
             return (
               <li key={item.id}>
                 <a
@@ -94,10 +99,15 @@ function MailNav({
                   /* When collapsed the label is hidden; icon needs an
                      accessible name and a tooltip. */
                   title={collapsed ? item.label : undefined}
-                  aria-label={collapsed ? item.label : undefined}
+                  aria-label={collapsed ? (unread > 0 ? `${item.label}, ${unread} unread` : item.label) : undefined}
                 >
                   <span className="cloistr-sidebar-icon">{item.icon}</span>
                   <span className="cloistr-sidebar-label">{item.label}</span>
+                  {unread > 0 && (
+                    <span className="mail-nav-badge" aria-label={`${unread} unread`}>
+                      {unread > 99 ? '99+' : unread}
+                    </span>
+                  )}
                 </a>
               </li>
             )
@@ -158,6 +168,15 @@ export default function Layout() {
   const location = useLocation()
   const isMobile = useIsMobile()
 
+  // Inbox unread count for the nav badge. Keyed under 'emails' so every
+  // existing list invalidation (read, unread, bulk, delete) refreshes it too.
+  const { data: stats } = useQuery({
+    queryKey: ['emails', 'stats'],
+    queryFn: () => emailAPI.stats().then((r) => r.data),
+    enabled: isAuthenticated(),
+    refetchInterval: 60_000,
+  })
+
   // Desktop icons-only rail. Ignored below the AppShell breakpoint (768px).
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
@@ -186,6 +205,7 @@ export default function Layout() {
           activeId={activeId}
           collapsed={collapsed}
           onCollapsedChange={setCollapsedPersisted}
+          inboxUnread={stats?.inbox_unread ?? 0}
         />
       }
       toggleInHeader

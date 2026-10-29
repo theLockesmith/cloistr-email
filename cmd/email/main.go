@@ -513,6 +513,8 @@ func buildRouter(
 	emailV2Routes.HandleFunc("/send", emailHandler.SendEmailV2).Methods("POST")
 	emailV2Routes.HandleFunc("/bulk", emailHandler.BulkActionV2).Methods("POST")
 	emailV2Routes.HandleFunc("", emailHandler.ListEmailsV2).Methods("GET")
+	// Before /{id}, or mux would treat "stats" as an email id.
+	emailV2Routes.HandleFunc("/stats", emailHandler.EmailStatsV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.GetEmailV2).Methods("GET")
 	emailV2Routes.HandleFunc("/{id}", emailHandler.DeleteEmailV2).Methods("DELETE")
 	emailV2Routes.HandleFunc("/{id}/archive", emailHandler.ArchiveEmailV2).Methods("PATCH")

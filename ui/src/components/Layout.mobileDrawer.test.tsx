@@ -28,6 +28,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const PUBKEY = 'ab'.repeat(32)
 
@@ -86,11 +87,13 @@ describe('mobile nav drawer toggle (MAIL-8)', () => {
     const { default: Layout } = await import('./Layout')
     const { AuthProvider } = await import('@cloistr/ui/auth')
     return render(
-      <AuthProvider>
-        <MemoryRouter initialEntries={['/inbox']}>
-          <Layout />
-        </MemoryRouter>
-      </AuthProvider>,
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={['/inbox']}>
+            <Layout />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
     )
   }
 

@@ -563,6 +563,23 @@ func (h *EmailHandler) MarkReadV2(w http.ResponseWriter, r *http.Request) {
 	h.respondJSON(w, http.StatusOK, map[string]string{"status": "read"})
 }
 
+// EmailStatsV2 returns mailbox counts for the navigation badges.
+func (h *EmailHandler) EmailStatsV2(w http.ResponseWriter, r *http.Request) {
+	userNpub := getUserID(r.Context())
+	if userNpub == "" {
+		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
+		return
+	}
+
+	unread, err := h.emailSvc.UnreadInboxCount(r.Context(), userNpub)
+	if err != nil {
+		h.logger.Error("Failed to count unread emails", zap.Error(err))
+		errors.InternalError("INTERNAL_ERROR", "failed to get email stats").WriteResponse(w)
+		return
+	}
+	h.respondJSON(w, http.StatusOK, map[string]int{"inbox_unread": unread})
+}
+
 // MarkUnreadV2 marks an email as unread.
 func (h *EmailHandler) MarkUnreadV2(w http.ResponseWriter, r *http.Request) {
 	userNpub := getUserID(r.Context())

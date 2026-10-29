@@ -102,3 +102,29 @@ func TestV1StubRoutesNotRegistered(t *testing.T) {
 		}
 	}
 }
+
+// TestEmailStatsRouteRegistered: the Inbox unread badge calls
+// GET /api/v2/email/stats. Without its own route, gorilla/mux hands "stats"
+// to GET /api/v2/email/{id} and the badge gets "email not found".
+func TestEmailStatsRouteRegistered(t *testing.T) {
+	logger := zap.NewNop()
+	cfg := &config.Config{}
+
+	apiHandler := api.NewHandler(nil, nil, nil, cfg, logger)
+	emailHandler := api.NewEmailHandler(nil, logger)
+
+	router := buildRouter(nil, nil, apiHandler, emailHandler, cfg, logger)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/email/stats", nil)
+	var match mux.RouteMatch
+	if !router.Match(req, &match) {
+		t.Fatalf("GET /api/v2/email/stats does not match any route; match error: %v", match.MatchErr)
+	}
+	tpl, err := match.Route.GetPathTemplate()
+	if err != nil {
+		t.Fatalf("path template: %v", err)
+	}
+	if tpl != "/api/v2/email/stats" {
+		t.Fatalf("GET /api/v2/email/stats routed to %q, want its own route", tpl)
+	}
+}
