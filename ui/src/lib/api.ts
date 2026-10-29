@@ -285,9 +285,6 @@ export const emailAPI = {
 
   bulk: (ids: string[], action: string, folder?: string) =>
     apiV2.post('/email/bulk', { ids, action, folder }),
-
-  // Legacy v1 endpoints for backward compatibility
-  reply: (id: string, data: any) => api.post(`/emails/${id}/reply`, data),
 }
 
 // ============================================================================
@@ -318,9 +315,6 @@ export const contactAPI = {
 export const keyAPI = {
   discover: (email: string) =>
     api.get<KeyDiscoveryResponse>('/keys/discover', { params: { email } }),
-
-  import: (data: { email: string; npub?: string; pubkey?: string }) =>
-    api.post('/keys/import', data),
 
   getMyKey: () => api.get<UserInfo>('/keys/mine'),
 }

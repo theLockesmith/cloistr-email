@@ -69,3 +69,36 @@ func TestContactRoutesRegistered(t *testing.T) {
 		}
 	}
 }
+
+// The v1 email list/read/reply/delete and key-import handlers were TODO stubs
+// that answered success without doing anything ("replied", "deleted",
+// "imported", an always-empty list). Nothing in the UI calls them; a headless
+// client that did was told its action worked. They must not be routed.
+func TestV1StubRoutesNotRegistered(t *testing.T) {
+	logger := zap.NewNop()
+	cfg := &config.Config{}
+	router := buildRouter(nil, nil, api.NewHandler(nil, nil, nil, cfg, logger), api.NewEmailHandler(nil, logger), cfg, logger)
+
+	for _, mp := range [][2]string{
+		{http.MethodGet, "/api/v1/emails"},
+		{http.MethodGet, "/api/v1/emails/0b6f3c1e-1111-4222-8333-944455556666"},
+		{http.MethodPost, "/api/v1/emails/0b6f3c1e-1111-4222-8333-944455556666/reply"},
+		{http.MethodDelete, "/api/v1/emails/0b6f3c1e-1111-4222-8333-944455556666"},
+		{http.MethodPost, "/api/v1/keys/import"},
+	} {
+		var match mux.RouteMatch
+		if router.Match(httptest.NewRequest(mp[0], mp[1], nil), &match) && match.MatchErr == nil {
+			t.Errorf("%s %s is still routed to a stub that fakes success", mp[0], mp[1])
+		}
+	}
+	// The real routes beside them stay.
+	for _, mp := range [][2]string{
+		{http.MethodGet, "/api/v1/keys/discover"},
+		{http.MethodGet, "/api/v2/email"},
+	} {
+		var match mux.RouteMatch
+		if !router.Match(httptest.NewRequest(mp[0], mp[1], nil), &match) || match.MatchErr != nil {
+			t.Errorf("%s %s should still be routed", mp[0], mp[1])
+		}
+	}
+}

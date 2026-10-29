@@ -347,89 +347,6 @@ type ListEmailsResponse struct {
 	Limit  int             `json:"limit"`
 }
 
-// ListEmails lists emails for the authenticated user
-func (h *Handler) ListEmails(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Listing emails")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
-	}
-
-	// TODO: Query database for emails
-	// For now return empty list
-	h.respondJSON(w, http.StatusOK, ListEmailsResponse{
-		Emails: []EmailResponse{},
-		Total:  0,
-		Page:   1,
-		Limit:  50,
-	})
-}
-
-// GetEmail retrieves a single email by ID
-func (h *Handler) GetEmail(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Getting email")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	emailID := vars["id"]
-	if emailID == "" {
-		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
-		return
-	}
-
-	// TODO: Query database and decrypt if needed
-	errors.NotFound("RESOURCE_NOT_FOUND", "email not found").WriteResponse(w)
-}
-
-// ReplyEmail sends a reply to an email
-func (h *Handler) ReplyEmail(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Replying to email")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	emailID := vars["id"]
-	if emailID == "" {
-		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
-		return
-	}
-
-	// TODO: Get original email, compose reply, send
-	h.respondJSON(w, http.StatusOK, map[string]string{"status": "replied"})
-}
-
-// DeleteEmail deletes an email
-func (h *Handler) DeleteEmail(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Deleting email")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	emailID := vars["id"]
-	if emailID == "" {
-		errors.BadRequest("VALIDATION_FAILED", "email id is required").WriteResponse(w)
-		return
-	}
-
-	// TODO: Delete from database
-	h.respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-}
-
 // ===== Keys & Discovery Endpoints =====
 
 // DiscoverKeyResponse is the response for key discovery.
@@ -499,38 +416,6 @@ func (h *Handler) DiscoverKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.respondJSON(w, http.StatusOK, resp)
-}
-
-// ImportKeyRequest is the request for importing a key
-type ImportKeyRequest struct {
-	Email  string `json:"email"`
-	Npub   string `json:"npub"`
-	Pubkey string `json:"pubkey"`
-}
-
-// ImportKey imports a contact's Nostr key
-func (h *Handler) ImportKey(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug("Importing key")
-
-	userID := getUserID(r.Context())
-	if userID == "" {
-		errors.Unauthorized("AUTH_REQUIRED", "not authenticated").WriteResponse(w)
-		return
-	}
-
-	var req ImportKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errors.BadRequest("INVALID_INPUT", "invalid request body").WriteResponse(w)
-		return
-	}
-
-	if req.Email == "" || (req.Npub == "" && req.Pubkey == "") {
-		errors.BadRequest("VALIDATION_FAILED", "email and npub/pubkey are required").WriteResponse(w)
-		return
-	}
-
-	// TODO: Validate and save key
-	h.respondJSON(w, http.StatusOK, map[string]string{"status": "imported"})
 }
 
 // GetMyKey retrieves the authenticated user's Nostr key info
