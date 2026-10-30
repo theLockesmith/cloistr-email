@@ -251,7 +251,7 @@ curl -vI https://mail.coldforge.xyz 2>&1 | grep -A 6 "Server certificate"
 openssl x509 -in /etc/letsencrypt/live/mail.coldforge.xyz/cert.pem -noout -enddate
 
 # Set up monitoring alert (example for Prometheus)
-# See alerting rules in k8s/prometheus-rules.yaml
+# Email alerting rules live in Atlas: roles/kube/external-monitoring/rules/cloistr-email-alerts.yml
 ```
 
 ### 4. Secure Private Keys
