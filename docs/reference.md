@@ -225,12 +225,6 @@ Defined in Atlas, `roles/kube/external-monitoring/rules/cloistr-email-alerts.yml
 | CloistrEmailHighHTTPErrorRate | > 5% of API requests 5xx over 15m, at least 5 |
 | CloistrEmailHighNIP05LookupFailures | > 30% of NIP-05 lookups fail over 15m, at least 5 |
 
--------|-------------|
-| EmailSendErrorRate | Send error rate > 5% |
-| SignatureVerificationFailures | Verification failures > 10/min |
-| DatabaseLatency | PostgreSQL p99 > 500ms |
-| SMTPConnectionFailures | Connection failures > 5/min |
-| CertificateExpiration | TLS cert expires < 7 days |
 
 ---
 
