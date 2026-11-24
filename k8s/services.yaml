@@ -40,14 +40,6 @@ spec:
     port: 25
     targetPort: 25
     protocol: TCP
-  - name: smtps
-    port: 465
-    targetPort: 465
-    protocol: TCP
-  - name: submission
-    port: 587
-    targetPort: 587
-    protocol: TCP
   selector:
     app.kubernetes.io/name: cloistr-email
     app.kubernetes.io/component: backend
